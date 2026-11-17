@@ -68,6 +68,14 @@ bool canCreatureUseSkill(
     const std::function<bool(FeatType)> &hasFeat,
     bool tsl);
 
+/** canCreatureUseSkill for a skill rather than a Demolitions sub-skill. */
+bool canCreatureUseSkill(
+    const ISkills &skills,
+    SkillType skill,
+    const CreatureAttributes &attributes,
+    const std::function<bool(FeatType)> &hasFeat,
+    bool tsl);
+
 class Skills : public ISkills, boost::noncopyable {
 public:
     Skills(

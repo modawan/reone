@@ -639,8 +639,8 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     // Twenty seconds remain. The absolute deadline was set on admission at
     // 1000 + 30 * 1000 milliseconds.
     EXPECT_EQ(effect.expiryTime, 31000u);
-    ASSERT_TRUE(game.remainingEffectDuration(effect));
-    EXPECT_FLOAT_EQ(*game.remainingEffectDuration(effect), 20.0f);
+    ASSERT_TRUE(game.remainingEffectDuration(effect, game.worldTimeMilliseconds()));
+    EXPECT_FLOAT_EQ(*game.remainingEffectDuration(effect, game.worldTimeMilliseconds()), 20.0f);
     Creature e2Creature(player->id() + 1000, "", game, engine.services());
     TestGameModule::deserializeSnapshotRuntimeState(
         e2Creature, *playerRecord, snapshotIdentityContext());

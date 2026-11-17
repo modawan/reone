@@ -17,8 +17,6 @@
 
 #include "reone/game/d20/races.h"
 
-#include <cstdint>
-
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
@@ -31,6 +29,10 @@ namespace game {
 
 static const char kRacesTableResRef[] = "racialtypes";
 
+// A favoured class cell of this value favours the creature's highest class,
+// as a blank one does.
+static constexpr int kFavoredHighestClass = 255;
+
 void Races::init(ITwoDAs &twoDas) {
     // By Ability.
     static constexpr const char *kAdjustmentColumns[] = {
@@ -41,8 +43,7 @@ void Races::init(ITwoDAs &twoDas) {
     if (!races) {
         return;
     }
-    // The number of races is a byte.
-    const int count = races->getRowCount() & 0xff;
+    const int count = races->getRowCount();
     _races.resize(count);
     for (int row = 0; row < count; ++row) {
         Race &race = _races[row];
@@ -50,10 +51,14 @@ void Races::init(ITwoDAs &twoDas) {
         race.converName = races->getInt(row, "convername", 0);
         race.converNameLower = races->getInt(row, "convernamelower", 0);
         for (size_t ability = 0; ability < race.abilityAdjustments.size(); ++ability) {
-            race.abilityAdjustments[ability] = static_cast<int8_t>(races->getInt(row, kAdjustmentColumns[ability], 0));
+            race.abilityAdjustments[ability] = races->getInt(row, kAdjustmentColumns[ability], 0);
         }
-        // A blank favoured class names none.
-        race.favoredClass = races->getInt(row, "favored", kNoFavoredClass) & 0xff;
+        // A blank favoured class, one below zero or kFavoredHighestClass
+        // names none.
+        const auto favored = races->getIntOpt(row, "favored");
+        if (favored && *favored >= 0 && *favored != kFavoredHighestClass) {
+            race.favoredClass = static_cast<ClassType>(*favored);
+        }
         race.playerRace = races->getInt(row, "playerrace", 0) != 0;
 
         std::string featsTable(boost::to_lower_copy(races->getString(row, "featstable")));
@@ -65,9 +70,13 @@ void Races::init(ITwoDAs &twoDas) {
         if (!raceFeats) {
             continue;
         }
-        // Each row's feat is a word; a blank cell reads as feat 0.
+        // Each row names a feat by its row; a blank cell, or one below zero,
+        // names none.
         for (int featRow = 0; featRow < raceFeats->getRowCount(); ++featRow) {
-            race.firstLevelFeats.insert(static_cast<FeatType>(raceFeats->getInt(featRow, "featindex") & 0xffff));
+            const auto feat = raceFeats->getIntOpt(featRow, "featindex");
+            if (feat && *feat >= 0) {
+                race.firstLevelFeats.insert(static_cast<FeatType>(*feat));
+            }
         }
     }
 }

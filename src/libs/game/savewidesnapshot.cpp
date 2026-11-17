@@ -476,7 +476,7 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
     // RepList. Reject changes to that column rather than losing them on reload.
     auto baseState = _game._services.game.reputes.baseState();
     for (size_t source = 0; source < state.values.size(); ++source) {
-        int baseReputation = 100;
+        int baseReputation = kMaxReputation;
         if (source < baseState.values.size() && !baseState.values[source].empty()) {
             baseReputation = baseState.values[source].front();
         }
@@ -504,10 +504,10 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
     for (size_t source = 0; source < state.factions.size(); ++source) {
         for (size_t target = 1; target < state.factions.size(); ++target) {
             int reputation = state.values[source][target];
-            if (reputation < 0 || reputation > 100) {
-                throw ValidationException("faction reputation is outside 0..100");
+            if (reputation < kMinReputation || reputation > kMaxReputation) {
+                throw ValidationException("faction reputation is outside the reputation range");
             }
-            if (reputation == 100) continue;
+            if (reputation == kMaxReputation) continue;
             reputations.push_back(Gff::Builder()
                                       .type(static_cast<uint32_t>(reputations.size()))
                                       .field(Gff::Field::newDword(

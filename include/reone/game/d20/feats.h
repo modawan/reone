@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <set>
 #include <vector>
 
@@ -48,27 +49,34 @@ struct FeatDisplayEntry {
     int visualIndex {0};
 };
 
-/** A character choosing feats on the feats screen. */
+/** A character choosing feats, on the feats screen or by recommendation. */
 struct FeatChoice {
     /** The character as it is with the level it gains. */
     const CreatureAttributes &attributes;
     /** The class the level is gained in. */
     const CreatureClass &clazz;
-    /** The normal picks the screen counts with: one more than the level's normal feats, or 0 when it gains none. */
+    /** The normal feat picks the choice can fill; 0 for none. */
     int normalPicks {0};
-    /** The bonus picks the screen counts with: one more than the level's bonus feats, or 0 when it gains none. */
+    /** The bonus feat picks the choice can fill; 0 for none. */
     int bonusPicks {0};
     /**
      * The feats the character's effects give it: they count as held for
      * prerequisites, though not as held feats it cannot choose again.
      */
     const std::set<FeatType> &effectFeats;
-    /** The feats chosen on the screen so far. */
-    const std::set<FeatType> &chosen;
+    /** The feats chosen so far. */
+    std::reference_wrapper<const std::set<FeatType>> chosen;
     /** The character's tag; in TSL, Bao-Dur and Kreia cannot choose the feats their columns never grant them. */
     std::string tag;
     /** True in TSL, whose choice rules KotOR does not have. */
     bool tsl {false};
+
+    /** @return the same choice with \p other as the feats chosen so far */
+    FeatChoice withChosen(const std::set<FeatType> &other) const {
+        FeatChoice result(*this);
+        result.chosen = other;
+        return result;
+    }
 };
 
 class IFeats {

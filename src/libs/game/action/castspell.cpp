@@ -585,8 +585,8 @@ bool CastSpellAction::cancel(std::shared_ptr<Action>, Object &actor) {
 }
 
 // A power's level is the one it has for its casting class, and its innate level
-// when it is cast from no class or as a special ability.
-static int castPowerLevel(const Creature &caster, const Spell &spell, int castingClass) {
+// when it is cast from no class or as a special ability; none when it has none.
+static std::optional<int> castPowerLevel(const Creature &caster, const Spell &spell, int castingClass) {
     const auto &classes = caster.attributes().classLevels();
     const auto index = static_cast<size_t>(castingClass);
     if (index < classes.size()) {
@@ -599,8 +599,9 @@ bool CastSpellAction::breaksConcentration(const Creature &caster, int damage) co
     if (_game.isTSL() || !conjuring() || _spell->castAnimation == SpellCastAnimation::Throw) {
         return false;
     }
-    const int level = castPowerLevel(caster, *_spell, caster.spellCastContext().castingClass);
-    return randomInt(1, 20) < damage + level + 10;
+    // A power without a level for its caster always loses its concentration.
+    const auto level = castPowerLevel(caster, *_spell, caster.spellCastContext().castingClass);
+    return !level || randomInt(1, 20) < damage + *level + 10;
 }
 
 void CastSpellAction::drop(Object &caster) {

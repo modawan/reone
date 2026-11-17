@@ -88,6 +88,10 @@ void reone::game::TestGameModule::configureSaveOrchestration(
     game._saveSeams = std::move(seams);
 }
 
+void reone::game::TestGameModule::setPortraitRow(Creature &creature, const Portrait &row) {
+    creature._portraitRow = row;
+}
+
 void reone::game::TestGameModule::processPendingSave(Game &game) {
     game.processPendingSave();
 }
@@ -191,6 +195,7 @@ struct SaveFixture : Test {
         TestGameModule::installMainMenu(*game);
         area = game->newArea();
         player = game->newCreature();
+        TestGameModule::setPortraitRow(*player, portraitRows.front());
         TestGameModule::configureModuleSnapshot(
             *game, area, player, "module_a", "module_a");
 
@@ -1140,6 +1145,7 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
         TestGameModule::initSnapshotLocalServices(*game);
         area = game->newArea();
         player = game->newCreature();
+        TestGameModule::setPortraitRow(*player, portraitRows.front());
         TestGameModule::configureModuleSnapshot(
             *game, area, player, "module_a", "module_a");
 

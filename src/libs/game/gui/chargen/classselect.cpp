@@ -97,11 +97,9 @@ void ClassSelection::setupClassButtons() {
 }
 
 void ClassSelection::setupClassButton(int index, Gender gender, ClassType clazz) {
-    int appearance = getRandomCharacterAppearance(gender, clazz);
-
     Character character;
     character.gender = gender;
-    character.appearance = appearance;
+    pickRandomPortrait(character, clazz);
     character.attributes = _services.game.classes.get(clazz)->defaultAttributes();
 
     // Button control
@@ -145,7 +143,7 @@ void ClassSelection::setupClassButton(int index, Gender gender, ClassType clazz)
     SceneInitializer(sceneGraph)
         .aspect(aspect)
         .depth(kDefaultClipPlaneNear, 10.0f)
-        .modelSupplier([&](ISceneGraph &sceneGraph) { return getCharacterModel(appearance, sceneGraph); })
+        .modelSupplier([&](ISceneGraph &sceneGraph) { return getCharacterModel(character.appearance, sceneGraph); })
         .modelScale(kModelScale)
         .cameraFromModelNode("camerahook")
         .invoke();
@@ -167,38 +165,40 @@ void ClassSelection::setupClassButton(int index, Gender gender, ClassType clazz)
     _classButtons.push_back(std::move(classButton));
 }
 
-std::vector<Portrait> ClassSelection::getPCPortraitsByGender(Gender gender) {
-    std::vector<Portrait> result;
+std::vector<int> ClassSelection::getPCPortraitRowsByGender(Gender gender) {
+    std::vector<int> result;
     int sex = gender == Gender::Female ? 1 : 0;
-    for (auto &portrait : _services.game.portraits.portraits()) {
-        if (portrait.forPC != 0 && portrait.sex == sex) {
-            result.push_back(portrait);
+    const std::vector<Portrait> &portraits = _services.game.portraits.portraits();
+    for (int row = 0; row < static_cast<int>(portraits.size()); ++row) {
+        if (portraits[row].forPC != 0 && portraits[row].sex == sex) {
+            result.push_back(row);
         }
     }
     return result;
 }
 
-int ClassSelection::getRandomCharacterAppearance(Gender gender, ClassType clazz) {
-    int result = 0;
-    std::vector<Portrait> portraits(getPCPortraitsByGender(gender));
-    int portraitIdx = randomInt(0, static_cast<int>(portraits.size()) - 1);
-    const Portrait &portrait = portraits[portraitIdx];
+void ClassSelection::pickRandomPortrait(Character &character, ClassType clazz) {
+    std::vector<int> rows(getPCPortraitRowsByGender(character.gender));
+    if (rows.empty()) {
+        return;
+    }
+    const int row = rows[randomInt(0, static_cast<int>(rows.size()) - 1)];
+    const Portrait &portrait = _services.game.portraits.portraits()[row];
+    character.portraitId = row;
 
     switch (clazz) {
     case ClassType::Scoundrel:
     case ClassType::JediConsular:
-        result = portrait.appearanceS;
+        character.appearance = portrait.appearanceS;
         break;
     case ClassType::Soldier:
     case ClassType::JediGuardian:
-        result = portrait.appearanceL;
+        character.appearance = portrait.appearanceL;
         break;
     default:
-        result = portrait.appearanceNumber;
+        character.appearance = portrait.appearanceNumber;
         break;
     }
-
-    return result;
 }
 
 std::shared_ptr<ModelSceneNode> ClassSelection::getCharacterModel(int appearance, ISceneGraph &sceneGraph) {
@@ -210,7 +210,7 @@ std::shared_ptr<ModelSceneNode> ClassSelection::getCharacterModel(int appearance
     character->loadAppearance();
     character->updateModelAnimation();
 
-    auto model = sceneGraph.newModel(*_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
+    auto model = sceneGraph.newModel(_services.resource.models.get("cgbody_light"), ModelUsage::GUI);
     model->attach("cgbody_light", *character->sceneNode());
 
     return model;

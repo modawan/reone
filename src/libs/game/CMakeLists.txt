@@ -77,6 +77,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/combatfeedback.h
     ${GAME_INCLUDE_DIR}/combattables.h
     ${GAME_INCLUDE_DIR}/contextaction.h
+    ${GAME_INCLUDE_DIR}/contextorder.h
     ${GAME_INCLUDE_DIR}/d20/attributes.h
     ${GAME_INCLUDE_DIR}/d20/class.h
     ${GAME_INCLUDE_DIR}/d20/classes.h
@@ -424,6 +425,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/galaxymapstate.cpp
     ${GAME_SOURCE_DIR}/game.cpp
     ${GAME_SOURCE_DIR}/globalfade.cpp
+    ${GAME_SOURCE_DIR}/contextorder.cpp
     ${GAME_SOURCE_DIR}/itemdescription.cpp
     ${GAME_SOURCE_DIR}/gui/actionbar.cpp
     ${GAME_SOURCE_DIR}/gui/actionslot.cpp

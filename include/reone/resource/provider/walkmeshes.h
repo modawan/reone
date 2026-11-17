@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "../decodedcache.h"
 #include "../types.h"
 
 namespace reone {
@@ -27,8 +28,6 @@ class Walkmesh;
 }
 
 namespace resource {
-
-class IResources;
 
 class IWalkmeshes {
 public:
@@ -50,9 +49,7 @@ public:
 private:
     resource::IResources &_resources;
 
-    std::unordered_map<std::string, std::shared_ptr<graphics::Walkmesh>> _cache;
-
-    std::shared_ptr<graphics::Walkmesh> doGet(const std::string &resRef, ResType type);
+    DecodedCache<ResourceId, graphics::Walkmesh> _cache;
 };
 
 } // namespace resource

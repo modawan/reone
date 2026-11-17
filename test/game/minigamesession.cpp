@@ -289,6 +289,8 @@ RaceResult runRace() {
         input.steer = glm::clamp(error / 4.0f - session->lateralVelocity().x / 100.0f, -1.0f, 1.0f);
         scripts.clock += kTick;
         session->update(kTick, input);
+        // Toggle the shift key: every second update is a new press.
+        input.fire = !input.fire;
     }
     result.raceTime = scripts.raceTime;
     result.ticks = session->tickCount();
@@ -548,6 +550,55 @@ TEST(MinigameSession, on_tsl_steering_against_a_fast_slide_brakes_it) {
     EXPECT_FLOAT_EQ(slow(true), slow(false));
 }
 
+// The lean follows the steering at 1 / kMinigameLeanTime per second, in and out.
+TEST(MinigameSession, the_lean_ramps_in_over_a_quarter_second_and_returns_as_fast_on_release) {
+    ScriptedHost host;
+    auto session = makeSwoop(host, 0, {});
+    EXPECT_FLOAT_EQ(session->lean(), 0.0f);
+
+    // Right is positive, and the lean stops at full.
+    MinigameInput input;
+    input.steer = 1.0f;
+    session->update(0.05f, input);
+    session->update(0.05f, input);
+    EXPECT_NEAR(session->lean(), 0.4f, 1e-4f);
+    for (int i = 0; i < 4; ++i) {
+        session->update(0.05f, input);
+    }
+    EXPECT_FLOAT_EQ(session->lean(), 1.0f);
+
+    // Let go: level again in the same time.
+    input.steer = 0.0f;
+    for (int i = 0; i < 4; ++i) {
+        session->update(0.05f, input);
+    }
+    EXPECT_NEAR(session->lean(), 0.2f, 1e-4f);
+    session->update(0.05f, input);
+    EXPECT_NEAR(session->lean(), 0.0f, 1e-4f);
+
+    // Left is negative.
+    input.steer = -1.0f;
+    session->update(0.05f, input);
+    EXPECT_NEAR(session->lean(), -0.2f, 1e-4f);
+}
+
+TEST(MinigameSession, a_wrecked_bike_levels_out) {
+    ScriptedHost host;
+    auto session = makeSwoop(host, 0, {});
+    session->start();
+    MinigameInput input;
+    input.steer = 1.0f;
+    for (int i = 0; i < 10; ++i) {
+        session->update(0.05f, input);
+    }
+    ASSERT_FLOAT_EQ(session->lean(), 1.0f);
+    session->kill(*session->player());
+    for (int i = 0; i < 10; ++i) {
+        session->update(0.05f, input);
+    }
+    EXPECT_FLOAT_EQ(session->lean(), 0.0f);
+}
+
 TEST(MinigameSession, creation_scripts_run_player_first_then_enemies) {
     ScriptedHost host;
     auto spec = swoopSpec(2);
@@ -576,19 +627,25 @@ TEST(MinigameSession, the_heartbeat_runs_every_update) {
     EXPECT_EQ(host.count("heartbeat"), 7u);
 }
 
-TEST(MinigameSession, fire_runs_the_owners_on_fire_while_the_gun_is_ready) {
+// The shoot key is not repeatable: a press runs OnFire once, however many gun
+// cooldowns pass while it is held.
+TEST(MinigameSession, fire_runs_the_owners_on_fire_once_per_press) {
     ScriptedHost host;
     auto session = makeSwoop(host, 0, {});
     MinigameInput input;
     input.fire = true;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 30; ++i) {
         session->update(kTick, input);
     }
-    // The 0.01 s swoop gun is ready again on every 1/30 s update.
-    EXPECT_EQ(host.count("onfire"), 5u);
+    EXPECT_EQ(host.count("onfire"), 1u);
     input.fire = false;
     session->update(kTick, input);
-    EXPECT_EQ(host.count("onfire"), 5u);
+    EXPECT_EQ(host.count("onfire"), 1u);
+    input.fire = true;
+    for (int i = 0; i < 30; ++i) {
+        session->update(kTick, input);
+    }
+    EXPECT_EQ(host.count("onfire"), 2u);
 }
 
 // The TSL races shift gear on accelerate and jump on brake: each press runs

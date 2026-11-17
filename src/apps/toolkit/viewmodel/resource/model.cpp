@@ -72,7 +72,7 @@ void ModelResourceViewModel::openModel(const ResourceId &id, IInputStream &mdl) 
     _model->init();
     _animations = _model->getAnimationNames();
 
-    _modelNode = scene.newModel(*_model, ModelUsage::Creature);
+    _modelNode = scene.newModel(_model, ModelUsage::Creature);
     _modelHeading = 0.0f;
     _modelPitch = 0.0f;
     updateModelTransform();

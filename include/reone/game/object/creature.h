@@ -339,8 +339,17 @@ public:
     static constexpr int kNoFuryDamageBonus = -1;
     /** The most experience a creature holds; an addition past it is refused. */
     static constexpr int kMaxExperience = std::numeric_limits<int>::max();
+    /** The SoundSetFile value of a creature record without a voice. */
+    static constexpr int kNoSoundSetId = 0xffff;
     /** The node of a character's body model its head is attached at. */
     static constexpr char kHeadHookNode[] = "headhook";
+    /** The PortraitId of a creature record whose portrait is named by its Portrait resref. */
+    static constexpr int kNoPortraitId = 0xffff;
+    /**
+     * The lowest PortraitId naming no portraits.2da row: from it on, the
+     * portrait is the record's Portrait resref.
+     */
+    static constexpr int kFirstResRefPortraitId = 0xfffe;
 
     // AI state
 
@@ -897,8 +906,8 @@ public:
     void setLevelUpChimeArmed(bool armed) { _levelUpChimeArmed = armed; }
     /**
      * The level the creature's experience reaches by the experience table, up
-     * to the title's maximum, for a creature whose IsPC is exactly 1; any
-     * other creature's level, as getSpellLevel(false) gives it.
+     * to the title's maximum, for a player character; any other creature's
+     * level, as getSpellLevel(false) gives it.
      */
     int potentialLevel() const;
 
@@ -935,18 +944,33 @@ public:
      */
     void wearBackupHead();
     /**
-     * Wears the heads.2da row as its head in place of its appearance's. Rows
-     * from 255 up wrap to a byte, and 255 is the appearance's head again. The
+     * Wears the heads.2da row as its head in place of its appearance's. The
      * head is not saved.
      */
     void duplicateHead(int row);
     CreaturePresentation presentation() const;
     void setPresentation(const CreaturePresentation &presentation);
-    uint16_t portraitId() const { return _portraitId; }
-    /** The portrait shown in play, its row's variant for the creature's good/evil. */
-    std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
-    /** The resref of the portrait shown in play; empty for a creature without a portrait row. */
-    std::string portraitResRef() const;
+    /** The portraits.2da row; none for a portrait named by its resref. */
+    std::optional<int> portraitId() const { return _portraitId; }
+    /** The portrait resref of a creature without a portrait row. */
+    const std::string &portraitResRef() const { return _portraitResRef; }
+    /**
+     * The resref of the portrait without the good/evil variant, which
+     * creation shows; empty for a creature with no portrait row or resref.
+     */
+    std::string basePortraitResRef() const {
+        if (_portraitRow) {
+            return _portraitRow->resRef;
+        }
+        return _portraitId ? std::string() : _portraitResRef;
+    }
+    /**
+     * The resref of the portrait shown in play: its row's variant for the
+     * creature's good/evil band (BaseResRefE … VVVE at 40, 30, 20 and 10 and
+     * below), else the base portrait's; empty for a creature with no portrait
+     * row or resref.
+     */
+    std::string portraitResRefForGoodEvil() const;
     float walkSpeed() const;
     /** Whether the player drives this creature: a drive heads its queue. */
     bool isDriven() const;
@@ -1130,25 +1154,29 @@ public:
     void setHealTarget(uint32_t target) { _healTarget = target; }
     /**
      * Whether the creature's record marks it a player character: its IsPC is
-     * not 0. The record's value is saved with the creature.
+     * not 0. The flag is saved with the creature.
      */
-    bool isPC() const { return _isPC != 0; }
-    /** The record's IsPC as stored, 0 to 255; a player character's is 1. */
-    int isPCValue() const { return _isPC; }
+    bool isPC() const { return _isPC; }
     /**
      * Whether the creature acts as a player character: its own copy of the
      * record's IsPC, taken whenever the record is read, cleared when an
      * encounter spawns the creature, and set with the record's when control
-     * of the party changes hands. The copy is not 0.
+     * of the party changes hands.
      */
-    bool actsAsPC() const { return _actsAsPC != 0; }
-    /** The creature's own copy of IsPC as it stands, 0 to 255. */
-    int actsAsPCValue() const { return _actsAsPC; }
+    bool actsAsPC() const { return _actsAsPC; }
     /** Whether a click to talk leaves the creature facing the way it was. */
     bool isNotReorienting() const { return _notReorienting; }
     void setNotReorienting(bool notReorienting) { _notReorienting = notReorienting; }
     /** Queues a camera command that sets the facing alone. */
     void queueCameraFacing(float facing);
+    /**
+     * Whether the creature follows the player character's rules: it is a
+     * player character while no companion is controlled in the player
+     * character's place. Such a creature levels up under player character
+     * rules (every skill open, every power pickable) and takes its vitality
+     * and Force points from its level history.
+     */
+    bool levelsAsPlayerCharacter() const;
     /** The character was made by the player (TSL item limitation). */
     bool isPlayerCreated() const { return _playerCreated; }
     bool isPartyInteract() const { return _partyInteract; }
@@ -1158,13 +1186,13 @@ public:
     void forceEquipClothing();
     void setPlayerCreated(bool value) { _playerCreated = value; }
     /**
-     * Sets the player-character flag, both the record's IsPC and the
-     * creature's own copy, to 1 or 0. A creature whose record does not carry
-     * IsPC is a player character.
+     * Sets the player-character flag, both the record's and the creature's
+     * own copy. A creature whose record does not carry IsPC is a player
+     * character.
      */
     void setPC(bool value) {
-        _isPC = value ? 1 : 0;
-        _actsAsPC = _isPC;
+        _isPC = value;
+        _actsAsPC = value;
     }
     /** The appearance's race label, which picks droid discharges. */
     const std::string &appearanceRace() const { return _appearanceRace; }
@@ -1231,7 +1259,14 @@ public:
     /** The first and last name; the name is the two joined by a space. */
     void setFirstAndLastName(resource::LocString firstName, resource::LocString lastName);
     void setAppearance(int appearance) { _appearance = appearance; }
+    /**
+     * The portraits.2da row, none for the portrait resref; the portrait is
+     * shown from the next appearance load.
+     */
+    void setPortraitId(std::optional<int> portraitId) { _portraitId = portraitId; }
     void setMovementType(MovementType type);
+    /** The soundset.2da row of the creature's voice, loading its sounds; none for no voice. */
+    void setSoundSet(std::optional<int> soundSetId);
     /** Join a faction; a creature joining a faction other than its own goes to the end of its members. */
     void setFaction(Faction faction);
     /** Where the creature stands in the order in which its faction's members joined. */
@@ -1798,6 +1833,8 @@ public:
      */
     std::optional<glm::vec3> walkablePointBeside(const Object &target, const glm::vec3 &point) const;
     void clearPath();
+    /** Gives the path back to \p pathfinder, the area's pool it was planned from. */
+    void clearPath(Pathfinder &pathfinder);
     void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);
     glm::vec3 computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt);
     // END Pathfinding
@@ -2054,6 +2091,11 @@ public:
         auto blocker = _avoidance.blocker.resolve();
         return blocker ? blocker->id() : script::kObjectInvalid;
     }
+    /**
+     * Whether the last walk was ended by a creature in the way rather than by
+     * arriving, until the next path is planned.
+     */
+    bool walkEndedAtCreature() const { return _avoidance.walkEnded; }
     void resetBlockingCreature() {
         _avoidance.blocker.reset();
         _avoidance.blockerPosition = glm::vec3(0.0f);
@@ -2636,6 +2678,11 @@ private:
         int bumps {0};
         /** The next way round is tried counter-clockwise first. */
         bool side {false};
+        /**
+         * The walk was ended by a creature in the way: no way round it, or
+         * the walk's end inside the ring round it.
+         */
+        bool walkEnded {false};
     };
 
     /** An item property through which the creature can use a power. */
@@ -2675,8 +2722,7 @@ private:
     /** A one-shot waiting in the fire-and-forget queue. */
     struct FireForgetEntry {
         std::string clip;
-        uint32_t startDay {0};  /**< calendar day it was queued at */
-        uint32_t startTime {0}; /**< and the time of that day */
+        uint64_t start {0}; /**< the creature's own time it was queued at */
         int lengthMilliseconds {0};
         float rate {1.0f};
         bool layered {false};
@@ -2728,11 +2774,14 @@ private:
     bool _disguised {false};
     bool _useBackupHead {false};
     Gender _gender {Gender::Male};
-    uint16_t _portraitId {0};
+    /** The portraits.2da row; none for a portrait named by its resref. */
+    std::optional<int> _portraitId;
+    /** The portrait named by the record, for a creature without a portrait row. */
+    std::string _portraitResRef;
     /** The record's IsPC byte; any value but 0 marks a player character. */
-    uint8_t _isPC {1};
-    /** The creature's own copy of IsPC (see actsAsPC()); not saved. */
-    uint8_t _actsAsPC {1};
+    bool _isPC {true};
+    /** The creature's own copy of the flag (see actsAsPC()); not saved. */
+    bool _actsAsPC {true};
     bool _playerCreated {false};
     /** Body armour this creature could not wear when it was loaded. */
     bool _bodyRefusedOnLoad {false};
@@ -2830,7 +2879,7 @@ private:
     resource::LocString _firstName;
     resource::LocString _lastName;
 
-    uint16_t _soundSetId {0xFFFF};
+    std::optional<int> _soundSetId;
     /** A row of 0 takes the appearance's bag row. */
     uint8_t _bodyBagId {0};
     /**
@@ -2844,14 +2893,13 @@ private:
     std::map<int, std::shared_ptr<Item>> _equipment;
     // END Serializable
 
-    /** The heads.2da row worn in place of the appearance's head; 255 for none. */
-    uint8_t _duplicatedHead {0xff};
+    /** The heads.2da row worn in place of the appearance's head. */
+    std::optional<int> _duplicatedHead;
     bool _wearsBackupHead {false};
     ModelType _modelType {ModelType::Creature};
-    std::shared_ptr<graphics::Texture> _portrait;
     /** The portraits.2da row of the portrait, when it has one. */
     std::optional<Portrait> _portraitRow;
-    /** The good/evil the portrait, body and head were last shown for. */
+    /** The good/evil the body and head were last shown for. */
     int _alignmentGoodEvil {0};
     /** The good/evil texture the head shows; empty while it shows its own. */
     std::string _headAlignmentTexture;
@@ -2879,6 +2927,8 @@ private:
      * milliseconds; 0 while the clock stands still.
      */
     int _frameMilliseconds {0};
+    /** The creature's own time at its last update; none before its first. */
+    std::optional<uint64_t> _lastUpdateMilliseconds;
     /**
      * Milliseconds until a sighting of the player's creature costs the area
      * stealth experience, 0 once the loss is due on the next update; none
@@ -2889,6 +2939,8 @@ private:
     // Current path that the creature is following, its velocity and position at
     // the previous frame.
     std::optional<Path> _path;
+    /** The walk \p _path was planned for. The path goes when the walk does. */
+    std::weak_ptr<ActionQueueNode> _pathNode;
     bool _navigationFailed {false};
     /** The path under way walks all the way onto its destination. */
     bool _walksOntoPoint {false};
@@ -2963,7 +3015,11 @@ private:
     /** Fractional regeneration, carried from one update to the next. */
     float _hitPointAccumulator {0.0f};
     float _forcePointAccumulator {0.0f};
-    Timer _stateSupportTimer;
+    /**
+     * The creature's own time its last heartbeat was due; none when one is
+     * due at once.
+     */
+    std::optional<uint64_t> _heartbeatStamp;
 
     bool _movementRestricted {false};
     float _movementRate {1.0f};
@@ -3040,9 +3096,9 @@ private:
     int _aiLevel {1};
     int _savedAILevel {-1};
     int _perceptionThrottle {0};
-    /** Heartbeat interval (ms) and the due updates a level-0 creature waits. */
+    /** Heartbeat interval (ms), and whether a level-0 creature passed over its last due heartbeat. */
     int _heartbeatInterval {3000};
-    int _heartbeatThrottle {0};
+    bool _heartbeatSkipped {false};
     /** The ranges row the creature takes up when it next looks around. */
     std::optional<int> _pendingPerceptionRangeRow;
     bool _pendingPerceptionRangeByAppearance {false};
@@ -3237,6 +3293,10 @@ private:
                                      bool &side);
     /** Drop any walk under way and plan one along the straight line to a point. */
     void planStraightPath(const glm::vec3 &point);
+    /** Gives the path back once the walk it was planned for has left the queue. */
+    void releaseOrphanedPath();
+    /** The walk a path planned now serves: the action running, else the one at the front of the queue. */
+    OrdinaryActionQueue::Node walkingNode() const;
     /** A walk ends where the creature stands, and \p target hears that as a click by it. */
     void clickInReach(const Object &target);
     /**
@@ -3274,7 +3334,7 @@ private:
     bool isHostileCombatTurn() const;
     void playTurnAnimation(float sign);
     void updateFidget();
-    void updateStateHeartbeat(float dt);
+    void updateStateHeartbeat();
     /** Runs the heartbeat scripts of a living creature. */
     void runHeartbeat();
     void updateRegeneration(float dt);
@@ -3374,15 +3434,13 @@ private:
     void refreshHead();
     /** The head model and its good/evil textures, from the head's heads.2da row. */
     void loadHeadProperties(const resource::TwoDA &appearances);
-    /** Shows the portrait for the creature's good/evil. */
-    void refreshPortrait();
     /** The head's texture for the creature's good/evil; empty for its own. */
     std::string getHeadAlignmentTextureName() const;
     /** The body's evil texture for the creature's good/evil and armour; empty for its own. */
     std::string getEvilBodyTextureName() const;
     void applyHeadAlignment(scene::ModelSceneNode &head);
     void applyBodyAlignment(scene::ModelSceneNode &body);
-    /** Shows the portrait, body and head for a good/evil that has changed. */
+    /** Shows the body and head for a good/evil that has changed. */
     void updateAlignmentTextures();
 
     // END Appearance
@@ -3611,7 +3669,7 @@ private:
                              std::optional<DamageReaction> reaction = std::nullopt);
     /**
      * Whether the difficulty settings keep this creature at 1 hit point: they
-     * may for a player character whose record's IsPC is 1.
+     * may for a player character.
      */
     bool difficultyKeepsAtOneHitPoint() const;
     int consumeTemporaryHitPoints(int amount);

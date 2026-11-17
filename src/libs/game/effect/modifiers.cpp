@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <optional>
 
 #include "reone/game/combatfeedback.h"
@@ -558,11 +559,11 @@ void TemporaryForcePointsEffect::onRemove(Object &object, const EffectInstance &
 
 EffectApplicationResult RegenerateEffect::onApply(Object &object, EffectInstance &instance) {
     if (isa<Creature>(&object)) {
-        const auto now = object.game().worldTimeMilliseconds();
-        const auto day = object.game().millisecondsPerWorldDay();
-        // Every application starts the interval afresh, a restored one included.
-        instance.setIntegerParameter(2, static_cast<int>(now / day));
-        instance.setIntegerParameter(3, static_cast<int>(now % day));
+        // Every application starts the interval afresh, a restored one
+        // included, on the creature's own time, which it heals by.
+        const auto &game = object.game();
+        instance.setIntegerParameter(2, static_cast<int>(game.activeTimeDay(object)));
+        instance.setIntegerParameter(3, static_cast<int>(game.activeTimeOfDay(object)));
     }
     return EffectApplicationResult::Retained;
 }
@@ -588,19 +589,27 @@ void RegenerateEffect::onUpdate(Object &object, const EffectInstance &instance, 
     }
 
     // Regeneration runs on the creature's own time, which a time stop may
-    // leave running.
-    const auto nowDay = game.activeTimeDay(object);
-    const auto nowTime = game.activeTimeOfDay(object);
-    // Only the time of day part of the world time since the last heal counts,
-    // and it must exceed integer 1. A last heal still ahead has no interval.
-    uint32_t days = 0;
-    uint32_t elapsed = 0;
-    game.subtractWorldTimes(nowDay, nowTime,
-                            static_cast<uint32_t>(instance.integerParameter(2)),
-                            static_cast<uint32_t>(instance.integerParameter(3)), days, elapsed);
-    if (elapsed <= static_cast<uint32_t>(instance.integerParameter(1))) {
+    // leave running. With no interval it never heals; otherwise the time
+    // since the last heal must exceed integer 1. A last heal ahead of now
+    // counts from now.
+    const int interval = instance.integerParameter(1);
+    if (interval <= 0) {
         return;
     }
+    const uint64_t now = game.activeTimeMilliseconds(object);
+    uint32_t healDay = static_cast<uint32_t>(instance.integerParameter(2));
+    uint32_t healTime = static_cast<uint32_t>(instance.integerParameter(3));
+    if (game.clampStamp(healDay, healTime, now)) {
+        if (auto record = object.findEffectApplication(instance.applicationOrder)) {
+            record->get().setIntegerParameter(2, static_cast<int>(healDay));
+            record->get().setIntegerParameter(3, static_cast<int>(healTime));
+        }
+    }
+    if (game.millisecondsSince(now, healDay, healTime) <= static_cast<uint64_t>(interval)) {
+        return;
+    }
+    // The next interval is timed from when this heal was due.
+    game.advanceStamp(healDay, healTime, static_cast<uint64_t>(interval), now);
 
     auto heal = std::make_shared<HealEffect>(instance.integerParameter(0));
     auto child = heal->saveFacingInstance();
@@ -623,8 +632,8 @@ void RegenerateEffect::onUpdate(Object &object, const EffectInstance &instance, 
     const uint64_t order = instance.applicationOrder;
     object.applyEffect(std::move(child));
     if (auto record = object.findEffectApplication(order)) {
-        record->get().setIntegerParameter(2, static_cast<int>(nowDay));
-        record->get().setIntegerParameter(3, static_cast<int>(nowTime));
+        record->get().setIntegerParameter(2, static_cast<int>(healDay));
+        record->get().setIntegerParameter(3, static_cast<int>(healTime));
     }
 }
 

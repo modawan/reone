@@ -951,11 +951,8 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
     }
     // The death event and the destruction go through the module's event queue.
     auto module = object.game().module();
-    const auto when = object.game().worldTimeMilliseconds();
-    const auto dayLength = object.game().millisecondsPerWorldDay();
     SavedEventRecord signal;
-    signal.day = static_cast<uint32_t>(when / dayLength);
-    signal.time = static_cast<uint32_t>(when % dayLength);
+    object.game().setEventDueAfter(signal, 0);
     signal.object = SavedObjectReference::fromRuntimeId(object.id());
     signal.caller = SavedObjectReference::fromRuntimeId(instance.creatorId);
     signal.eventId = static_cast<uint32_t>(SavedEventType::SignalEvent);
@@ -964,8 +961,7 @@ EffectApplicationResult DeathEffect::onApply(Object &object, EffectInstance &ins
     signal.payload = std::move(deathEvent);
     module->enqueueSaveEvent(std::move(signal));
     SavedEventRecord destroy;
-    destroy.day = static_cast<uint32_t>((when + kDestroyDelayMilliseconds) / dayLength);
-    destroy.time = static_cast<uint32_t>((when + kDestroyDelayMilliseconds) % dayLength);
+    object.game().setEventDueAfter(destroy, kDestroyDelayMilliseconds);
     destroy.object = SavedObjectReference::fromRuntimeId(object.id());
     destroy.caller = SavedObjectReference::fromRuntimeId(instance.creatorId);
     destroy.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);

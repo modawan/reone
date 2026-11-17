@@ -19,6 +19,7 @@
 
 #include <array>
 #include <functional>
+#include <optional>
 #include <set>
 
 #include "reone/resource/gff.h"
@@ -158,8 +159,10 @@ private:
     int _spellSaveDC {kDefaultSpellSaveDC};
     int _spellLevel {0};
     DurationType _durationType {DurationType::Permanent};
-    /** Seconds, counted only when temporary. */
-    float _remainingDuration {0.0f};
+    /** Milliseconds left, counted only when temporary. */
+    uint64_t _remainingMilliseconds {0};
+    /** The effect's own time at its last update; none before its first. */
+    std::optional<uint64_t> _lastUpdateMilliseconds;
     std::string _onEnter;
     std::string _onExit;
     /** The creature that carries this area of effect; invalid for one standing at a point. */

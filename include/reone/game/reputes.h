@@ -35,10 +35,31 @@ class Creature;
 class Game;
 class Object;
 
+/** The least reputation a faction can have toward another. */
+constexpr int kMinReputation = 0;
+/** The friendliest reputation a faction can have toward another. */
+constexpr int kMaxReputation = 100;
+/** The reputation held when nothing says otherwise: a neutral's. */
+constexpr int kNeutralReputation = 50;
 /** A reputation of at most this is an enemy's. */
 constexpr int kHighestEnemyReputation = 10;
 /** A reputation of at least this is a friend's; those between are neutral. */
 constexpr int kLowestFriendReputation = 90;
+
+/** @return whether the reputation is an enemy's */
+constexpr bool isEnemyReputation(int reputation) {
+    return reputation <= kHighestEnemyReputation;
+}
+
+/** @return whether the reputation is a friend's */
+constexpr bool isFriendReputation(int reputation) {
+    return reputation >= kLowestFriendReputation;
+}
+
+/** @return whether the reputation is neither an enemy's nor a friend's */
+constexpr bool isNeutralReputation(int reputation) {
+    return !isEnemyReputation(reputation) && !isFriendReputation(reputation);
+}
 
 class IReputes {
 public:
@@ -54,9 +75,6 @@ public:
         std::vector<std::vector<int>> values;
     };
 
-    /** The friendliest reputation a faction can have toward another. */
-    static constexpr int kMaxReputation = 100;
-
     virtual ~IReputes() = default;
 
     virtual State baseState() const = 0;
@@ -64,8 +82,8 @@ public:
     virtual std::optional<State> parse(const resource::Gff &gff) const = 0;
     virtual void replace(State state) = 0;
 
-    // Reputation is directed: it is the source faction's disposition toward the
     /**
+     * Reputation is directed: it is the source faction's disposition toward the
      * target faction, and the reverse relationship is independent of it. Only
      * NPC factions are regarded: a relationship with the player faction is
      * read from the player faction's side.
@@ -74,10 +92,10 @@ public:
     virtual void adjustReputation(Faction sourceFaction, Faction targetFaction, int adjustment) = 0;
 
     /**
-     * Whether the source creature regards the target creature as an enemy (10
-     * or less), a friend (90 or more) or neutral, by
-     * getObjectReputation(source, target): a party member counts as the player
-     * faction.
+     * Whether the source creature regards the target creature as an enemy
+     * (isEnemyReputation), a friend (isFriendReputation) or neutral
+     * (isNeutralReputation), by getObjectReputation(source, target): a party
+     * member counts as the player faction.
      */
     virtual bool getIsEnemy(const Creature &source, const Creature &target) const = 0;
     virtual bool getIsFriend(const Creature &source, const Creature &target) const = 0;

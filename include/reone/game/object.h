@@ -737,9 +737,11 @@ protected:
      */
     void discardGroupNode(const OrdinaryActionQueue::Node &node);
 
-    /** Whether a heartbeat interval has passed since a world time; only the time part of the difference counts. */
+    /** Whether a heartbeat interval has passed since a world time. */
     bool isHeartbeatDueSince(uint32_t day, uint32_t time) const;
+    /** Stamps a heartbeat, the object's own or \p day and \p time, with when it was due. */
     void stampHeartbeat();
+    void stampHeartbeat(uint32_t &day, uint32_t &time) const;
     /**
      * Stamps a due heartbeat and runs the script unless it is the first check
      * or the object cannot run it.

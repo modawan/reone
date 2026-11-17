@@ -20,6 +20,7 @@
 #include "reone/system/types.h"
 
 #include "container.h"
+#include "container/memory.h"
 #include "id.h"
 #include "resource.h"
 #include "sourcelist.h"
@@ -34,6 +35,8 @@ struct ResourceContainerPair {
     std::unique_ptr<IResourceContainer> provider;
     ResourceOwner owner;
     std::optional<ResourceSourceBucket> bucket;
+    ResourceSourceForm form;
+    std::filesystem::path path;
     ResourceMountToken sequence {0};
 };
 
@@ -57,6 +60,11 @@ using ResourceContainerList = ResourceSourceList<ResourceContainerPair>;
  * Every mount also takes an owner, which says what retires the source. Owner
  * and bucket are independent: clearing an owner never reorders what remains,
  * and a bucket never implies a lifetime.
+ *
+ * Every lookup reports the source that answered it (Resource::source), and
+ * locate reports the same without reading anything. Whatever is decoded from
+ * a resource is only as current as that report: once locate answers an id
+ * differently, a lookup would no longer read the bytes it was decoded from.
  */
 class IResources {
 public:
@@ -99,6 +107,23 @@ public:
     virtual Resource get(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id) = 0;
 
+    /// The source a lookup of id would be answered by, without reading it.
+    virtual std::optional<ResourceSourceRef> locate(const ResourceId &id) const = 0;
+
+    /**
+     * Every source holding id, in the order a lookup consults them: the first
+     * answers it and the rest are shadowed. For diagnosing why a resource
+     * comes from where it does.
+     */
+    virtual std::vector<ResourceSourceRef> explain(const ResourceId &id) const = 0;
+
+    /**
+     * Changes whenever the answer to some lookup may have changed: a source
+     * was mounted or retired, or a replacement was set or removed. While it
+     * stays the same, locate answers every id as it did before.
+     */
+    virtual std::uint64_t generation() const = 0;
+
     /**
      * Resolve through the normal lookup order while ignoring sources whose
      * lifetime owner is excluded.
@@ -131,10 +156,11 @@ public:
         _containers.rollbackTo(token);
     }
 
-    void add(std::unique_ptr<IResourceContainer> provider,
+    /// Mount resources the caller has placed in memory.
+    void add(std::unique_ptr<MemoryResourceContainer> provider,
              ResourceOwner owner = ResourceOwner::Global,
              std::optional<ResourceSourceBucket> bucket = std::nullopt) {
-        _containers.add(ResourceContainerPair {std::move(provider), owner, bucket});
+        mount(std::move(provider), ResourceSourceForm::Memory, {}, owner, bucket);
     }
 
     void addEXE(const std::filesystem::path &path,
@@ -162,11 +188,22 @@ public:
     std::optional<Resource> findExcludingOwners(
         const ResourceId &id,
         const std::set<ResourceOwner> &excludedOwners) override;
+    std::optional<ResourceSourceRef> locate(const ResourceId &id) const override;
+    std::vector<ResourceSourceRef> explain(const ResourceId &id) const override;
+    std::uint64_t generation() const override { return _containers.generation(); }
 
     const ResourceContainerList &containers() const { return _containers; }
 
 private:
     ResourceContainerList _containers;
+
+    void mount(std::unique_ptr<IResourceContainer> provider,
+               ResourceSourceForm form,
+               std::filesystem::path path,
+               ResourceOwner owner,
+               std::optional<ResourceSourceBucket> bucket) {
+        _containers.add(ResourceContainerPair {std::move(provider), owner, bucket, form, std::move(path)});
+    }
 };
 
 } // namespace resource

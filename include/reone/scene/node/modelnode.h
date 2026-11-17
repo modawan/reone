@@ -40,8 +40,8 @@ public:
         _static = stat;
     }
 
-    virtual void setMainTexture(graphics::Texture *texture);
-    virtual void setEnvironmentMap(graphics::Texture *texture);
+    virtual void setMainTexture(std::shared_ptr<graphics::Texture> texture);
+    virtual void setEnvironmentMap(std::shared_ptr<graphics::Texture> texture);
 
 protected:
     graphics::ModelNode &_modelNode;

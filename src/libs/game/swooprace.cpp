@@ -64,7 +64,7 @@ std::shared_ptr<ModelSceneNode> SwoopRace::loadModel(const std::string &resRef) 
         return nullptr;
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
+    auto node = sceneGraph.newModel(model, ModelUsage::Placeable);
     // Minigame actors are placed by transform far from any room; the culling
     // that assumes objects stay near their rooms does not apply to them.
     node->setCullingEnabled(false);
@@ -167,6 +167,7 @@ void SwoopRace::stop() {
         _engineSound.reset();
     }
     _engineSoundResRef.clear();
+    _bankAnimation.clear();
     _cameraHook = nullptr;
     _camera = nullptr;
     _session = nullptr;
@@ -214,6 +215,7 @@ void SwoopRace::update(float dt) {
             releaseActor(actor);
         }
     }
+    updateBank();
     _animator.update(dt);
     placeActors();
     updateCamera();
@@ -227,6 +229,25 @@ void SwoopRace::update(float dt) {
         _engineSound->setPitch(0.7f + 0.8f * ratio);
         _engineSound->setGain(player ? glm::clamp(player->soundVolume[1] / 127.0f, 0.0f, 1.0f) : 1.0f);
     }
+}
+
+// Leans the player's bike into the turn: the clip of BankL_01..10 or
+// BankR_01..10 the session's lean asks for, or Ready_01 when it is level. The
+// clip is a pose of the bike's own model, held under the animations the scripts
+// play (MinigameAnimator::pose), so the lean does not cut those off. Only a
+// model that has the clip plays it, and a bike without Ready_01 rests level.
+void SwoopRace::updateBank() {
+    if (_actors.empty() || _actors.front().removed) {
+        return;
+    }
+    std::string frame = minigameBankAnimation(_session->lean(), _game.isTSL());
+    if (frame == _bankAnimation) {
+        return;
+    }
+    for (auto &node : _actors.front().nodes) {
+        _animator.pose(*node, frame, _bankAnimation);
+    }
+    _bankAnimation = frame;
 }
 
 void SwoopRace::updateCamera() {
@@ -342,8 +363,6 @@ bool SwoopRace::handle(const input::Event &event) {
             _steerRight = down;
             break;
         case input::KeyCode::Space:
-        case input::KeyCode::Up:
-        case input::KeyCode::W:
             // The shift key: fire on KotOR, accelerate on TSL.
             _fireKey = down;
             setMinigameShiftKey(in, _fireKey || _fireButton, _game.isTSL());

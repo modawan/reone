@@ -122,14 +122,14 @@ protected:
 
 TEST_F(SpellsTest, should_load_k1_force_power_chain_metadata_and_base_class_requirements) {
     auto table = makeSpellsTable(
-        {"pips", "prerequisites", "masterspell", "usertype", "guardian", "consular", "sentinel", "category", "hostilesetting"},
+        {"name", "pips", "prerequisites", "masterspell", "usertype", "guardian", "consular", "sentinel", "category", "hostilesetting"},
         51,
-        {{static_cast<int>(SpellType::ForcePush), {{"pips", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"category", "0x1301"}, {"hostilesetting", "1"}}},
-         {static_cast<int>(SpellType::ForceWhirlwind), {{"pips", "2"}, {"prerequisites", "23"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::ForceWave), {{"pips", "3"}, {"prerequisites", "23_27"}, {"masterspell", "23"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::Shock), {{"pips", "1"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::Lightning), {{"pips", "2"}, {"prerequisites", "43"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::ForceStorm), {{"pips", "3"}, {"prerequisites", "43_35"}, {"usertype", "1"}}}});
+        {{static_cast<int>(SpellType::ForcePush), {{"name", "1"}, {"pips", "1"}, {"usertype", "1"}, {"guardian", "0"}, {"consular", "0"}, {"sentinel", "0"}, {"category", "0x1301"}, {"hostilesetting", "1"}}},
+         {static_cast<int>(SpellType::ForceWhirlwind), {{"name", "1"}, {"pips", "2"}, {"prerequisites", "23"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::ForceWave), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "23_27"}, {"masterspell", "23"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::Shock), {{"name", "1"}, {"pips", "1"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::Lightning), {{"name", "1"}, {"pips", "2"}, {"prerequisites", "43"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::ForceStorm), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "43_35"}, {"usertype", "1"}}}});
 
     load(std::move(table));
 
@@ -153,7 +153,7 @@ TEST_F(SpellsTest, should_load_k1_force_power_chain_metadata_and_base_class_requ
     ASSERT_TRUE(wave);
     EXPECT_THAT(whirlwind->prerequisites, ElementsAre(SpellType::ForcePush));
     EXPECT_THAT(wave->prerequisites, ElementsAre(SpellType::ForcePush, SpellType::ForceWhirlwind));
-    EXPECT_EQ(wave->masterSpell, SpellType::ForcePush);
+    EXPECT_THAT(wave->masterSpells, ElementsAre(SpellType::ForcePush));
 
     ASSERT_TRUE(lightning);
     ASSERT_TRUE(storm);
@@ -163,15 +163,15 @@ TEST_F(SpellsTest, should_load_k1_force_power_chain_metadata_and_base_class_requ
 
 TEST_F(SpellsTest, should_load_tsl_chain_metadata_and_prestige_class_requirements) {
     auto table = makeSpellsTable(
-        {"pips", "prerequisites", "usertype", "guardian", "consular", "sentinel", "weapmstr", "jedimaster", "watchman", "marauder", "sithlord", "assassin"},
+        {"name", "pips", "prerequisites", "usertype", "guardian", "consular", "sentinel", "weapmstr", "jedimaster", "watchman", "marauder", "sithlord", "assassin"},
         201,
-        {{static_cast<int>(SpellType::Cure), {{"pips", "2"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::Heal), {{"pips", "3"}, {"prerequisites", "10"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::MasterHeal), {{"pips", "3"}, {"prerequisites", "10_28"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::ForceBarrier), {{"pips", "3"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::ImprovedForceBarrier), {{"pips", "3"}, {"prerequisites", "135"}, {"usertype", "1"}}},
-         {static_cast<int>(SpellType::MasterForceBarrier), {{"pips", "3"}, {"prerequisites", "135_136"}, {"usertype", "1"}}},
-         {200, {{"pips", "3"}, {"prerequisites", "181"}, {"usertype", "1"}, {"guardian", "-1"}, {"consular", "-1"}, {"sentinel", "-1"}, {"weapmstr", "1"}, {"jedimaster", "1"}, {"watchman", "1"}, {"marauder", "1"}, {"sithlord", "1"}, {"assassin", "1"}}}});
+        {{static_cast<int>(SpellType::Cure), {{"name", "1"}, {"pips", "2"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::Heal), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "10"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::MasterHeal), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "10_28"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::ForceBarrier), {{"name", "1"}, {"pips", "3"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::ImprovedForceBarrier), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "135"}, {"usertype", "1"}}},
+         {static_cast<int>(SpellType::MasterForceBarrier), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "135_136"}, {"usertype", "1"}}},
+         {200, {{"name", "1"}, {"pips", "3"}, {"prerequisites", "181"}, {"usertype", "1"}, {"guardian", "-1"}, {"consular", "-1"}, {"sentinel", "-1"}, {"weapmstr", "1"}, {"jedimaster", "1"}, {"watchman", "1"}, {"marauder", "1"}, {"sithlord", "1"}, {"assassin", "1"}}}});
 
     load(std::move(table));
 
@@ -197,11 +197,11 @@ TEST_F(SpellsTest, should_load_tsl_chain_metadata_and_prestige_class_requirement
     EXPECT_EQ(prestigePower->getClassLevelRequirement(ClassType::SithAssassin), 1);
 }
 
-TEST_F(SpellsTest, should_ignore_blank_and_malformed_prerequisites) {
+TEST_F(SpellsTest, should_split_prerequisites_on_underscores_and_colons_and_ignore_blanks) {
     auto table = makeSpellsTable(
         {"prerequisites"},
         2,
-        {{0, {{"prerequisites", "23_bad__27"}}},
+        {{0, {{"prerequisites", "_23:27"}}},
          {1, {{"prerequisites", "****"}}}});
 
     load(std::move(table));
@@ -212,14 +212,14 @@ TEST_F(SpellsTest, should_ignore_blank_and_malformed_prerequisites) {
 
 TEST_F(SpellsTest, should_build_k1_display_chains_from_prerequisites_in_source_root_order) {
     auto table = makeSpellsTable(
-        {"prerequisites", "usertype", "guardian"},
+        {"name", "prerequisites", "usertype", "guardian"},
         51,
-        {{static_cast<int>(SpellType::ForcePush), {{"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ForceWhirlwind), {{"prerequisites", "23"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ForceWave), {{"prerequisites", "23_27"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::Shock), {{"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::Lightning), {{"prerequisites", "43"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ForceStorm), {{"prerequisites", "43_35"}, {"usertype", "1"}, {"guardian", "0"}}}});
+        {{static_cast<int>(SpellType::ForcePush), {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWhirlwind), {{"name", "1"}, {"prerequisites", "23"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWave), {{"name", "1"}, {"prerequisites", "23_27"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::Shock), {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::Lightning), {{"name", "1"}, {"prerequisites", "43"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceStorm), {{"name", "1"}, {"prerequisites", "43_35"}, {"usertype", "1"}, {"guardian", "0"}}}});
     load(std::move(table));
 
     CreatureAttributes attributes;
@@ -252,11 +252,11 @@ TEST_F(SpellsTest, should_build_k1_display_chains_from_prerequisites_in_source_r
 
 TEST_F(SpellsTest, should_expose_known_and_chosen_prerequisites_as_candidate_context) {
     auto table = makeSpellsTable(
-        {"prerequisites", "usertype", "guardian"},
+        {"name", "prerequisites", "usertype", "guardian"},
         28,
-        {{static_cast<int>(SpellType::ForcePush), {{"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ForceWhirlwind), {{"prerequisites", "23"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ForceWave), {{"prerequisites", "23_27"}, {"usertype", "1"}, {"guardian", "0"}}}});
+        {{static_cast<int>(SpellType::ForcePush), {{"name", "1"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWhirlwind), {{"name", "1"}, {"prerequisites", "23"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWave), {{"name", "1"}, {"prerequisites", "23_27"}, {"usertype", "1"}, {"guardian", "0"}}}});
     load(std::move(table));
 
     CreatureAttributes attributes;
@@ -283,14 +283,14 @@ TEST_F(SpellsTest, should_expose_known_and_chosen_prerequisites_as_candidate_con
 
 TEST_F(SpellsTest, should_build_tsl_chains_from_prerequisites_when_pips_do_not_express_depth) {
     auto table = makeSpellsTable(
-        {"pips", "prerequisites", "usertype", "guardian"},
+        {"name", "pips", "prerequisites", "usertype", "guardian"},
         138,
-        {{static_cast<int>(SpellType::Cure), {{"pips", "2"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::Heal), {{"pips", "3"}, {"prerequisites", "10"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::MasterHeal), {{"pips", "3"}, {"prerequisites", "10_28"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ForceBarrier), {{"pips", "3"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::ImprovedForceBarrier), {{"pips", "3"}, {"prerequisites", "135"}, {"usertype", "1"}, {"guardian", "0"}}},
-         {static_cast<int>(SpellType::MasterForceBarrier), {{"pips", "3"}, {"prerequisites", "135_136"}, {"usertype", "1"}, {"guardian", "0"}}}});
+        {{static_cast<int>(SpellType::Cure), {{"name", "1"}, {"pips", "2"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::Heal), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "10"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::MasterHeal), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "10_28"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceBarrier), {{"name", "1"}, {"pips", "3"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ImprovedForceBarrier), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "135"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::MasterForceBarrier), {{"name", "1"}, {"pips", "3"}, {"prerequisites", "135_136"}, {"usertype", "1"}, {"guardian", "0"}}}});
     load(std::move(table));
 
     CreatureAttributes attributes;
@@ -307,13 +307,13 @@ TEST_F(SpellsTest, should_build_tsl_chains_from_prerequisites_when_pips_do_not_e
 
 TEST_F(SpellsTest, should_filter_non_picker_rows_and_preserve_class_gate_locking) {
     auto table = makeSpellsTable(
-        {"usertype", "guardian"},
+        {"name", "usertype", "guardian"},
         5,
-        {{0, {{"usertype", "1"}, {"guardian", "2"}}},
-         {1, {{"usertype", "4"}, {"guardian", "0"}}},
-         {2, {{"usertype", "6"}, {"guardian", "0"}}},
-         {3, {{"usertype", "-2"}, {"guardian", "0"}}},
-         {4, {{"usertype", "1"}, {"guardian", "-1"}}}});
+        {{0, {{"name", "1"}, {"usertype", "1"}, {"guardian", "2"}}},
+         {1, {{"name", "1"}, {"usertype", "4"}, {"guardian", "0"}}},
+         {2, {{"name", "1"}, {"usertype", "6"}, {"guardian", "0"}}},
+         {3, {{"name", "1"}, {"usertype", "-2"}, {"guardian", "0"}}},
+         {4, {{"name", "1"}, {"usertype", "1"}, {"guardian", "-1"}}}});
     load(std::move(table));
 
     CreatureAttributes attributes;
@@ -409,9 +409,9 @@ TEST_F(GrantedPowersTest, should_grant_no_powers_in_k1) {
 
 TEST_F(GrantedPowersTest, should_show_a_granted_power_as_known_on_the_powers_screen) {
     auto table = makeSpellsTable(
-        {"usertype", "sithlord"},
+        {"name", "usertype", "sithlord"},
         static_cast<int>(SpellType::CrushOppositionI) + 1,
-        {{static_cast<int>(SpellType::CrushOppositionI), {{"usertype", "1"}, {"sithlord", "1"}}}});
+        {{static_cast<int>(SpellType::CrushOppositionI), {{"name", "1"}, {"usertype", "1"}, {"sithlord", "1"}}}});
     load(std::move(table));
 
     CreatureAttributes sithLord;

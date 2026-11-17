@@ -259,10 +259,10 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         auto member = party.getAvailableMember(i, true);
         _materialized[i] = !existed && member;
         if (member) {
-            auto portrait = member->portrait();
             BTN_NPC.setDisabled(false);
             BTN_NPC.setVisible(true);
-            LBL_CHAR.setBorderFill(std::move(portrait));
+            // TSL shows the portrait for the companion's good/evil.
+            LBL_CHAR.setBorderFill(_game.isTSL() ? member->portraitResRefForGoodEvil() : member->basePortraitResRef());
             LBL_CHAR.setBorderAlpha(party.isRosterSelectable({RosterKind::Npc, i}) ? 1.0f : kUnselectablePortraitAlpha);
             LBL_NA.setVisible(false);
         } else {

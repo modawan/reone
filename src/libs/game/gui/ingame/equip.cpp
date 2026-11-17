@@ -124,7 +124,7 @@ void Equipment::onGUILoaded() {
         // KotOR's arrows step through the party: left to the member before
         // the shown character, the last portrait, and right to the next.
         findControl<Button>("BTN_CHARLEFT")->setOnClick([this]() {
-            changeCharacter(_view.subject.portraits[2] ? 2 : 1);
+            changeCharacter(_view.subject.portraits[2].empty() ? 1 : 2);
         });
         findControl<Button>("BTN_CHARRIGHT")->setOnClick([this]() { changeCharacter(1); });
     }

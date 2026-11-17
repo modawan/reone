@@ -17,13 +17,13 @@
 
 #pragma once
 
+#include "../decodedcache.h"
 #include "../types.h"
 
 namespace reone {
 
 namespace resource {
 
-class IResources;
 class Strings;
 class AudioClips;
 
@@ -52,12 +52,9 @@ public:
     }
 
     std::shared_ptr<SoundSet> get(const std::string &key) override {
-        auto maybeObject = _objects.find(key);
-        if (maybeObject != _objects.end()) {
-            return maybeObject->second;
-        }
-        auto object = doGet(key);
-        return _objects.insert(make_pair(key, std::move(object))).first->second;
+        return _objects.get(key, [this, &key](ResourceReads &reads) {
+            return doGet(key, reads);
+        }).value;
     }
 
 private:
@@ -65,9 +62,9 @@ private:
     IResources &_resources;
     Strings &_strings;
 
-    std::unordered_map<std::string, std::shared_ptr<SoundSet>> _objects;
+    DecodedCache<std::string, SoundSet> _objects;
 
-    std::shared_ptr<SoundSet> doGet(std::string resRef);
+    std::shared_ptr<SoundSet> doGet(const std::string &resRef, ResourceReads &reads);
 };
 
 } // namespace resource

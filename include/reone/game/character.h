@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include "d20/attributes.h"
@@ -31,6 +32,8 @@ struct Character {
     std::string name;
     Gender gender {Gender::Male};
     int appearance {0};
+    /** The portraits.2da row; none until a class with a portrait is chosen. */
+    std::optional<int> portraitId;
     CreatureAttributes attributes;
 };
 

@@ -94,6 +94,7 @@
 #include "swooprace.h"
 #include "talent.h"
 #include "turret.h"
+#include "worldtime.h"
 
 namespace reone {
 
@@ -250,6 +251,9 @@ public:
         // TSL keeps combat lines in a list of their own.
         _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
     }
+
+    /** Takes back the obstruction test it gave the audio mixer, which calls into the game. */
+    ~Game();
 
     void init();
 
@@ -449,10 +453,14 @@ public:
     }
     /** The calendar day and the time of day of the object's own time. */
     uint32_t activeTimeDay(const Object &object) const {
-        return static_cast<uint32_t>(activeTimeMilliseconds(object) / millisecondsPerWorldDay());
+        return calendarDay(activeTimeMilliseconds(object));
     }
     uint32_t activeTimeOfDay(const Object &object) const {
-        return static_cast<uint32_t>(activeTimeMilliseconds(object) % millisecondsPerWorldDay());
+        return calendarTimeOfDay(activeTimeMilliseconds(object));
+    }
+    /** The object's own milliseconds since a calendar day and time; none for a moment still ahead. */
+    uint64_t activeTimeSince(const Object &object, uint32_t day, uint32_t time) const {
+        return millisecondsSince(activeTimeMilliseconds(object), day, time);
     }
     /** Time stands still only while an excluded creature keeps a Time Stop effect. */
     void updateTimeStop();
@@ -951,6 +959,9 @@ public:
     bool isQuitRequested() {
         return _quitRequested;
     }
+
+    /** Whether the screen shown has a text box that takes typing now (GameGUI::wantsTextInput). */
+    bool wantsTextInput() const;
 
     resource::CursorType cursorType() const {
         return _pointer->type();
@@ -1457,8 +1468,8 @@ public:
     void prepareSavedRuntimeNamespace(const resource::Gff &ifo, const SerializedIdentityContext &identityContext);
     void restoreWorldTime(
         const resource::Gff &moduleIfo,
-        uint64_t pauseDay,
-        uint64_t pauseTime);
+        uint32_t pauseDay,
+        uint32_t pauseTime);
     void reserveSavedObjectIds(const resource::Gff &gff, const SerializedIdentityContext &identityContext, SerializedGraphRoot graphRoot);
     void resolveSavedObjectReferences();
     void bindSavedRuntimeState();
@@ -1494,7 +1505,11 @@ public:
     void queuePassage(Object &subArea, const std::shared_ptr<Creature> &creature, bool inside);
     /** Remove an effect from the target through the module's event queue. */
     void queueEffectRemoval(Object &target, EffectId id);
-    /** World time after a script delay, or none when the delay is dropped. */
+    /**
+     * The world time \p seconds from now, in whole milliseconds, however many
+     * days that spans; none for a delay a millisecond or more below zero, or
+     * one that is not a number.
+     */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
     /**
      * DelayCommand and AssignCommand: a timed event from caller that runs
@@ -1591,6 +1606,8 @@ public:
     bool hasModalPanel() const;
     /** The mouse turns the third-person camera in play, with no popup taking the input. */
     bool isMouseLooking() const;
+    /** In play, the HUD holds the pointer at the screen point, over the world behind it. */
+    bool isPointerOnHUD(int x, int y) const;
     /** End the game on the next frame, returning to the main menu. */
     void requestEndGame() {
         _endGamePending = true;
@@ -1645,6 +1662,9 @@ public:
     /** End a bound roster representation without changing availability. */
     bool killRosterCreature(const RosterIdentity &identity);
 
+    /** The minutes an hour lasts in a module whose Mod_MinPerHour is 0. */
+    static constexpr uint8_t kDefaultMinutesPerHour = 5;
+
     /**
      * Length of a game day in world-time milliseconds.
      *
@@ -1654,10 +1674,10 @@ public:
      * MinutesPerHour * 60 * 1000 * HOURS_IN_DAY and the raw timer accumulates
      * elapsed time.
      */
-    uint32_t millisecondsPerWorldDay() const {
-        return static_cast<uint32_t>(_minutesPerHour == 0 ? 5 : _minutesPerHour) *
-               60u * 1000u * 24u;
-    }
+    uint32_t millisecondsPerWorldDay() const { return millisecondsPerWorldHour() * kHoursInDay; }
+
+    /** Length of a game hour in world-time milliseconds: Mod_MinPerHour minutes. */
+    uint32_t millisecondsPerWorldHour() const { return static_cast<uint32_t>(_minutesPerHour) * kMillisecondsInMinute; }
 
     /**
      * Calendar day, derived from the canonical clock. Calendar time is a real
@@ -1665,19 +1685,42 @@ public:
      * a detail of the save format.
      */
     uint32_t worldTimeDay() const {
-        return static_cast<uint32_t>(
-            _worldTimeMilliseconds / millisecondsPerWorldDay());
+        return calendarDay(_worldTimeMilliseconds);
     }
 
     /** World milliseconds elapsed within the current calendar day. */
     uint32_t worldTimeOfDay() const {
-        return static_cast<uint32_t>(
-            _worldTimeMilliseconds % millisecondsPerWorldDay());
+        return calendarTimeOfDay(_worldTimeMilliseconds);
+    }
+
+    /** The calendar day of a world time in milliseconds. */
+    uint32_t calendarDay(uint64_t milliseconds) const {
+        return static_cast<uint32_t>(milliseconds / millisecondsPerWorldDay());
+    }
+
+    /** The time of day of a world time in milliseconds. */
+    uint32_t calendarTimeOfDay(uint64_t milliseconds) const {
+        return static_cast<uint32_t>(milliseconds % millisecondsPerWorldDay());
+    }
+
+    /**
+     * The world time in milliseconds of a calendar day and time; a time
+     * beyond the day length is taken as it stands.
+     */
+    uint64_t toWorldMilliseconds(uint32_t day, uint32_t time) const {
+        return static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;
+    }
+
+    /** Sets \p event due at the world time \p milliseconds, as a day and a time of day. */
+    void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
+    /** Sets \p event due \p delayMilliseconds from now on the world clock. */
+    void setEventDueAfter(SavedEventRecord &event, uint64_t delayMilliseconds) const {
+        setEventDue(event, _worldTimeMilliseconds + delayMilliseconds);
     }
 
     /** The hour of the current calendar day, from 0 to 23. */
     uint32_t worldTimeHour() const {
-        return worldTimeOfDay() / (millisecondsPerWorldDay() / 24u);
+        return worldTimeOfDay() / millisecondsPerWorldHour();
     }
     /**
      * Whether it is dusk or night in the module, from the hour of the world
@@ -1687,34 +1730,60 @@ public:
     bool isNightTime() const;
     /**
      * SetTime: the world clock moves on to the time of day, into the next day
-     * when that time is already past. Any negative field leaves it alone.
+     * when that time is already past; hours past a day carry whole days,
+     * counted on from today. Any negative field leaves it alone.
      */
     void advanceToTime(int hours, int minutes, int seconds, int milliseconds);
     /** World milliseconds since a calendar day and time; none for a moment still ahead. */
     uint64_t worldTimeSince(uint32_t day, uint32_t time) const {
-        const uint64_t then = static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;
-        return _worldTimeMilliseconds > then ? _worldTimeMilliseconds - then : 0;
+        return millisecondsSince(_worldTimeMilliseconds, toWorldMilliseconds(day, time));
+    }
+    /** World milliseconds since the world time \p then; none for a moment still ahead. */
+    uint64_t worldTimeSince(uint64_t then) const {
+        return millisecondsSince(_worldTimeMilliseconds, then);
+    }
+    /** The milliseconds from a calendar day and time to \p now; none for a moment after it. */
+    uint64_t millisecondsSince(uint64_t now, uint32_t day, uint32_t time) const {
+        return millisecondsSince(now, toWorldMilliseconds(day, time));
+    }
+    /** The milliseconds from \p then to \p now; none for a moment after it. */
+    static uint64_t millisecondsSince(uint64_t now, uint64_t then) {
+        return now > then ? now - then : 0;
     }
     /**
-     * The world time from one calendar day and time back to another, as whole
-     * days and a time of day in the current day length. When both times lie
-     * within the current day and the first is the earlier, the result is left
-     * as it was. A time beyond the current day length is taken as it stands.
+     * Moves the stamp \p day, \p time of a timer that runs every \p interval
+     * milliseconds on as getNextStamp has it; a stamp that is not set takes
+     * \p now.
      */
-    void subtractWorldTimes(uint32_t day, uint32_t time, uint32_t sinceDay, uint32_t sinceTime,
-                            uint32_t &days, uint32_t &timeOfDay) const {
-        const uint32_t length = millisecondsPerWorldDay();
-        if (time < length && sinceTime < length &&
-            (day < sinceDay || (day == sinceDay && time < sinceTime)))
-            return;
-        days = day - sinceDay;
-        timeOfDay = time - sinceTime;
-        if (timeOfDay >= length) {
-            --days;
-            timeOfDay += length;
-        }
+    void advanceStamp(uint32_t &day, uint32_t &time, uint64_t interval, uint64_t now) const {
+        const uint64_t stamp =
+            isWorldTimeStamped(day, time) ? getNextStamp(toWorldMilliseconds(day, time), interval, now) : now;
+        day = calendarDay(stamp);
+        time = calendarTimeOfDay(stamp);
     }
-    std::optional<float> remainingEffectDuration(const EffectInstance &effect) const;
+    /**
+     * Moves the stamp \p day, \p time back to \p now when it is ahead of it,
+     * as getStampNotAfter has it; whether it moved.
+     */
+    bool clampStamp(uint32_t &day, uint32_t &time, uint64_t now) const {
+        if (!isWorldTimeStamped(day, time)) {
+            return false;
+        }
+        const uint64_t stamp = toWorldMilliseconds(day, time);
+        const uint64_t kept = getStampNotAfter(stamp, now);
+        if (kept == stamp) {
+            return false;
+        }
+        day = calendarDay(kept);
+        time = calendarTimeOfDay(kept);
+        return true;
+    }
+    /**
+     * The seconds left at the time \p now, on the clock the effect is timed
+     * by, of a temporary effect, below zero once past; none for an effect that
+     * is not temporary.
+     */
+    std::optional<float> remainingEffectDuration(const EffectInstance &effect, uint64_t now) const;
 
     template <class T>
     inline std::shared_ptr<T> getObjectById(uint32_t id) const {
@@ -2047,7 +2116,10 @@ private:
     bool _alternateActionsHeld {false};
     /** Whether a menu that holds the input takes each Shift, left then right, by keymap.2da. */
     std::array<bool, 2> _menusTakeAlternateActions {};
-    /** The world time a click was last shut off at, and for how long. */
+    /**
+     * The world time a click was last shut off at, as a calendar day and time
+     * of day, which a module change keeps, and for how long.
+     */
     uint32_t _noClickDay {0};
     uint32_t _noClickTime {0};
     uint32_t _noClickMilliseconds {0};
@@ -2159,6 +2231,8 @@ private:
     const Room *_soundRoom {nullptr};
     /** See conversationIgnoresStartRange. */
     bool _conversationIgnoresStartRange {false};
+    /** The area's scene graph and its walkmesh revision as the mixer last heard of them. */
+    std::pair<const scene::ISceneGraph *, uint32_t> _obstructionRevision {nullptr, 0};
     /** The admission of the request to talk a conversation script has still to answer. */
     GlobalFade::DialogTicket _conversationRequest;
     /** See admitConversationRequest. */
@@ -2378,7 +2452,8 @@ private:
     std::string _lastConversation;
     int _buttonMashCheck {0};
     uint64_t _worldTimeMilliseconds {0};
-    uint8_t _minutesPerHour {5};
+    /** Never 0: a module without an hour length takes kDefaultMinutesPerHour. */
+    uint8_t _minutesPerHour {kDefaultMinutesPerHour};
     double _worldTimeFraction {0.0};
     bool _timeStopped {false};
     std::vector<RuntimeObjectRef<Object>> _timeStopExclusions;
@@ -2582,8 +2657,6 @@ private:
     void returnToScreen(Screen underneath);
 
     void advanceWorldTime(double dt);
-    /** Sets \p event due at the world time \p milliseconds, as a day and a time of day. */
-    void setEventDue(SavedEventRecord &event, uint64_t milliseconds) const;
     void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
     /** The modules whose saved state entering \p destination discards. */
@@ -2988,6 +3061,7 @@ private:
     void consoleHeal(const ConsoleArgs &tokens);
     void consoleInvulnerability(const ConsoleArgs &tokens);
     void consoleWhereAmI(const ConsoleArgs &tokens);
+    void consoleExplain(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleCamera(const ConsoleArgs &tokens);
     void consoleCamPos(const ConsoleArgs &tokens);

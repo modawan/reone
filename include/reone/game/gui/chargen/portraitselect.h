@@ -84,7 +84,8 @@ private:
 
     CharacterGeneration &_charGen;
 
-    std::vector<Portrait> _filteredPortraits;
+    /** The portraits.2da rows offered, in table order. */
+    std::vector<int> _portraitRows;
     int _currentPortrait {0};
 
     void onGUILoaded() override;
@@ -116,6 +117,7 @@ private:
     void loadCurrentPortrait();
     void loadHeadModel();
 
+    const Portrait &currentPortrait() const;
     int getAppearanceFromCurrentPortrait() const;
     std::shared_ptr<scene::ModelSceneNode> getCharacterModel(scene::ISceneGraph &sceneGraph);
 

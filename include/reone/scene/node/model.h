@@ -106,7 +106,7 @@ public:
     };
 
     ModelSceneNode(
-        graphics::Model &model,
+        std::shared_ptr<graphics::Model> model,
         ModelUsage usage,
         ISceneGraph &sceneGraph,
         graphics::GraphicsServices &graphicsSvc,
@@ -118,7 +118,7 @@ public:
             graphicsSvc,
             audioSvc,
             resourceSvc),
-        _model(&model),
+        _model(std::move(model)),
         _usage(usage) {
     }
 
@@ -156,9 +156,13 @@ public:
      * Where the segment from \p from to \p to first meets a triangle of the
      * model's own meshes as they are posed, as a share of its length; none
      * when it meets none. Skinned meshes, lightsaber blades and attached
-     * models are not tested.
+     * models are not tested; with \p opaqueOnly, neither are meshes that are
+     * not drawn or are drawn see-through. Alpha-tested (punch-through)
+     * meshes count as opaque here: the triangle test has no per-pixel alpha,
+     * so skipping such a mesh would let a segment through its solid parts
+     * as well as its holes.
      */
-    std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to) const;
+    std::optional<float> intersectSegment(const glm::vec3 &from, const glm::vec3 &to, bool opaqueOnly = false) const;
     /**
      * Where the segment first meets one of the shown models attached to this
      * one that take scene hits, and theirs in turn, as intersectSegment gives
@@ -177,10 +181,10 @@ public:
     ModelUsage usage() const { return _usage; }
     float drawDistance() const { return _drawDistance; }
 
-    void setModel(graphics::Model &model);
+    void setModel(std::shared_ptr<graphics::Model> model);
     void setDrawDistance(float distance) { _drawDistance = distance; }
-    void setMainTexture(graphics::Texture *texture);
-    void setEnvironmentMap(graphics::Texture *texture);
+    void setMainTexture(std::shared_ptr<graphics::Texture> texture);
+    void setEnvironmentMap(std::shared_ptr<graphics::Texture> texture);
     /**
      * Draws a copy of every mesh pushed out along its normals by \p offset,
      * in \p texture, over the model.
@@ -321,7 +325,7 @@ private:
         glm::quat returnFrom {1.0f, 0.0f, 0.0f, 0.0f};
     };
 
-    graphics::Model *_model;
+    std::shared_ptr<graphics::Model> _model;
     ModelUsage _usage;
 
     IAnimationEventListener *_animEventListener {nullptr};

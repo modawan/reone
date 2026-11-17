@@ -702,22 +702,22 @@ bool Item::consumeSpellUse(size_t index) {
     return false;
 }
 
-// Only the time of day part of the world time since the last use counts, and
-// a use still ahead has no interval.
+// A use still ahead has no interval.
 bool Item::isUseIntervalOver(const PropertyEntry &property) const {
-    uint32_t days = 0;
-    uint32_t elapsed = 0;
-    _game.subtractWorldTimes(_game.worldTimeDay(), _game.worldTimeOfDay(), property.usedDay, property.usedTime,
-                             days, elapsed);
-    static constexpr uint32_t kMillisecondsPerMinute = 60000;
     const int minutes = property.costValue - kOneUsePerMinute + 1;
-    return elapsed >= static_cast<uint32_t>(minutes) * kMillisecondsPerMinute;
+    return _game.worldTimeSince(property.usedDay, property.usedTime) >=
+           static_cast<uint64_t>(std::max(minutes, 0)) * kMillisecondsInMinute;
 }
 
 void Item::refreshSpellReadiness() {
+    const uint64_t now = _game.worldTimeMilliseconds();
     for (auto &property : _properties) {
-        if (property.type() == ItemProperty::ActivateItem && isTimedUse(property.costValue) && !property.usable &&
-            isUseIntervalOver(property)) {
+        if (property.type() != ItemProperty::ActivateItem || !isTimedUse(property.costValue) || property.usable) {
+            continue;
+        }
+        // A use ahead of now counts as made now.
+        _game.clampStamp(property.usedDay, property.usedTime, now);
+        if (isUseIntervalOver(property)) {
             property.usable = true;
         }
     }
