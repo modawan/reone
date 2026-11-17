@@ -1420,7 +1420,11 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newShort("fortbonus", creature._fortBonus));
     put(record, Gff::Field::newFloat("ChallengeRating", creature._challengeRating));
     put(record, Gff::Field::newInt("AIState", static_cast<int>(creature._aiStyle)));
-    put(record, Gff::Field::newWord("SoundSetFile", creature._soundSetId));
+    // A sound set row a word can name is saved as its row; any other as none.
+    const auto &soundSetId = creature._soundSetId;
+    const bool soundSetSaved = soundSetId && *soundSetId >= 0 && *soundSetId < Creature::kNoSoundSetId;
+    put(record, Gff::Field::newWord(
+                    "SoundSetFile", static_cast<uint16_t>(soundSetSaved ? *soundSetId : Creature::kNoSoundSetId)));
     put(record, Gff::Field::newByte("BodyBag", creature._bodyBagId));
 }
 

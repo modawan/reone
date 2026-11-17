@@ -339,6 +339,8 @@ public:
     static constexpr int kNoFuryDamageBonus = -1;
     /** The most experience a creature holds; an addition past it is refused. */
     static constexpr int kMaxExperience = std::numeric_limits<int>::max();
+    /** The SoundSetFile value of a creature record without a voice. */
+    static constexpr int kNoSoundSetId = 0xffff;
     /** The node of a character's body model its head is attached at. */
     static constexpr char kHeadHookNode[] = "headhook";
     /** The PortraitId of a creature record whose portrait is named by its Portrait resref. */
@@ -904,8 +906,8 @@ public:
     void setLevelUpChimeArmed(bool armed) { _levelUpChimeArmed = armed; }
     /**
      * The level the creature's experience reaches by the experience table, up
-     * to the title's maximum, for a creature whose IsPC is exactly 1; any
-     * other creature's level, as getSpellLevel(false) gives it.
+     * to the title's maximum, for a player character; any other creature's
+     * level, as getSpellLevel(false) gives it.
      */
     int potentialLevel() const;
 
@@ -942,8 +944,7 @@ public:
      */
     void wearBackupHead();
     /**
-     * Wears the heads.2da row as its head in place of its appearance's. Rows
-     * from 255 up wrap to a byte, and 255 is the appearance's head again. The
+     * Wears the heads.2da row as its head in place of its appearance's. The
      * head is not saved.
      */
     void duplicateHead(int row);
@@ -1153,25 +1154,29 @@ public:
     void setHealTarget(uint32_t target) { _healTarget = target; }
     /**
      * Whether the creature's record marks it a player character: its IsPC is
-     * not 0. The record's value is saved with the creature.
+     * not 0. The flag is saved with the creature.
      */
-    bool isPC() const { return _isPC != 0; }
-    /** The record's IsPC as stored, 0 to 255; a player character's is 1. */
-    int isPCValue() const { return _isPC; }
+    bool isPC() const { return _isPC; }
     /**
      * Whether the creature acts as a player character: its own copy of the
      * record's IsPC, taken whenever the record is read, cleared when an
      * encounter spawns the creature, and set with the record's when control
-     * of the party changes hands. The copy is not 0.
+     * of the party changes hands.
      */
-    bool actsAsPC() const { return _actsAsPC != 0; }
-    /** The creature's own copy of IsPC as it stands, 0 to 255. */
-    int actsAsPCValue() const { return _actsAsPC; }
+    bool actsAsPC() const { return _actsAsPC; }
     /** Whether a click to talk leaves the creature facing the way it was. */
     bool isNotReorienting() const { return _notReorienting; }
     void setNotReorienting(bool notReorienting) { _notReorienting = notReorienting; }
     /** Queues a camera command that sets the facing alone. */
     void queueCameraFacing(float facing);
+    /**
+     * Whether the creature follows the player character's rules: it is a
+     * player character while no companion is controlled in the player
+     * character's place. Such a creature levels up under player character
+     * rules (every skill open, every power pickable) and takes its vitality
+     * and Force points from its level history.
+     */
+    bool levelsAsPlayerCharacter() const;
     /** The character was made by the player (TSL item limitation). */
     bool isPlayerCreated() const { return _playerCreated; }
     bool isPartyInteract() const { return _partyInteract; }
@@ -1181,13 +1186,13 @@ public:
     void forceEquipClothing();
     void setPlayerCreated(bool value) { _playerCreated = value; }
     /**
-     * Sets the player-character flag, both the record's IsPC and the
-     * creature's own copy, to 1 or 0. A creature whose record does not carry
-     * IsPC is a player character.
+     * Sets the player-character flag, both the record's and the creature's
+     * own copy. A creature whose record does not carry IsPC is a player
+     * character.
      */
     void setPC(bool value) {
-        _isPC = value ? 1 : 0;
-        _actsAsPC = _isPC;
+        _isPC = value;
+        _actsAsPC = value;
     }
     /** The appearance's race label, which picks droid discharges. */
     const std::string &appearanceRace() const { return _appearanceRace; }
@@ -1260,6 +1265,8 @@ public:
      */
     void setPortraitId(std::optional<int> portraitId) { _portraitId = portraitId; }
     void setMovementType(MovementType type);
+    /** The soundset.2da row of the creature's voice, loading its sounds; none for no voice. */
+    void setSoundSet(std::optional<int> soundSetId);
     /** Join a faction; a creature joining a faction other than its own goes to the end of its members. */
     void setFaction(Faction faction);
     /** Where the creature stands in the order in which its faction's members joined. */
@@ -2761,9 +2768,9 @@ private:
     /** The portrait named by the record, for a creature without a portrait row. */
     std::string _portraitResRef;
     /** The record's IsPC byte; any value but 0 marks a player character. */
-    uint8_t _isPC {1};
-    /** The creature's own copy of IsPC (see actsAsPC()); not saved. */
-    uint8_t _actsAsPC {1};
+    bool _isPC {true};
+    /** The creature's own copy of the flag (see actsAsPC()); not saved. */
+    bool _actsAsPC {true};
     bool _playerCreated {false};
     /** Body armour this creature could not wear when it was loaded. */
     bool _bodyRefusedOnLoad {false};
@@ -2861,7 +2868,7 @@ private:
     resource::LocString _firstName;
     resource::LocString _lastName;
 
-    uint16_t _soundSetId {0xFFFF};
+    std::optional<int> _soundSetId;
     /** A row of 0 takes the appearance's bag row. */
     uint8_t _bodyBagId {0};
     /**
@@ -2875,8 +2882,8 @@ private:
     std::map<int, std::shared_ptr<Item>> _equipment;
     // END Serializable
 
-    /** The heads.2da row worn in place of the appearance's head; 255 for none. */
-    uint8_t _duplicatedHead {0xff};
+    /** The heads.2da row worn in place of the appearance's head. */
+    std::optional<int> _duplicatedHead;
     bool _wearsBackupHead {false};
     ModelType _modelType {ModelType::Creature};
     /** The portraits.2da row of the portrait, when it has one. */
@@ -3636,7 +3643,7 @@ private:
                              std::optional<DamageReaction> reaction = std::nullopt);
     /**
      * Whether the difficulty settings keep this creature at 1 hit point: they
-     * may for a player character whose record's IsPC is 1.
+     * may for a player character.
      */
     bool difficultyKeepsAtOneHitPoint() const;
     int consumeTemporaryHitPoints(int amount);

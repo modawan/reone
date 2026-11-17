@@ -3844,11 +3844,15 @@ bool Creature::currentClipLoops() const {
     return (base->get().properties.flags & AnimationFlags::loop) != 0;
 }
 
+bool Creature::levelsAsPlayerCharacter() const {
+    return _isPC && _game.party().controlledNpc() == kNpcPlayer;
+}
+
 int Creature::maxHitPoints() const {
     const auto hasVitalityFeat = [this](FeatType feat) { return hasEffectiveFeat(feat); };
     // The player character's level history holds while no companion is
     // controlled in its place.
-    return _isPC == 1 && _game.party().controlledNpc() == -1
+    return levelsAsPlayerCharacter()
                ? _attributes.getLevelHistoryMaxHitPoints(
                      [this](int level) {
                          // A level without a recorded entry grants no hit die.
@@ -4415,7 +4419,7 @@ int Creature::getReputationFrom(Faction sourceFaction) const {
 
 void Creature::joinEncounter(const Encounter &encounter) {
     _encounterId = encounter.id();
-    _actsAsPC = 0;
+    _actsAsPC = false;
 }
 
 void Creature::leaveEncounter() {
@@ -4927,7 +4931,7 @@ bool Creature::applyResurrectionEffect(int hpPercent) {
 // The party always runs at the top priority; combat raises the lower
 // priorities to 2, and leaving combat drops 2 to 1.
 void Creature::updateAILevel() {
-    if (_isPC == 1 || isPartyMember()) {
+    if (_isPC || isPartyMember()) {
         _aiLevel = 4;
     } else if (_combatState.active && _aiLevel <= 1) {
         _aiLevel = 2;
@@ -6121,12 +6125,12 @@ bool Creature::isLevelUpPending() const {
            static_cast<uint32_t>(_xp) >= _services.game.combatTables.experienceThreshold(level);
 }
 
-// Only a creature whose IsPC is exactly 1 walks the table; any other keeps
-// its level.
+// Only a player character walks the table; any other creature keeps its
+// level.
 int Creature::potentialLevel() const {
     const auto &tables = _services.game.combatTables;
     int level = getSpellLevel(false);
-    if (_isPC != 1) {
+    if (!_isPC) {
         return level;
     }
     while (level < maxCharacterLevel(_game.isTSL()) &&
@@ -7213,7 +7217,7 @@ void Creature::forgetFallenCombatTargets() {
 void Creature::recordQueuedAttack(Object &target) {
     if (auto *creature = dyn_cast<Creature>(&target)) {
         const auto leader = _game.party().getLeader();
-        if (creature->actsAsPCValue() == 1 || leader.get() == creature) {
+        if (creature->actsAsPC() || leader.get() == creature) {
             creature->_incomingAttacker = SavedObjectReference::fromRuntimeId(id());
             _game.bindSavedObjectReference(creature->_incomingAttacker);
         }
@@ -11367,8 +11371,8 @@ std::string Creature::getHeadModelName() const {
 }
 
 int Creature::headRow(const TwoDA &appearances) const {
-    if (_duplicatedHead != 0xff) {
-        return _duplicatedHead;
+    if (_duplicatedHead) {
+        return *_duplicatedHead;
     }
     // A blank backup head reads as row 0.
     if (useBackupHead()) {
@@ -11385,7 +11389,7 @@ void Creature::refreshHead() {
 }
 
 void Creature::duplicateHead(int row) {
-    _duplicatedHead = static_cast<uint8_t>(row);
+    _duplicatedHead = row;
     refreshHead();
 }
 
@@ -11622,7 +11626,7 @@ void Creature::deserializeAll(
             _currentForm = static_cast<CombatForm>(gff.getUint("CurrentForm"));
         }
         // Both are saved as byte fields.
-        uint8_t value;
+        uint8_t value {0};
         if (gff.readByte(value, "MultiplierSet")) {
             _autoBalanceContext.multiplierSet = value;
         }
@@ -11636,7 +11640,11 @@ void Creature::deserializeAll(
 
     // IsPC is read before hit points are rebuilt. A player character stays
     // incapacitated and resumable through 0..-9 HP and is dead only at -10 HP.
-    gff.readByte(_isPC, "IsPC");
+    // Any value but 0 marks a player character.
+    uint8_t isPC {0};
+    if (gff.readByte(isPC, "IsPC")) {
+        _isPC = isPC != 0;
+    }
     if (auto followInfo = gff.findStruct("FollowInfo")) {
         uint8_t withinSafetyRange = _withinSafetyRange;
         followInfo->readByte(withinSafetyRange, "InSafetyRange");
@@ -11667,8 +11675,8 @@ void Creature::deserializeAll(
     // are loaded, so equipping a saved disguise does not overwrite it.
     _disguised = false;
     _appearanceBeforeDisguise = 0;
-    bool disguised;
-    uint16_t appearanceBeforeDisguise;
+    bool disguised {false};
+    uint16_t appearanceBeforeDisguise {0};
     if (gff.readBool(disguised, "PM_IsDisguised") &&
         disguised &&
         gff.readWord(appearanceBeforeDisguise, "PM_Appearance")) {
@@ -11718,7 +11726,7 @@ void Creature::deserializeAll(
 
     // index into creaturespeed.2da
     gff.readInt(_walkRate, "WalkRate");
-    uint8_t movementRate;
+    uint8_t movementRate {0};
     if (gff.readByte(movementRate, "MovementRate")) {
         _walkRate = movementRate;
     }
@@ -11752,9 +11760,10 @@ void Creature::deserializeAll(
     gff.readShort(_refBonus, "refbonus");
     gff.readShort(_willBonus, "willbonus");
     gff.readShort(_fortBonus, "fortbonus");
-    uint8_t goodEvil;
+    // A good/evil value above the scale reads as its top.
+    uint8_t goodEvil {0};
     if (gff.readByte(goodEvil, "GoodEvil")) {
-        _goodEvil = goodEvil;
+        _goodEvil = std::min<int>(goodEvil, kMaxGoodEvil);
     }
     if (_game.isTSL()) {
         // A field label holds sixteen characters, so the base alignment's is
@@ -11826,8 +11835,18 @@ void Creature::setFirstAndLastName(resource::LocString firstName, resource::LocS
 }
 
 void Creature::deserializeSoundSet(const resource::Gff &gff) {
-    gff.readWord(_soundSetId, "SoundSetFile");
-    if (_soundSetId == 0xffff) {
+    auto soundSetId = _soundSetId;
+    uint16_t value {0};
+    if (gff.readWord(value, "SoundSetFile")) {
+        soundSetId = value != kNoSoundSetId ? std::optional<int>(value) : std::nullopt;
+    }
+    setSoundSet(soundSetId);
+}
+
+void Creature::setSoundSet(std::optional<int> soundSetId) {
+    _soundSetId = soundSetId;
+    _soundSet.reset();
+    if (!_soundSetId) {
         return;
     }
 
@@ -11835,7 +11854,7 @@ void Creature::deserializeSoundSet(const resource::Gff &gff) {
     if (!soundSetTable) {
         return;
     }
-    std::string soundSetResRef(soundSetTable->getString(_soundSetId, "resref"));
+    std::string soundSetResRef(soundSetTable->getString(*_soundSetId, "resref"));
     if (!soundSetResRef.empty()) {
         _soundSet = _services.resource.soundSets.get(soundSetResRef);
     }
@@ -11856,7 +11875,7 @@ void Creature::deserializeAttributes(const resource::Gff &gff) {
     }
     CreatureAttributes &attributes = _attributes;
     {
-        uint8_t value;
+        uint8_t value {0};
         if (gff.readByte(value, "Str")) {
             attributes.setAbilityScore(Ability::Strength, value);
         }
@@ -11932,7 +11951,7 @@ void Creature::deserializeClass(const resource::Gff &gff) {
         return;
     }
 
-    int16_t level;
+    int16_t level {0};
     if (gff.readShort(level, "ClassLevel")) {
         _attributes.addClassLevels(clazz.get(), level);
     }
@@ -12463,7 +12482,7 @@ int Creature::maxForcePoints() const {
     // A creature without Force points reads no ability modifier.
     const auto wisdom = [this]() { return getEffectiveAbilityModifier(Ability::Wisdom); };
     const auto charisma = [this]() { return getEffectiveAbilityModifier(Ability::Charisma); };
-    if (_isPC && _game.party().controlledNpc() == -1) {
+    if (levelsAsPlayerCharacter()) {
         // The player character's level history counts when its last class
         // uses the Force, whatever its earlier classes.
         if (!isForceUsingClass(lastClass, tsl)) {
@@ -12997,7 +13016,7 @@ void Creature::addTemporaryHitPoints(int amount, bool restoring) {
 }
 
 bool Creature::difficultyKeepsAtOneHitPoint() const {
-    return isPCValue() == 1 && _services.game.difficultyOptions.keepsPlayerCharacterAtOneHitPoint();
+    return _isPC && _services.game.difficultyOptions.keepsPlayerCharacterAtOneHitPoint();
 }
 
 int Creature::consumeTemporaryHitPoints(int amount) {
