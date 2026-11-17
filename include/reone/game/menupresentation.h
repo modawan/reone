@@ -111,6 +111,11 @@ int loadUnlockedPlanetSongs(const std::filesystem::path &path);
 /** Write the unlocked planet songs into the configuration, keeping every other line. */
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs);
 
+/** The completion record, from the configuration's Game Options; \p completed when it does not say. */
+int loadGameCompleted(const std::filesystem::path &path, int completed);
+/** Write the completion record into the configuration, keeping every other line. */
+void saveGameCompleted(const std::filesystem::path &path, int completed);
+
 /** The movies the player has seen, by their names in lower case. */
 using MoviesShown = std::set<std::string>;
 /** The movies the configuration's Movies Shown section names. */

@@ -296,6 +296,8 @@ public:
      * is not skippable plays to its end.
      */
     void queueMovie(const std::string &name, bool skippable);
+    /** TSL: tells a new game the completion record kept from the games before it, as GBL_GAME_COMPLETE. */
+    void tellGameCompleted();
     /**
      * Plays the queued movies in order, ahead of a transition's, and empties
      * the queue; whether a movie plays.

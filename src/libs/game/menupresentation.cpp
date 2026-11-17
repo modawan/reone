@@ -81,6 +81,7 @@ const std::array<std::pair<std::string_view, bool FeedbackOptions::*>, 9> kFeedb
 const std::string kDifficultyLevelKey {"Difficulty Level"};
 const std::string kActiveKeybindsKey {"Active Keybinds"};
 const std::string kUnlockedPlanetSongsKey {"UnlockedPlanetSongs"};
+const std::string kGameCompletedKey {"GameCompleted"};
 const std::string kMouseLookKey {"Mouse Look"};
 const std::string kCombatMovementKey {"Combat Movement"};
 const std::string kMouseSensitivityKey {"Mouse Sensitivity"};
@@ -508,6 +509,16 @@ void saveMoviesShown(const std::filesystem::path &path, const MoviesShown &shown
 void saveUnlockedPlanetSongs(const std::filesystem::path &path, int songs) {
     auto configuration = ConfigurationFile::read(path);
     configuration.set(kGameOptionsSection, {{kUnlockedPlanetSongsKey, songs}});
+    configuration.write(path);
+}
+
+int loadGameCompleted(const std::filesystem::path &path, int completed) {
+    return ConfigurationFile::read(path).number(kGameOptionsSection, kGameCompletedKey).value_or(completed);
+}
+
+void saveGameCompleted(const std::filesystem::path &path, int completed) {
+    auto configuration = ConfigurationFile::read(path);
+    configuration.set(kGameOptionsSection, {{kGameCompletedKey, completed}});
     configuration.write(path);
 }
 
