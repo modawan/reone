@@ -1322,6 +1322,7 @@ void Creature::retireAreaRuntime(
     if (_path) {
         releasePath(pathfinder, *_path);
         _path.reset();
+        _pathNode.reset();
     }
     _pathVelocity = glm::vec3(0.0f);
     _previousPosition = _position;
@@ -2656,6 +2657,7 @@ void Creature::update(float dt) {
         }
     }
     Object::update(dt);
+    releaseOrphanedPath();
     standOnGround();
     updateMineCheck(dt);
     updateForcedMove(dt);
@@ -4993,6 +4995,7 @@ void Creature::clearAllActions(bool force, bool evenUncommandable) {
     resetBlockingCreature();
     // Clearing the actions also ends a push or leap carrying the creature.
     endForcedMove();
+    releaseOrphanedPath();
 }
 
 void Creature::clearOrdersUnlessBusy() {
@@ -9852,6 +9855,12 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
     Area &area = *module->area();
     Pathfinder &pf = area.pathfinder();
 
+    // A path serves the walk it was planned for, and another walk plans its own.
+    const auto executing = _executingActionNode.lock();
+    if (_path && executing && _pathNode.lock() != executing) {
+        clearPath();
+    }
+
     // A creature within reach of the destination but without a clear line to
     // it, past a wall or anything that blocks sight, walks all the way onto
     // it, and keeps to that until the walk ends. The line is tested just above
@@ -10036,6 +10045,7 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         _navigationFailed = !pathExists(pf, position(), dest);
         return false;
     }
+    _pathNode = walkingNode();
     if (straight) {
         setPathPoints(pf, *_path, {_position, dest}, 1);
     }
@@ -10280,6 +10290,7 @@ void Creature::planStraightPath(const glm::vec3 &point) {
     if (!_path) {
         return;
     }
+    _pathNode = walkingNode();
     setPathPoints(pf, *_path, {_position, point}, 1);
     _attemptedMovementTarget.reset();
     resetBlockingCreature();
@@ -10570,6 +10581,27 @@ void Creature::clearPath() {
     Pathfinder &pf = _game.module()->area()->pathfinder();
     releasePath(pf, *_path);
     _path = std::nullopt;
+    _pathNode.reset();
+}
+
+void Creature::releaseOrphanedPath() {
+    if (!_path) {
+        return;
+    }
+    const auto walk = _pathNode.lock();
+    const auto &nodes = _actions.nodes;
+    if (!walk || std::find(nodes.begin(), nodes.end(), walk) == nodes.end()) {
+        clearPath();
+    }
+}
+
+OrdinaryActionQueue::Node Creature::walkingNode() const {
+    // A path planned on another creature's behalf, as a creature pushed
+    // aside is given one, serves the move just put at the front of its queue.
+    if (auto executing = _executingActionNode.lock()) {
+        return executing;
+    }
+    return _actions.nodes.empty() ? nullptr : _actions.nodes.front();
 }
 
 std::string Creature::getAnimationName(AnimationType anim) const {
