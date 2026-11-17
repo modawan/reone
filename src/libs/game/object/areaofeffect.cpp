@@ -146,12 +146,12 @@ void AreaOfEffect::setCreator(const std::shared_ptr<Object> &creator) {
     _metaMagic = creature.spellCastContext().metaMagic;
     _spellSaveDC = creature.getSpellSaveDC(spellId);
     // A spell cast through a class takes that class's level; any other source
-    // takes twice the spell's innate level less one.
+    // takes the spell's innate spell level.
     const int castingClass = creature.spellCastContext().castingClass;
     if (castingClass < kSpellLikeAbilityClass) {
         _spellLevel = creature.adjustedClassLevel(castingClass);
     } else if (auto spell = _services.game.spells.get(static_cast<SpellType>(spellId))) {
-        _spellLevel = 2 * static_cast<int>(spell->innateLevel) - 1;
+        _spellLevel = spell->innateSpellLevel();
     }
 }
 

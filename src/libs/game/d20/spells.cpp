@@ -19,6 +19,7 @@
 
 #include <array>
 #include <cassert>
+#include <charconv>
 
 #include <boost/algorithm/string.hpp>
 
@@ -71,48 +72,77 @@ static const std::unordered_map<ClassType, std::vector<std::pair<int, SpellType>
     {ClassType::SithLord, {{1, SpellType::CrushOppositionI}, {5, SpellType::CrushOppositionII}, {9, SpellType::CrushOppositionIII}, {13, SpellType::CrushOppositionIV}, {17, SpellType::CrushOppositionV}}},
     {ClassType::SithAssassin, {{1, SpellType::ForceCamouflage}, {7, SpellType::ImprovedForceCamouflage}, {13, SpellType::MasterForceCamouflage}}}};
 
-static std::optional<SpellType> parseSpellType(const std::string &value) {
-    if (value.empty()) {
-        return std::nullopt;
-    }
+// A power list cell holds up to five numbers, each ended by '_' or ':'.
+// Separators before the first number are skipped, and a cell that does not end
+// with one reads as if it did. An entry that is not a whole number is skipped,
+// and the list ends at its first entry of -1; the entries are read as written.
+static constexpr int kSpellListSize = 5;
+static constexpr int kNoSpellListEntry = -1;
 
-    try {
-        size_t parsedLength = 0;
-        int parsed = std::stoi(value, &parsedLength);
-        if (parsedLength == value.size() && parsed >= 0) {
-            return static_cast<SpellType>(parsed);
-        }
-    } catch (const std::exception &) {
-    }
-
-    return std::nullopt;
+static bool isSpellListSeparator(char ch) {
+    return ch == '_' || ch == ':';
 }
 
-static std::vector<SpellType> parsePrerequisites(const std::string &value) {
-    std::vector<SpellType> result;
-    std::vector<std::string> tokens;
-    boost::split(tokens, value, boost::is_any_of("_"));
-    for (const auto &token : tokens) {
-        auto maybeSpell = parseSpellType(token);
-        if (maybeSpell) {
-            result.push_back(*maybeSpell);
+static std::vector<int> parseSpellList(std::string cell) {
+    if (cell.empty() || !isSpellListSeparator(cell.back())) {
+        cell += '_';
+    }
+    size_t pos = 0;
+    while (pos < cell.size() && isSpellListSeparator(cell[pos])) {
+        ++pos;
+    }
+    std::vector<int> result;
+    for (int i = 0; i < kSpellListSize && pos < cell.size(); ++i) {
+        size_t end = pos;
+        while (!isSpellListSeparator(cell[end])) {
+            ++end;
         }
+        const char *first = cell.data() + pos;
+        const char *last = cell.data() + end;
+        pos = end + 1;
+        int value = 0;
+        auto [parsed, error] = std::from_chars(first, last, value);
+        if (error != std::errc() || parsed != last) {
+            continue;
+        }
+        if (value == kNoSpellListEntry) {
+            break;
+        }
+        result.push_back(value);
     }
     return result;
 }
 
-static bool isPickerVisible(const Spell &spell, const CreatureClass &clazz) {
-    auto maybeRequirement = spell.getClassLevelRequirement(clazz.type());
-    return spell.userType == kSpellUserTypeForcePower && maybeRequirement && *maybeRequirement >= 0;
+// The powers a power list names: its entries of zero and above.
+static std::vector<SpellType> listedPowers(const std::vector<int> &entries) {
+    std::vector<SpellType> powers;
+    for (int entry : entries) {
+        if (entry >= 0) {
+            powers.push_back(static_cast<SpellType>(entry));
+        }
+    }
+    return powers;
 }
 
+// A first master power entry that keeps the power off the level-up screen's offer.
+static constexpr int kUnofferedMasterSpell = -2;
+
+static bool isPickerVisible(const Spell &spell, const CreatureClass &clazz) {
+    auto maybeRequirement = spell.getClassLevelRequirement(clazz.type());
+    return spell.userType == kSpellUserTypeForcePower && spell.nameStrRef != 0 && !spell.unofferedOnLevelUp &&
+           maybeRequirement && *maybeRequirement >= 0;
+}
+
+// Whether each master power and each prerequisite of the power is known or chosen.
 static bool prerequisitesSatisfied(
     const Spell &spell,
     const CreatureAttributes &attributes,
     const std::set<SpellType> &chosen) {
-    return std::all_of(spell.prerequisites.begin(), spell.prerequisites.end(), [&](SpellType prerequisite) {
-        return attributes.hasSpell(prerequisite) || chosen.count(prerequisite) > 0;
-    });
+    auto knownOrChosen = [&](SpellType power) {
+        return attributes.hasSpell(power) || chosen.count(power) > 0;
+    };
+    return std::all_of(spell.masterSpells.begin(), spell.masterSpells.end(), knownOrChosen) &&
+           std::all_of(spell.prerequisites.begin(), spell.prerequisites.end(), knownOrChosen);
 }
 
 static int getVisualDepth(
@@ -173,6 +203,16 @@ static SpellType getChainRoot(
     return result;
 }
 
+// The menu slot columns in the order a power's menu places are read, with
+// the group of each one's menu: friendly 3, hostile 1, passive 2.
+static const std::array<std::pair<const char *, int>, 3> kMenuSlotColumns {{{"forcefriendly", 3},
+                                                                            {"forcehostile", 1},
+                                                                            {"forcepassive", 2}}};
+
+// The menu groups of the hostile and friendly power menus.
+static constexpr int kHostileMenuGroup = 1;
+static constexpr int kFriendlyMenuGroup = 3;
+
 // With merged tiers, a power of the higher slot of a pair takes the place of
 // an entry in the lower one.
 static constexpr int kLowerTierSlot1 = 16;
@@ -185,30 +225,34 @@ std::vector<std::shared_ptr<Spell>> ISpells::getActionSpells(
     const std::function<bool(const Spell &)> &offered, bool mergeTiers) const {
     struct Entry {
         int slot;
+        int priority;
         std::shared_ptr<Spell> spell;
     };
+    const int menuGroup = hostileMenu ? kHostileMenuGroup : kFriendlyMenuGroup;
     std::vector<Entry> entries;
     for (SpellType type : candidates) {
         auto spell = get(type);
         if (!spell || !offered(*spell)) {
             continue;
         }
-        const int slot = hostileMenu ? spell->hostileSlot : spell->friendlySlot;
-        if (slot < 0) {
-            continue;
-        }
-        auto it = entries.begin();
-        for (; it != entries.end(); ++it) {
-            const bool higherTier = mergeTiers && ((slot == kHigherTierSlot2 && it->slot == kLowerTierSlot2) ||
-                                                   (slot == kHigherTierSlot1 && it->slot == kLowerTierSlot1));
-            if (higherTier || it->slot == slot || it->slot > slot) {
-                break;
+        for (const SpellMenuPlace &place : spell->menuPlaces) {
+            if (place.group != menuGroup) {
+                continue;
             }
-        }
-        if (it == entries.end() || it->slot > slot) {
-            entries.insert(it, Entry {slot, std::move(spell)});
-        } else if (it->slot != slot || spell->menuPriority > it->spell->menuPriority) {
-            *it = Entry {slot, std::move(spell)};
+            const int slot = place.slot;
+            auto it = entries.begin();
+            for (; it != entries.end(); ++it) {
+                const bool higherTier = mergeTiers && ((slot == kHigherTierSlot2 && it->slot == kLowerTierSlot2) ||
+                                                       (slot == kHigherTierSlot1 && it->slot == kLowerTierSlot1));
+                if (higherTier || it->slot == slot || it->slot > slot) {
+                    break;
+                }
+            }
+            if (it == entries.end() || it->slot > slot) {
+                entries.insert(it, Entry {slot, place.priority, spell});
+            } else if (it->slot != slot || place.priority > it->priority) {
+                *it = Entry {slot, place.priority, spell};
+            }
         }
     }
     std::vector<std::shared_ptr<Spell>> result;
@@ -286,10 +330,11 @@ void Spells::init(resource::GameID gameId) {
         std::string name(_strings.getText(spells->getInt(row, "name", -1)));
         std::string description(_strings.getText(spells->getInt(row, "spelldesc", -1)));
         std::shared_ptr<Texture> icon(_textures.get(spells->getString(row, "iconresref"), TextureUsage::GUI));
-        uint32_t pips = spells->getHexInt(row, "pips");
-        std::vector<SpellType> prerequisites(parsePrerequisites(spells->getString(row, "prerequisites")));
-        std::optional<SpellType> masterSpell(parseSpellType(spells->getString(row, "masterspell")));
-        int userType = spells->getInt(row, "usertype", -1);
+        int pips = static_cast<int>(spells->getHexInt(row, "pips"));
+        std::vector<SpellType> prerequisites = listedPowers(parseSpellList(spells->getString(row, "prerequisites")));
+        const std::vector<int> masterEntries = parseSpellList(spells->getString(row, "masterspell"));
+        // A blank user type cell reads 0.
+        int userType = spells->getInt(row, "usertype", 0);
         auto category = static_cast<uint32_t>(spells->getInt(row, "category"));
         std::string impactScript = spells->getString(row, "impactscript");
         std::string castAnim = spells->getString(row, "castanim");
@@ -303,6 +348,7 @@ void Spells::init(resource::GameID gameId) {
         std::string projModel = spells->getString(row, "projmodel");
 
         auto spell = std::make_shared<Spell>();
+        spell->nameStrRef = spells->getInt(row, "name", 0);
         spell->catchTime = spells->getInt(row, "catchtime") / 1000.0f;
         spell->projectile = spells->getInt(row, "proj") != 0;
         const auto path = boost::algorithm::to_lower_copy(spells->getString(row, "projtype"));
@@ -329,9 +375,10 @@ void Spells::init(resource::GameID gameId) {
         spell->icon = std::move(icon);
         spell->pips = pips;
         spell->prerequisites = std::move(prerequisites);
-        spell->masterSpell = masterSpell;
+        spell->masterSpells = listedPowers(masterEntries);
+        spell->unofferedOnLevelUp = !masterEntries.empty() && masterEntries.front() == kUnofferedMasterSpell;
         spell->userType = userType;
-        spell->innateLevel = spells->getInt(row, "inate", Spell::kBlankInnateLevel);
+        spell->innateLevel = spells->getIntOpt(row, "inate");
         spell->forcePointCost = spells->getInt(row, "forcepoints", 0);
         const std::string alignment = spells->getString(row, "goodevil");
         spell->alignment = alignment.empty() ? 'N' : alignment.front();
@@ -366,9 +413,13 @@ void Spells::init(resource::GameID gameId) {
         }
         spell->formMask = formMask;
         spell->hostile = hostile;
-        spell->hostileSlot = spells->getInt(row, "forcehostile", -1);
-        spell->friendlySlot = spells->getInt(row, "forcefriendly", -1);
-        spell->menuPriority = spells->getInt(row, "forcepriority");
+        spell->hostileSlot = spells->getIntOpt(row, "forcehostile");
+        const int menuPriority = spells->getInt(row, "forcepriority");
+        for (const auto &[column, group] : kMenuSlotColumns) {
+            if (const auto slot = spells->getIntOpt(row, column)) {
+                spell->menuPlaces.push_back(SpellMenuPlace {group, *slot, menuPriority});
+            }
+        }
         spell->projModel = projModel.empty() ? nullptr : _models.get(projModel);
         // A blank sound cell plays nothing. A spell without a projectile of
         // its own flies with the default projectile sound.
