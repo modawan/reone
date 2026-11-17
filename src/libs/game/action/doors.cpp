@@ -38,6 +38,7 @@
 #include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/lock.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/game/script/runner.h"

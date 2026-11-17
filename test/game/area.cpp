@@ -27,6 +27,7 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/room.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/scene/collision.h"

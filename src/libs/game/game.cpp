@@ -43,6 +43,7 @@
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
+#include "reone/game/camerastyle.h"
 #include "reone/game/combat.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/races.h"
@@ -76,11 +77,24 @@
 #include "reone/game/gui/store.h"
 #include "reone/game/location.h"
 #include "reone/game/minigame.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/areaofeffect.h"
+#include "reone/game/object/camera/animated.h"
+#include "reone/game/object/camera/dialog.h"
+#include "reone/game/object/camera/firstperson.h"
+#include "reone/game/object/camera/static.h"
+#include "reone/game/object/camera/thirdperson.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/minigameobject.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
 #include "reone/game/player.h"
 #include "reone/game/projectiles.h"
@@ -186,6 +200,85 @@ Game::Game(
     initJournalNotifications();
     // TSL keeps combat lines in a list of their own.
     _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
+}
+
+std::shared_ptr<Module> Game::newModule() {
+    return newObject<Module>(*this, _services);
+}
+
+std::shared_ptr<Module> Game::newSavedModule() {
+    // The module is not part of the serialized object graph, but it still
+    // needs a live identity: authored OnLoad scripts run with the module
+    // as OBJECT_SELF and may schedule commands back onto it.
+    return newObject<Module>(*this, _services);
+}
+
+std::shared_ptr<Area> Game::newArea(std::string sceneName) {
+    return newObject<Area>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Creature> Game::newCreature(std::string sceneName) {
+    return newObject<Creature>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Creature> Game::newPresentationCreature(
+    std::string sceneName) {
+    auto creature = newPresentationObject<Creature>(
+        std::move(sceneName), *this, _services);
+    creature->setGoodEvil(kNeutralGoodEvil);
+    return creature;
+}
+
+std::shared_ptr<Placeable> Game::newPlaceable(std::string sceneName) {
+    return newObject<Placeable>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Door> Game::newDoor(std::string sceneName) {
+    return newObject<Door>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Waypoint> Game::newWaypoint(std::string sceneName) {
+    return newObject<Waypoint>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Trigger> Game::newTrigger(std::string sceneName) {
+    return newObject<Trigger>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Sound> Game::newSound(std::string sceneName) {
+    return newObject<Sound>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<AnimatedCamera> Game::newAnimatedCamera(std::string sceneName) {
+    return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<DialogCamera> Game::newDialogCamera(std::string sceneName) {
+    return newObject<DialogCamera>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<FirstPersonCamera> Game::newFirstPersonCamera(float fovy, std::string sceneName) {
+    return newObject<FirstPersonCamera>(fovy, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<StaticCamera> Game::newStaticCamera(std::string sceneName) {
+    return newObject<StaticCamera>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<ThirdPersonCamera> Game::newThirdPersonCamera(CameraStyle style, std::string sceneName) {
+    return newObject<ThirdPersonCamera>(std::move(style), std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<AreaOfEffect> Game::newAreaOfEffect(std::string sceneName) {
+    return newObject<AreaOfEffect>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Encounter> Game::newEncounter(std::string sceneName) {
+    return newObject<Encounter>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Store> Game::newStore(std::string sceneName) {
+    return newObject<Store>(std::move(sceneName), *this, _services);
 }
 
 bool Game::isAnimatedCutsceneShowing() const {

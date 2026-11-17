@@ -26,6 +26,7 @@
 #include "reone/game/animationutil.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/graphics/di/services.h"
