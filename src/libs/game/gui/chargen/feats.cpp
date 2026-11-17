@@ -214,7 +214,7 @@ void CharGenFeats::buildAvailableFeats() {
     }
 }
 
-void CharGenFeats::recommend(bool fillWithUnranked) {
+void CharGenFeats::recommend() {
     // The recommendation starts over from the feats the screen opened with.
     _selectedFeats.clear();
     _remaining = _points;
@@ -222,7 +222,7 @@ void CharGenFeats::recommend(bool fillWithUnranked) {
     buildAvailableFeats();
 
     CreatureAttributes attributes(choiceAttributes());
-    for (auto feat : recommendFeats(_services.game.feats, makeChoice(attributes), _remaining, fillWithUnranked)) {
+    for (auto feat : recommendFeats(_services.game.feats, makeChoice(attributes), _remaining)) {
         addChosenFeat(feat);
     }
     refreshSelectionControls();

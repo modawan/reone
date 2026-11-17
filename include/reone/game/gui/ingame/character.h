@@ -264,6 +264,11 @@ private:
     }
 
     void refreshPortraits();
+    /**
+     * Asks whether the leader should take every level its experience allows
+     * by itself, and on Yes levels it (Creature::autoLevelUp).
+     */
+    void confirmAutoLevelUp();
     /** Hands control to a party member, whom the screen then shows. */
     void changeCharacter(int member);
     void refresh3D();

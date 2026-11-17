@@ -58,6 +58,13 @@ public:
      * @param amount the experience awarded
      */
     void addExperience(const Object &object, int amount);
+    /**
+     * Shows the level a creature has reached by levelling up by itself.
+     *
+     * @param object the object the text is shown over
+     * @param level the creature's new level
+     */
+    void addLevelUp(const Object &object, int level);
 
     void update(float dt);
     void render();
@@ -69,6 +76,7 @@ private:
         Heal,
         Miss,
         Experience,
+        LevelUp,
     };
 
     struct Entry {

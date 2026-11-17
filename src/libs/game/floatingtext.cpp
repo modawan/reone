@@ -48,11 +48,13 @@ static constexpr float kExperienceTextDuration = 3.0f;
 static constexpr int kMaxFloatingTextEntries = 5;
 static constexpr int kMissStrRef = 1373;
 static constexpr int kExperienceStrRef = 38551;
+static constexpr int kLevelUpStrRef = 32154;
 
 static const glm::vec3 kDamageColor(0.74f, 0.11f, 0.0f);
 static const glm::vec3 kHealColor(0.28f, 0.92f, 0.11f);
 static const glm::vec3 kMissColor(1.0f);
 static const glm::vec3 kExperienceColor(0.95f, 0.0f, 0.85f);
+static const glm::vec3 kLevelUpColor(0.98f, 0.45f, 0.0f);
 
 static glm::vec2 projectToScreen(
     const glm::vec3 &position,
@@ -108,9 +110,14 @@ void FloatingText::addExperience(const Object &object, int amount) {
     add(object, _game.getInterfaceText(kExperienceStrRef) + " " + std::to_string(amount), Style::Experience);
 }
 
-// Experience stays up twice as long as the other numbers.
+void FloatingText::addLevelUp(const Object &object, int level) {
+    // The label, a space and the level.
+    add(object, _game.getInterfaceText(kLevelUpStrRef) + " " + std::to_string(level), Style::LevelUp);
+}
+
+// Experience and a level reached stay up twice as long as the other numbers.
 float FloatingText::getDuration(Style style) {
-    return style == Style::Experience ? kExperienceTextDuration : kFloatingTextDuration;
+    return style == Style::Experience || style == Style::LevelUp ? kExperienceTextDuration : kFloatingTextDuration;
 }
 
 void FloatingText::add(const Object &object, std::string text, Style style) {
@@ -274,6 +281,9 @@ void FloatingText::render() {
                                             break;
                                         case Style::Experience:
                                             color = kExperienceColor;
+                                            break;
+                                        case Style::LevelUp:
+                                            color = kLevelUpColor;
                                             break;
                                         case Style::Miss:
                                             color = kMissColor;

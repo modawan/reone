@@ -92,19 +92,6 @@ public:
     /** Starts the controlled creature's level-up; a forced one cannot be cancelled. */
     void startLevelUp(bool forced = false);
 
-    /**
-     * Levels the party leader up by one level without opening a screen: each
-     * step takes its recommendation and is accepted, as pressing Recommended
-     * and accepting on every screen of a level-up does. Feat and power picks
-     * no recommendation fills take the other choices, lowest row first.
-     *
-     * @return whether the level was applied: not when the leader has no level
-     *         pending, nor when an attribute point or feat pick cannot be
-     *         filled, which leaves the level pending; power picks the
-     *         recommendation cannot fill are left open
-     */
-    bool autoLevelUp();
-
     void finish();
     void cancel();
     /**

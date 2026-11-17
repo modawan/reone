@@ -26,6 +26,7 @@
 
 #include "reone/game/d20/attributes.h"
 #include "reone/game/d20/class.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
@@ -575,6 +576,50 @@ std::vector<SpellDisplayEntry> Spells::getLevelUpDisplayEntries(
         return left.sourceOrder < right.sourceOrder;
     });
     return result;
+}
+
+std::vector<SpellType> Spells::getAutoLevelUpPowers(
+    const CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    Alignment alignment,
+    int count,
+    bool playerCharacter,
+    const std::set<SpellType> &granted,
+    const std::function<bool(SpellType)> &knownAndAffordable) const {
+    // The powers the level-up screen offers to the class, in row order.
+    std::vector<SpellType> powers;
+    for (const auto &[type, spell] : _spells) {
+        if (isPickerVisible(*spell, clazz)) {
+            powers.push_back(type);
+        }
+    }
+    std::sort(powers.begin(), powers.end(), [](SpellType left, SpellType right) {
+        return static_cast<int>(left) < static_cast<int>(right);
+    });
+    const int newTotalLevel = levelUpTotalLevel(attributes);
+    auto candidates = [&](const std::set<SpellType> &chosen) {
+        auto taken = [&chosen, &granted](SpellType other) {
+            return chosen.count(other) > 0 || granted.count(other) > 0;
+        };
+        auto met = [&taken, &knownAndAffordable](SpellType required) {
+            return taken(required) || knownAndAffordable(required);
+        };
+        std::vector<SpellType> result;
+        for (SpellType power : powers) {
+            if (isPickDenied(power, playerCharacter)) {
+                continue;
+            }
+            const Spell &spell = *_spells.at(power);
+            if (newTotalLevel >= *spell.getClassLevelRequirement(clazz.type()) &&
+                !attributes.hasSpell(power) && !taken(power) &&
+                std::all_of(spell.masterSpells.begin(), spell.masterSpells.end(), met) &&
+                std::all_of(spell.prerequisites.begin(), spell.prerequisites.end(), met)) {
+                result.push_back(power);
+            }
+        }
+        return result;
+    };
+    return recommendPowers(*this, candidates, count, alignment, true);
 }
 
 std::vector<SpellType> Spells::addGrantedPowers(CreatureAttributes &attributes) const {

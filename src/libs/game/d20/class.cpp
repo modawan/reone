@@ -66,7 +66,7 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     _skillPointBase = twoDa.getInt(row, "skillpointbase");
     // The recommended level-up point goes to the ability the column names.
     _primaryAbility = readAbilityColumn(twoDa, row, "primaryabil");
-    // Only a spell caster is recommended powers.
+    // Only a spell caster is recommended powers or gains them by itself.
     _spellCaster = twoDa.getInt(row, "spellcaster", 0) != 0;
 
     _defaultAttributes.addClassLevels(this, 1);

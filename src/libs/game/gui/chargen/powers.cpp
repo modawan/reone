@@ -156,7 +156,7 @@ void CharGenPowers::refreshSelectionControls() {
     _controls.REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(remaining));
 }
 
-void CharGenPowers::recommend(bool fillWithUnranked) {
+void CharGenPowers::recommend() {
     _selectedPowers.clear();
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
@@ -168,7 +168,7 @@ void CharGenPowers::recommend(bool fillWithUnranked) {
         const auto refused = [playerCharacter](SpellType power) {
             return ISpells::isPickDenied(power, playerCharacter);
         };
-        for (auto power : recommendPowers(_services.game.spells, attributes, *clazz, _powerGain, alignment, fillWithUnranked, refused)) {
+        for (auto power : recommendPowers(_services.game.spells, attributes, *clazz, _powerGain, alignment, false, refused)) {
             _selectedPowers.insert(power);
         }
     }
@@ -194,10 +194,6 @@ void CharGenPowers::accept() {
         _game.showMessagePopup(_services.resource.strings.getText(_game.isTSL() ? kTSLPowersLeftStrRef : kK1PowersLeftStrRef));
         return;
     }
-    learnChosenPowers();
-}
-
-void CharGenPowers::learnChosenPowers() {
     updateCharacter();
     _charGen.goToNextStep();
     _charGen.openSteps();

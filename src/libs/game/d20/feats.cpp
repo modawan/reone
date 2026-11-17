@@ -483,7 +483,7 @@ bool Feats::canChooseFeat(FeatType type, const FeatChoice &choice) const {
 
 bool Feats::meetsRequirements(const Feat &feat, const FeatChoice &choice) const {
     const CreatureAttributes &attributes = choice.attributes;
-    if (attributes.getAggregateLevel() < feat.minCharLevel) {
+    if (choice.level.value_or(attributes.getAggregateLevel()) < feat.minCharLevel) {
         return false;
     }
     // The base attack bonus is the sum of the classes' bonuses.
@@ -547,7 +547,7 @@ std::vector<FeatDisplayEntry> Feats::getLevelUpDisplayEntries(const CreatureAttr
     return result;
 }
 
-std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool newCharacter) const {
+std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, std::optional<RacialType> race, int experience, const std::string &tag, bool newCharacter) const {
     const auto &classLevels = attributes.classLevels();
     assert(!classLevels.empty());
     const CreatureClass &clazz = *classLevels.back().first;
@@ -556,7 +556,7 @@ std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, Rac
     const int jediLevel = attributes.getJediLevel();
     std::string companion(boost::to_lower_copy(tag));
     const std::unordered_set<FeatType> noRaceFeats;
-    const auto &raceFeats = characterLevel == 1 && experience == 0 ? _races.get(race).firstLevelFeats : noRaceFeats;
+    const auto &raceFeats = race && characterLevel == 1 && experience == 0 ? _races.get(*race).firstLevelFeats : noRaceFeats;
 
     // The granted feats are listed whether or not they were held, except
     // that TSL does not list the class's grants of the feats no character
