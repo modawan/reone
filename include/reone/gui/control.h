@@ -100,7 +100,11 @@ public:
     struct Border {
         enum class FillTransform {
             None,
-            Rotate180
+            /** A quarter turn clockwise. */
+            Rotate90,
+            Rotate180,
+            /** A quarter turn anticlockwise. */
+            Rotate270
         };
 
         /** How the fill covers the area inside the frame, as FILLSTYLE authors it. */
