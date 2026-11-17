@@ -191,8 +191,8 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
         int h = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
         _context.withViewport(glm::ivec4 {0, 0, w, h}, [this, &request, &layer, &shader, &mip]() {
             for (int i = 0; i < kNumCubeFaces; ++i) {
-                _irradianceFramebuffer->attachTextureLayer(*_prefilteredEnvMapArray, kNumCubeFaces * layer + i, mip, Framebuffer::Attachment::Color);
-                _irradianceFramebuffer->attachRenderbuffer(*_prefilterDepthBuffers[mip], Framebuffer::Attachment::Depth);
+                _prefilterFramebuffer->attachTextureLayer(*_prefilteredEnvMapArray, kNumCubeFaces * layer + i, mip, Framebuffer::Attachment::Color);
+                _prefilterFramebuffer->attachRenderbuffer(*_prefilterDepthBuffers[mip], Framebuffer::Attachment::Depth);
                 _uniforms.setGlobals([&i](auto &globals) {
                     globals.reset();
                     globals.projection = kCubeMapProjection;
