@@ -25,6 +25,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/map.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"

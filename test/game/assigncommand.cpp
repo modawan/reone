@@ -21,6 +21,7 @@
 #include "../fixtures/engine.h"
 #include "reone/game/action/randomwalk.h"
 #include "reone/game/game.h"
+#include "reone/game/object/module.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/types.h"
 #include "reone/script/executioncontext.h"

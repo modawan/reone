@@ -31,6 +31,7 @@
 #include "reone/game/gui/sounds.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/script/runner.h"
 #include "reone/graphics/animation.h"

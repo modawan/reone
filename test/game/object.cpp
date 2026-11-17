@@ -55,6 +55,7 @@
 #include "reone/game/object/camera/thirdperson.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
