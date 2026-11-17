@@ -51,6 +51,9 @@ public:
 
     bool handle(const input::Event &event) override;
 
+    /** Starts the box from the character's name, or a random name when it has none. */
+    void reset();
+    /** Puts a random name in the box; the character keeps its name until Done. */
     void loadRandomName();
 
 private:
@@ -70,6 +73,10 @@ private:
     gui::TextInput _input;
 
     void onGUILoaded() override;
+
+    /** Takes the box's name for the character and goes on, unless it is empty. */
+    void confirm();
+    void setText(const std::string &text);
 
     void bindControls() {
         _controls.BTN_BACK = findControl<gui::Button>("BTN_BACK");

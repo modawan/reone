@@ -444,6 +444,7 @@ void CharacterGeneration::openPowers() {
 }
 
 void CharacterGeneration::openNameEntry() {
+    _nameEntry->reset();
     _controls.MODEL_LBL->setVisible(false);
     changeScreen(CharGenScreen::Name);
 }
@@ -652,7 +653,6 @@ void CharacterGeneration::setCharacter(Character character) {
     if (appearanceChanged) {
         reloadCharacterModel();
         _portraitSelection->updatePortraits();
-        _nameEntry->loadRandomName();
     }
 
     updateAttributes();
