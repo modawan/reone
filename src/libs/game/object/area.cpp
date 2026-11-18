@@ -2379,9 +2379,8 @@ bool Area::hasCreatureWithin(const glm::vec3 &point, const Creature &creature) c
     return false;
 }
 
-// A placed creature keeps its spot however near a wall it stands, though not
-// one inside a door or placeable; the wall test of a safe spot is for spots
-// the search picks.
+// The safe spot's clearance from walls applies only to spots the search
+// picks, so a creature placed near a wall stays there.
 glm::vec3 Area::placedCreaturePosition(const glm::vec3 &position, const Creature &creature) const {
     const glm::vec3 grounded {position.x, position.y, groundHeight(position, GroundFace::Locating)};
     const float minZ = grounded.z - kSafeLocationFloorBand;

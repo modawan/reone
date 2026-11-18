@@ -3104,11 +3104,10 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
         mine->setMineRemovalFromFade(oDestroy->fadeOutTime());
     }
     if (auto creature = dyn_cast<Creature>(oDestroy)) {
-        // The creature leading hands the lead, in one leader change, to the
-        // first place after it naming a creature, dead or alive, and then
-        // leaves the party, at once, whatever the delay. A follower keeps its
-        // place, naming nothing, and stays listed with the party, as a puppet
-        // stays listed with it.
+        // A destroyed leader hands the lead to the first member after it, dead
+        // or alive, in one change. It then leaves the party at once, whatever
+        // the delay. A destroyed follower leaves its place empty and stays
+        // listed with the party, as a puppet does.
         auto &party = ctx.game.party();
         if (party.getLeader() == creature) {
             for (int index = 1; index < party.getSize(); ++index) {

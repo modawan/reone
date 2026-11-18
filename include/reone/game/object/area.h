@@ -1296,10 +1296,10 @@ private:
      */
     bool testsWaysFrom(const glm::vec3 &spot, const Creature &creature) const;
     /**
-     * Whether another creature stands within the combined creature personal
-     * space of the creature at a point (where floors lie over others, one
-     * across its height), other than the dead and party members down at no
-     * vitality.
+     * Whether another creature stands within reach of the creature at a
+     * point: their two creature personal spaces added. The dead and party
+     * members down at no vitality do not count. Where floors stack, only
+     * creatures within the creature's height of the point count.
      */
     bool hasCreatureWithin(const glm::vec3 &point, const Creature &creature) const;
     /**
@@ -1309,12 +1309,10 @@ private:
     bool hasObjectWallWithin(
         const std::set<uint32_t> &blocking, const glm::vec3 &point, float radius, float minZ, float maxZ) const;
     /**
-     * Where a creature placed at a position by the area file or a script
-     * stands: the position on the ground when that is walkable, not inside a
-     * door or placeable (hasObjectWallWithin at no distance, across the
-     * creature's height) and no other creature is within reach of it
-     * (hasCreatureWithin); otherwise the first safe spot round it, or the
-     * position when nothing fits.
+     * Where a creature placed by the area file or a script stands. It keeps
+     * its position, set on the ground, when that is walkable, outside every
+     * door and placeable, and clear of other creatures. Otherwise it takes
+     * the first safe spot round it, or keeps the position when none fits.
      */
     glm::vec3 placedCreaturePosition(const glm::vec3 &position, const Creature &creature) const;
 
