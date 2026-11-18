@@ -1681,9 +1681,6 @@ void Party::setPartyLeaderByIndex(int index, bool sound) {
 }
 
 void Party::changeLeader(int index, bool sound) {
-    if (index < 1 || index >= static_cast<int>(_members.size())) {
-        return;
-    }
     const auto previous {getLeader()};
     setPartyLeaderByIndex(index, sound);
     restNewLeaderDrive(previous);
