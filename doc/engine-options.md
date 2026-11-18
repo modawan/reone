@@ -72,6 +72,8 @@ Developer mode facilitates debugging of the engine. Enabling developer mode has 
 
 ### Log Channels
 
+The channel mask filters debug and info messages. Warnings and errors are logged whatever their channel.
+
 - 1 - General
 - 2 - Resources
 - 4 - Resources (verbose)

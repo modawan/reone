@@ -42,7 +42,22 @@ public:
 
     /** Whether a message of this channel and severity would be written. */
     bool isEnabled(LogChannel channel, LogSeverity severity) const {
-        return _inited && severity >= _minSeverity && isChannelEnabled(channel);
+        return _inited && passesFilter(_minSeverity, _enabledChannels, channel, severity);
+    }
+
+    /**
+     * Whether a message clears a minimum severity and a set of enabled
+     * channels. Warnings and errors are written whatever their channel, so
+     * the channel set only filters debug and info.
+     */
+    static bool passesFilter(LogSeverity minSeverity,
+                             const std::set<LogChannel> &enabledChannels,
+                             LogChannel channel,
+                             LogSeverity severity) {
+        if (severity < minSeverity) {
+            return false;
+        }
+        return severity >= LogSeverity::Warn || enabledChannels.count(channel) > 0;
     }
 
     /** Whether messages are written yet; before init they are dropped. */

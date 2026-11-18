@@ -92,7 +92,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("envstreaming", value<bool>()->default_value(options->audio.streamedReverb), "reverb streamed 3D sounds")              //
         ("envnonstreaming", value<bool>()->default_value(options->audio.unstreamedReverb), "reverb unstreamed 3D sounds")       //
         ("logsev", value<int>()->default_value(static_cast<int>(options->logging.severity)), "minimum log severity")            //
-        ("logch", value<int>()->default_value(defaultLogChannels), "log channel mask");
+        ("logch", value<int>()->default_value(defaultLogChannels), "log channel mask for debug and info messages");
 
     options_description descCmdLine {"Usage"};
     descCmdLine.add(descCommon);
