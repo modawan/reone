@@ -35,6 +35,7 @@
 #include "reone/game/attack.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/2da.h"

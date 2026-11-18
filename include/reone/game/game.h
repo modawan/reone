@@ -51,22 +51,6 @@
 #include "journal.h"
 #include "location.h"
 #include "messagelog.h"
-#include "object/area.h"
-#include "object/areaofeffect.h"
-#include "object/camera/animated.h"
-#include "object/camera/dialog.h"
-#include "object/camera/firstperson.h"
-#include "object/camera/static.h"
-#include "object/camera/thirdperson.h"
-#include "object/creature.h"
-#include "object/door.h"
-#include "object/encounter.h"
-#include "object/module.h"
-#include "object/placeable.h"
-#include "object/sound.h"
-#include "object/store.h"
-#include "object/trigger.h"
-#include "object/waypoint.h"
 #include "options.h"
 #include "party.h"
 #include "pazaaksession.h"
@@ -105,6 +89,24 @@ class SaveWorkingState;
 
 namespace game {
 
+class AnimatedCamera;
+class Area;
+class AreaOfEffect;
+class Camera;
+class Creature;
+class DialogCamera;
+class Door;
+class Encounter;
+class FirstPersonCamera;
+class Module;
+class Placeable;
+class Sound;
+class StaticCamera;
+class Store;
+class ThirdPersonCamera;
+class Trigger;
+class Waypoint;
+
 class CharacterGeneration;
 class ComputerGUI;
 class ConfirmPopup;
@@ -130,6 +132,8 @@ class SaveLoad;
 class StoreGUI;
 class UpgradeSelectionGUI;
 
+struct CameraStyle;
+struct TrapTypeRow;
 struct UpgradeScreenRequest;
 
 /**
@@ -1348,15 +1352,8 @@ public:
         releaseEquippedOnLoad(equipped);
     }
 
-    inline std::shared_ptr<Module> newModule() {
-        return newObject<Module>(*this, _services);
-    }
-    inline std::shared_ptr<Module> newSavedModule() {
-        // The module is not part of the serialized object graph, but it still
-        // needs a live identity: authored OnLoad scripts run with the module
-        // as OBJECT_SELF and may schedule commands back onto it.
-        return newObject<Module>(*this, _services);
-    }
+    std::shared_ptr<Module> newModule();
+    std::shared_ptr<Module> newSavedModule();
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
     }
@@ -1377,97 +1374,62 @@ public:
     std::shared_ptr<Item> newItemFromBlueprint(const std::string &resRef);
     std::shared_ptr<Item> newItemClone(const Item &source);
 
-    inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
-        return newObject<Area>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain);
     std::shared_ptr<Area> newSavedArea(
         uint32_t id,
         const SerializedIdentityContext &identityContext,
         std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
-        return newObject<Creature>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain);
     /**
      * A creature only shown, as in a menu's 3D view. It is neither good nor
      * evil, so it shows its own portrait, head and body until given a
      * good/evil.
      */
-    inline std::shared_ptr<Creature> newPresentationCreature(
-        std::string sceneName) {
-        auto creature = newPresentationObject<Creature>(
-            std::move(sceneName), *this, _services);
-        creature->setGoodEvil(kNeutralGoodEvil);
-        return creature;
-    }
+    std::shared_ptr<Creature> newPresentationCreature(
+        std::string sceneName);
     std::shared_ptr<Creature> newCreature(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
     std::shared_ptr<Creature> newCreatureFromBlueprint(
         const std::string &resRef,
         std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain) {
-        return newObject<Placeable>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain);
     std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
     std::shared_ptr<Placeable> newPlaceableFromBlueprint(
         const std::string &resRef,
         std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain) {
-        return newObject<Door>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain);
     std::shared_ptr<Door> newDoor(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Waypoint> newWaypoint(std::string sceneName = kSceneMain) {
-        return newObject<Waypoint>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Waypoint> newWaypoint(std::string sceneName = kSceneMain);
     std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
     /** A waypoint made from its blueprint; one whose blueprint is missing is made all the same. */
     std::shared_ptr<Waypoint> newWaypointFromBlueprint(const std::string &resRef);
 
-    inline std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain) {
-        return newObject<Trigger>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain);
     std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Sound> newSound(std::string sceneName = kSceneMain) {
-        return newObject<Sound>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Sound> newSound(std::string sceneName = kSceneMain);
     std::shared_ptr<Sound> newSound(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(std::string sceneName = kSceneMain) {
-        return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<AnimatedCamera> newAnimatedCamera(std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<DialogCamera> newDialogCamera(std::string sceneName = kSceneMain) {
-        return newObject<DialogCamera>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<DialogCamera> newDialogCamera(std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, std::string sceneName = kSceneMain) {
-        return newObject<FirstPersonCamera>(fovy, std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<StaticCamera> newStaticCamera(std::string sceneName = kSceneMain) {
-        return newObject<StaticCamera>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<StaticCamera> newStaticCamera(std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<ThirdPersonCamera> newThirdPersonCamera(CameraStyle style, std::string sceneName = kSceneMain) {
-        return newObject<ThirdPersonCamera>(std::move(style), std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<ThirdPersonCamera> newThirdPersonCamera(CameraStyle style, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<AreaOfEffect> newAreaOfEffect(std::string sceneName = kSceneMain) {
-        return newObject<AreaOfEffect>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<AreaOfEffect> newAreaOfEffect(std::string sceneName = kSceneMain);
     std::shared_ptr<AreaOfEffect> newAreaOfEffect(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
-        return newObject<Encounter>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain);
     std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    inline std::shared_ptr<Store> newStore(std::string sceneName = kSceneMain) {
-        return newObject<Store>(std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Store> newStore(std::string sceneName = kSceneMain);
     std::shared_ptr<Store> newStore(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
     /** A store made from its blueprint; one whose blueprint is missing is made all the same. */
     std::shared_ptr<Store> newStoreFromBlueprint(const std::string &resRef);

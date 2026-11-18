@@ -24,6 +24,8 @@
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/module.h"
 #include "reone/game/savedruntime.h"
 #include "reone/resource/gff.h"
 #include "reone/script/executioncontext.h"

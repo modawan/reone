@@ -24,6 +24,7 @@
 #include "reone/game/location.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/reputes.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/routines.h"

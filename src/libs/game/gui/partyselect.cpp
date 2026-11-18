@@ -22,6 +22,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/portrait.h"
 #include "reone/game/portraits.h"
