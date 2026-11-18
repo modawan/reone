@@ -19,6 +19,7 @@
 
 #include <gmock/gmock.h>
 
+#include "reone/audio/clip.h"
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/format/mp3reader.h"
@@ -69,6 +70,9 @@ public:
  * and the test should then skip.
  */
 bool openTestContext(Context &context);
+
+/** A short silent mono clip, for a source a test plays without listening to it. */
+std::shared_ptr<AudioClip> silentClip();
 
 class MockAudioMixer : public IAudioMixer, boost::noncopyable {
 public:

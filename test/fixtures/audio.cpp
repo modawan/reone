@@ -47,6 +47,16 @@ bool openTestContext(Context &context) {
     return true;
 }
 
+std::shared_ptr<AudioClip> silentClip() {
+    auto clip = std::make_shared<AudioClip>();
+    AudioClip::Frame frame;
+    frame.format = AudioFormat::Mono8;
+    frame.sampleRate = 22050;
+    frame.samples.assign(64, 0);
+    clip->add(std::move(frame));
+    return clip;
+}
+
 MockAudioMixer::MockAudioMixer() = default;
 MockAudioMixer::~MockAudioMixer() = default;
 

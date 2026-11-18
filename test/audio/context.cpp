@@ -4,7 +4,6 @@
 
 #include "../fixtures/audio.h"
 
-#include "reone/audio/clip.h"
 #include "reone/audio/context.h"
 #include "reone/audio/source.h"
 
@@ -106,13 +105,7 @@ TEST(AudioContext, attaches_and_detaches_a_source_s_reverb_send_and_obstruction)
     if (!openTestContext(context)) {
         GTEST_SKIP() << "no OpenAL device opens";
     }
-    auto clip = std::make_shared<AudioClip>();
-    AudioClip::Frame frame;
-    frame.format = AudioFormat::Mono8;
-    frame.sampleRate = 22050;
-    frame.samples.assign(64, 0);
-    clip->add(std::move(frame));
-    AudioSource source(clip, 1.0f, false, glm::vec3(0.0f));
+    AudioSource source(silentClip(), 1.0f, false, glm::vec3(0.0f));
     source.init();
     ASSERT_NE(source.alSource(), 0u);
 
@@ -139,13 +132,7 @@ TEST(AudioContext, gives_a_source_air_absorption) {
     if (!openTestContext(context)) {
         GTEST_SKIP() << "no OpenAL device opens";
     }
-    auto clip = std::make_shared<AudioClip>();
-    AudioClip::Frame frame;
-    frame.format = AudioFormat::Mono8;
-    frame.sampleRate = 22050;
-    frame.samples.assign(64, 0);
-    clip->add(std::move(frame));
-    AudioSource source(clip, 1.0f, false, glm::vec3(0.0f));
+    AudioSource source(silentClip(), 1.0f, false, glm::vec3(0.0f));
     source.init();
     ASSERT_NE(source.alSource(), 0u);
 
@@ -165,13 +152,7 @@ TEST(AudioContext, stops_a_source_attenuating_with_distance) {
     if (!openTestContext(context)) {
         GTEST_SKIP() << "no OpenAL device opens";
     }
-    auto clip = std::make_shared<AudioClip>();
-    AudioClip::Frame frame;
-    frame.format = AudioFormat::Mono8;
-    frame.sampleRate = 22050;
-    frame.samples.assign(64, 0);
-    clip->add(std::move(frame));
-    AudioSource source(clip, 1.0f, false, glm::vec3(5.0f, 0.0f, 0.0f));
+    AudioSource source(silentClip(), 1.0f, false, glm::vec3(5.0f, 0.0f, 0.0f));
     source.init();
     ASSERT_NE(source.alSource(), 0u);
 

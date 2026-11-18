@@ -36,16 +36,6 @@ float wetSend() {
     return std::pow(0.6f, 5.0f / 3.0f);
 }
 
-std::shared_ptr<AudioClip> silentClip() {
-    auto clip = std::make_shared<AudioClip>();
-    AudioClip::Frame frame;
-    frame.format = AudioFormat::Mono8;
-    frame.sampleRate = 22050;
-    frame.samples.assign(64, 0);
-    clip->add(std::move(frame));
-    return clip;
-}
-
 // Records the send gain the mixer gives each source. Group 1 streams and
 // group 2 stays dry. A real context lets the sources play, while the mock
 // takes the mixer's calls.
