@@ -145,13 +145,12 @@ public:
     MockFeats();
     ~MockFeats() override;
 
-    MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(std::shared_ptr<Feat>, get, (FeatType type), (const override));
     MOCK_METHOD(int, getLevelUpChoiceCount, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
     MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
     MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, int experience, const std::string &tag, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {
@@ -236,7 +235,7 @@ public:
     MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
-    MOCK_METHOD(void, addGrantedPowers, (CreatureAttributes & attributes, bool tsl), (const override));
+    MOCK_METHOD(std::vector<SpellType>, addGrantedPowers, (CreatureAttributes & attributes), (const override));
 
 private:
     RangeRow _blankRange;

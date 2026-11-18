@@ -88,7 +88,7 @@ void LevelUpMenu::setCanCancel(bool canCancel) {
 
 void LevelUpMenu::reset() {
     int nextLevel = _charGen.character().attributes.getAggregateLevel() + 1;
-    _hasAttributes = nextLevel % 4 == 0;
+    _hasAttributes = gainsAbilityPoint(nextLevel);
     _hasFeats = hasFeatChoices();
     _hasPowers = hasPowerChoices();
 

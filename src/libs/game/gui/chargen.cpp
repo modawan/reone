@@ -282,7 +282,7 @@ void CharacterGeneration::startQuick() {
     _type = Type::Quick;
     showLevelUpTitle(false);
     // A quick character is given its class's feats as it is made.
-    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, _game.isTSL(), true);
+    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, true);
     updateAttributes();
     _quick->setStep(0);
     openSteps();
@@ -333,7 +333,7 @@ void CharacterGeneration::startLevelUp(bool forced) {
     }
 
     int nextLevel = partyLeader->attributes().getAggregateLevel() + 1;
-    bool hasAttributes = nextLevel % 4 == 0;
+    bool hasAttributes = gainsAbilityPoint(nextLevel);
     _levelUp->setStep(hasAttributes ? 0 : 1);
 
     openSteps();
@@ -480,7 +480,7 @@ std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacte
     for (auto feat : held) {
         _character.attributes.removeFeat(feat);
     }
-    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, _game.isTSL(), newCharacter);
+    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, newCharacter);
 }
 
 void CharacterGeneration::acceptAbilities() {
@@ -514,7 +514,7 @@ bool CharacterGeneration::autoLevelUp() {
     // refuses the whole level, which stays pending for a manual level-up.
     startLevelUp();
     const int nextLevel = _character.attributes.getAggregateLevel() + 1;
-    if (nextLevel % 4 == 0) {
+    if (gainsAbilityPoint(nextLevel)) {
         _abilities->reset(false);
         _abilities->recommend();
         if (_abilities->remainingPoints() > 0) {
@@ -779,31 +779,19 @@ int CharacterGeneration::panelAbilityModifier(Ability ability) const {
 }
 
 CreatureAttributes CharacterGeneration::levelledAttributes() const {
-    auto levelled = _character.attributes;
-    levelled.addClassLevels(levelled.classLevels().back().first, 1);
-    return levelled;
+    return _character.attributes.withComingLevel();
 }
 
 std::vector<FeatType> CharacterGeneration::addLevelFeats() {
-    auto levelled = levelledAttributes();
     auto partyLeader = _game.party().getLeader();
-    auto granted = _services.game.feats.addGrantedFeats(levelled, partyLeader->racialType(), partyLeader->xp(), partyLeader->tag(), _game.isTSL(), false);
-    for (auto feat : levelled.featOrder()) {
-        _character.attributes.addFeat(feat);
-    }
-    return granted;
+    return addLevelGrantedFeats(_character.attributes, _services.game.feats, partyLeader->racialType(), partyLeader->xp(), partyLeader->tag());
 }
 
 void CharacterGeneration::addLevelPowers() {
     auto partyLeader = _game.party().getLeader();
-    auto levelled = levelledAttributes();
-    _services.game.spells.addGrantedPowers(levelled, _game.isTSL());
-    const ClassType newest = levelled.getEffectiveClass();
-    for (auto power : levelled.spellsForClass(newest)) {
-        if (partyLeader->canLearnPower(power, newest)) {
-            _character.attributes.addSpell(power);
-        }
-    }
+    addLevelGrantedPowers(_character.attributes, _services.game.spells, [&partyLeader](SpellType power, ClassType clazz) {
+        return partyLeader->canLearnPower(power, clazz);
+    });
 }
 
 void CharacterGeneration::goToNextStep() {

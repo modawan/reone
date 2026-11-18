@@ -18,9 +18,12 @@
 #include "reone/game/d20/attributes.h"
 
 #include <algorithm>
+#include <cassert>
 
 #include "reone/game/d20/class.h"
+#include "reone/game/d20/feats.h"
 #include "reone/game/d20/skills.h"
+#include "reone/game/d20/spells.h"
 
 namespace reone {
 
@@ -126,6 +129,13 @@ void CreatureAttributes::addClassLevels(CreatureClass *clazz, int levels) {
         }
     }
     _classLevels.push_back(std::make_pair(clazz, levels));
+}
+
+CreatureAttributes CreatureAttributes::withComingLevel() const {
+    assert(!_classLevels.empty());
+    CreatureAttributes result(*this);
+    result.addClassLevels(_classLevels.back().first, 1);
+    return result;
 }
 
 ClassType CreatureAttributes::getClassByPosition(int position) const {
@@ -375,6 +385,38 @@ bool CreatureAttributes::raiseSkillRank(SkillType skill, bool classSkill, int le
 bool CreatureAttributes::increaseSkillRank(const Skill &rules, SkillType skill, int &points, int totalLevel, const std::set<FeatType> &effectFeats, bool tsl) {
     return canClassesUseSkill(rules, *this) &&
            raiseSkillRank(skill, isClassSkill(skill, effectFeats, tsl), totalLevel, points);
+}
+
+std::vector<FeatType> addLevelGrantedFeats(
+    CreatureAttributes &attributes,
+    const IFeats &feats,
+    RacialType race,
+    int experience,
+    const std::string &tag) {
+
+    // What the level grants depends on the levels it reaches.
+    CreatureAttributes levelled(attributes.withComingLevel());
+    const auto granted = feats.addGrantedFeats(levelled, race, experience, tag, false);
+    for (FeatType feat : levelled.featOrder()) {
+        attributes.addFeat(feat);
+    }
+    return granted;
+}
+
+void addLevelGrantedPowers(
+    CreatureAttributes &attributes,
+    const ISpells &spells,
+    const std::function<bool(SpellType, ClassType)> &canLearnPower) {
+
+    // A granted power is known through the newest class, whatever another
+    // class knows already.
+    CreatureAttributes levelled(attributes.withComingLevel());
+    const ClassType newest = attributes.getEffectiveClass();
+    for (SpellType power : spells.addGrantedPowers(levelled)) {
+        if (canLearnPower(power, newest)) {
+            attributes.addSpell(power, newest);
+        }
+    }
 }
 
 } // namespace game
