@@ -3469,11 +3469,11 @@ bool Game::playVideo(const std::string &name, bool streamingMusic) {
 
 // TSL's end scripts keep the games finished, by side, in this global.
 static constexpr char kGameCompleteGlobal[] = "GBL_GAME_COMPLETE";
-// A global number is kept in a signed byte, as saves store it.
-static constexpr int kMaxGlobalNumber = 127;
 
+// A global number holds a signed byte, so the record stops at the byte's top.
 void Game::tellGameCompleted() {
-    setGlobalNumber(kGameCompleteGlobal, std::clamp(_options.game.gameCompleted, 0, kMaxGlobalNumber));
+    const int top = std::numeric_limits<int8_t>::max();
+    setGlobalNumber(kGameCompleteGlobal, std::clamp(_options.game.gameCompleted, 0, top));
 }
 
 void Game::queueMovie(const std::string &name, bool skippable) {
