@@ -311,6 +311,8 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadFog(are);
     loadMiniGame(are);
     _roomAudio.clear();
+    // A listed room without an AmbientScale reads 0, which silences its
+    // ambience.
     for (const auto &room : are.Rooms) {
         _roomAudio.emplace(boost::to_lower_copy(room.RoomName), RoomAudio {room.EnvAudio, room.AmbientScale});
     }
@@ -1553,7 +1555,7 @@ float Area::soundObstruction(const scene::ISceneGraph &sceneGraph, const glm::ve
 
 Area::RoomAudio Area::roomAudio(const Room &room) const {
     auto found = _roomAudio.find(boost::to_lower_copy(room.name()));
-    return found != _roomAudio.end() ? found->second : RoomAudio {0, 1.0f};
+    return found != _roomAudio.end() ? found->second : RoomAudio {};
 }
 
 int Area::getSurfaceMaterial(const glm::vec3 &position) const {

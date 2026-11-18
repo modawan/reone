@@ -289,9 +289,9 @@ private:
     /**
      * The gain a source plays at: the volume of its kind times its priority
      * group's volume and the gain asked for, and for an ambient one the
-     * ambient scale, weighed by the 2D3D bias. A
-     * positional source raises that to a power below one, so it rises
-     * steeply at first; the others keep it linear.
+     * ambient scale, weighed by the 2D3D bias. A positional source raises
+     * that to a power below one, so it rises steeply at first; the others
+     * keep it linear.
      */
     float gainByType(AudioType type, float gain, bool positional, std::optional<int> group) const;
     /** The gain a source plays at now: gainByType, with its own falloff. */

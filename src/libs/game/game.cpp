@@ -5896,9 +5896,8 @@ void Game::updateEnvironment(const glm::vec3 &cameraPosition) {
     // Every change of room eases the ambient scale, an area's first room
     // included.
     _soundRoom = room;
-    const Area::RoomAudio audio = area->roomAudio(*room);
-    _services.audio.mixer.setAmbientScale(audio.ambientScale);
-    const int envAudio = audio.envAudio;
+    const auto [envAudio, ambientScale] = area->roomAudio(*room);
+    _services.audio.mixer.setAmbientScale(ambientScale);
     if (envAudio == _envAudio) {
         return;
     }

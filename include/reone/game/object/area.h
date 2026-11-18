@@ -607,10 +607,9 @@ public:
     /** What an ARE room says of its sound. */
     struct RoomAudio {
         int envAudio {0};
-        /** A listed room without an AmbientScale silences its ambience. */
-        float ambientScale {0.0f};
+        float ambientScale {1.0f};
     };
-    /** The room's ARE sound; EnvAudio 0 and an AmbientScale of 1 for a room without an ARE entry. */
+    /** The room's ARE sound, or the defaults for a room without an ARE entry. */
     RoomAudio roomAudio(const Room &room) const;
     /**
      * Plays a room's numbered script loop, "scriptloopNN", looping on the
