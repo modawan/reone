@@ -224,3 +224,49 @@ TEST_F(HUDInputTest, a_hud_control_under_the_target_menu_takes_the_pointer_and_t
     _game->handle(release(point));
     EXPECT_EQ(1, _clicks);
 }
+
+TEST_F(HUDInputTest, a_click_in_the_world_does_nothing_while_a_conversation_is_under_way) {
+    _game->setDialogUnderWay(true);
+    EXPECT_CALL(_sceneGraph, pickModelAt(_, _, _)).Times(0);
+
+    _game->handle(press({200, 200}));
+}
+
+TEST_F(HUDInputTest, nothing_in_the_world_hilights_while_a_conversation_is_under_way) {
+    _area->hilightObject(_companion);
+    _game->handle(motion({200, 200}));
+    _game->setDialogUnderWay(true);
+    EXPECT_CALL(_sceneGraph, pickModelAt(_, _, _)).Times(0);
+
+    _game->module()->updateHover();
+
+    EXPECT_EQ(nullptr, _area->hilightedObject());
+    Mock::VerifyAndClearExpectations(&_sceneGraph);
+
+    // Once it ends, the pointer picks where it stands without another move.
+    _game->setDialogUnderWay(false);
+    EXPECT_CALL(_sceneGraph, pickModelAt(200, 200, _leader.get())).WillOnce(Return(nullptr));
+    _game->module()->updateHover();
+}
+
+TEST_F(HUDInputTest, the_pause_control_only_unpauses_while_a_conversation_is_under_way) {
+    _game->setDialogUnderWay(true);
+    EXPECT_FALSE(_game->togglePlayerPause());
+    EXPECT_FALSE(_game->isPausedAtFrameEnd());
+
+    _game->setDialogUnderWay(false);
+    EXPECT_TRUE(_game->togglePlayerPause());
+    _game->setDialogUnderWay(true);
+    EXPECT_FALSE(_game->togglePlayerPause());
+    EXPECT_FALSE(_game->isPausedAtFrameEnd());
+}
+
+TEST_F(HUDInputTest, no_autopause_while_a_conversation_is_under_way) {
+    _game->setDialogUnderWay(true);
+    _game->requestAutoPause(AutoPauseReason::EnemySighted);
+    EXPECT_FALSE(_game->isPausedAtFrameEnd());
+
+    _game->setDialogUnderWay(false);
+    _game->requestAutoPause(AutoPauseReason::EnemySighted);
+    EXPECT_TRUE(_game->isPausedAtFrameEnd());
+}
