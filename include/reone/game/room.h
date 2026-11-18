@@ -45,6 +45,7 @@ public:
         _model(std::move(model)),
         _walkmesh(std::move(walkmesh)) {
         computeBox();
+        markStaticParts();
     }
 
     bool isVisible() const { return _visible; }
@@ -55,15 +56,16 @@ public:
      * holds no point.
      */
     bool boxHolds(const glm::vec2 &point) const;
-    /** The room's box (see boxHolds). */
-    graphics::AABB box() const { return graphics::AABB(_boxMin, _boxMax); }
-    /** Whether the room has background geometry. */
-    bool hasBackgroundGeometry() const { return _backgroundGeometry; }
 
     const std::string &name() const { return _name; }
     const glm::vec3 &position() const { return _position; }
 
-    /** Shows or hides the room's model and grass; its walkmesh and the objects in it are left as they are. */
+    /**
+     * Shows or hides the room's model and grass; its walkmesh and the objects
+     * in it are left as they are. A model with an animation root, a node named
+     * for the model with an "a" after it, keeps that node and everything under
+     * it shown, as the animated part is drawn from every room.
+     */
     void setVisible(bool visible);
 
     // Scene Nodes
@@ -91,11 +93,13 @@ private:
     /** See boxHolds. */
     glm::vec3 _boxMin {kEmptyBoxMin};
     glm::vec3 _boxMax {kEmptyBoxMax};
-    /** See hasBackgroundGeometry. */
-    bool _backgroundGeometry {false};
 
     std::set<Object *> _tenants;
     bool _visible {true};
+    /** Whether the model has an animation root (see setVisible). */
+    bool _animationRoot {false};
+    /** The roots of the model's parts outside its animation root, which are hidden with the room. */
+    std::vector<scene::SceneNode *> _staticParts;
 
     // Scene Nodes
 
@@ -106,6 +110,7 @@ private:
     // END Scene Nodes
 
     void computeBox();
+    void markStaticParts();
 };
 
 /**

@@ -903,24 +903,6 @@ void Area::loadLYT() {
             modelSceneNode = sceneGraph.newModel(model, ModelUsage::Room);
             modelSceneNode->setLocalTransform(glm::translate(glm::mat4(1.0f), position));
 
-            // Mark room objects as static when not below "{modelName}a" model node
-            std::stack<std::reference_wrapper<ModelNode>> modelNodes;
-            modelNodes.push(*model->rootNode());
-            while (!modelNodes.empty()) {
-                auto &modelNode = modelNodes.top().get();
-                modelNodes.pop();
-                if (modelNode.name() == model->name() + "a") {
-                    continue;
-                }
-                auto sceneNode = modelSceneNode->getNodeByName(modelNode.name());
-                if (sceneNode) {
-                    sceneNode->setStatic(true);
-                }
-                for (auto &child : modelNode.children()) {
-                    modelNodes.push(*child);
-                }
-            }
-
             for (auto &anim : model->getAnimationNames()) {
                 if (boost::starts_with(anim, "animloop")) {
                     modelSceneNode->playAnimation(anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
@@ -3607,17 +3589,11 @@ void Area::updateRoomVisibility() {
         }
     }
     _cullingRooms = _visibilityGraph && _shownRoom;
-    // In TSL a listed room must be in view or have background geometry.
-    const Camera *camera = _game.getActiveCamera();
-    auto shownWhenListed = [this, camera](const Room &room) {
-        return !_game.isTSL() || room.hasBackgroundGeometry() || !camera || camera->cameraSceneNode()->camera()->isInFrustum(room.box());
-    };
     for (auto &room : _rooms) {
         bool visible = !_cullingRooms || room.second.get() == _shownRoom;
         if (!visible) {
             auto seen = _visibility.equal_range(_shownRoom->name());
-            visible = std::any_of(seen.first, seen.second, [&room](const auto &pair) { return pair.second == room.first; }) &&
-                      shownWhenListed(*room.second);
+            visible = std::any_of(seen.first, seen.second, [&room](const auto &pair) { return pair.second == room.first; });
         }
         room.second->setVisible(visible);
     }

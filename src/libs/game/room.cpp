@@ -23,6 +23,7 @@
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/types.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/modelnode.h"
 
 #include "reone/game/object.h"
 
@@ -63,7 +64,6 @@ void Room::computeBox() {
         }
         walkable = walkable || node.isAABBMesh();
         if (node.mesh()->backgroundGeometry) {
-            _backgroundGeometry = true;
             continue;
         }
         for (const auto &vertex : node.mesh()->mesh->vertices()) {
@@ -79,11 +79,50 @@ void Room::computeBox() {
     }
 }
 
+void Room::markStaticParts() {
+    if (!_model) {
+        return;
+    }
+    // Nodes outside the animation root, a node named for the model with an
+    // "a" after it, are static.
+    const std::string animationRootName {_model->model().name() + "a"};
+    std::stack<std::reference_wrapper<const ModelNode>> nodes;
+    nodes.push(*_model->model().rootNode());
+    while (!nodes.empty()) {
+        const ModelNode &node = nodes.top();
+        nodes.pop();
+        if (node.name() == animationRootName) {
+            continue;
+        }
+        if (auto *sceneNode = _model->getNodeByName(node.name())) {
+            sceneNode->setStatic(true);
+        }
+        for (const auto &child : node.children()) {
+            nodes.push(*child);
+        }
+    }
+    SceneNode *part = _model->getNodeByName(animationRootName);
+    _animationRoot = part != nullptr;
+    // The animation root's ancestors stay shown with it, so the static part is
+    // everything else under them.
+    for (; part && part != _model.get(); part = part->parent()) {
+        for (SceneNode *sibling : part->parent()->children()) {
+            if (sibling != part) {
+                _staticParts.push_back(sibling);
+            }
+        }
+    }
+}
+
 void Room::setVisible(bool visible) {
     if (_visible == visible) {
         return;
     }
-    if (_model) {
+    if (_animationRoot) {
+        for (SceneNode *part : _staticParts) {
+            part->setEnabled(visible);
+        }
+    } else if (_model) {
         _model->setEnabled(visible);
     }
     if (_grass) {
