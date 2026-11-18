@@ -19,6 +19,8 @@
 
 #include <optional>
 
+#include "reone/gui/control/button.h"
+#include "reone/gui/control/label.h"
 #include "reone/resource/types.h"
 #include "reone/scene/graph.h"
 
