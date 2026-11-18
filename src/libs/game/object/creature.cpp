@@ -5302,11 +5302,28 @@ void Creature::playWeaponFlourish() {
     addFireForgetAnimation(clip, kWeaponDrawMilliseconds, 1.0f, false, AnimationSource {kWeaponFlourishAnimationId});
 }
 
+bool Creature::isFlourishing() const {
+    if (_oneShot && _oneShot->id == kWeaponFlourishAnimationId) {
+        return true;
+    }
+    const bool queued = std::any_of(_fireForgetQueue.begin(), _fireForgetQueue.end(), [](const FireForgetEntry &entry) {
+        return entry.source.id == kWeaponFlourishAnimationId;
+    });
+    if (queued) {
+        return true;
+    }
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    const std::string layer = getWeaponDrawOverlayAnimation();
+    return model && !layer.empty() && model->isAnimationPlaying(layer);
+}
+
 // A living creature that can flourish powers its lightsabers and enters combat
 // state; alive or dead, the flourish then plays. In TSL a flourish waits for
 // the weapon-switch cooldown and starts it, the player's is refused in
 // restricted areas, and stun batons and empty hands do not flourish; in KotOR
-// only the melee weapon classes flourish.
+// only the melee weapon classes flourish. The player's flourishes run one at a
+// time: a press while one plays or waits shows no other. A script's flourish
+// always queues.
 void Creature::flourishWeapons(bool playerCommand) {
     const bool tsl = _game.isTSL();
     if (tsl && isSwitchWeaponsCoolingDown()) {
@@ -5334,7 +5351,9 @@ void Creature::flourishWeapons(bool playerCommand) {
         setLightsabersPowered(true, true);
         setCombatState(true, CombatActivation::Indirect, false);
     }
-    playWeaponFlourish();
+    if (!playerCommand || !isFlourishing()) {
+        playWeaponFlourish();
+    }
     if (tsl) {
         startSwitchWeaponsCooldown();
     }
