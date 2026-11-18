@@ -23,6 +23,7 @@
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/types.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/modelnode.h"
 
 #include "reone/game/object.h"
 
@@ -75,6 +76,30 @@ void Room::computeBox() {
     if (!walkable) {
         _boxMin = kEmptyBoxMin;
         _boxMax = kEmptyBoxMax;
+    }
+}
+
+void Room::markStaticParts() {
+    if (!_model) {
+        return;
+    }
+    // Nodes outside the animation root, a node named for the model with an
+    // "a" after it, are static.
+    const std::string animationRootName {_model->model().name() + "a"};
+    std::stack<std::reference_wrapper<const ModelNode>> nodes;
+    nodes.push(*_model->model().rootNode());
+    while (!nodes.empty()) {
+        const ModelNode &node = nodes.top();
+        nodes.pop();
+        if (node.name() == animationRootName) {
+            continue;
+        }
+        if (auto *sceneNode = _model->getNodeByName(node.name())) {
+            sceneNode->setStatic(true);
+        }
+        for (const auto &child : node.children()) {
+            nodes.push(*child);
+        }
     }
 }
 

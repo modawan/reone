@@ -45,6 +45,7 @@ public:
         _model(std::move(model)),
         _walkmesh(std::move(walkmesh)) {
         computeBox();
+        markStaticParts();
     }
 
     bool isVisible() const { return _visible; }
@@ -100,6 +101,7 @@ private:
     // END Scene Nodes
 
     void computeBox();
+    void markStaticParts();
 };
 
 /**
