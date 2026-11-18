@@ -1855,12 +1855,9 @@ std::string Creature::hitSoundMaterial(const Object &target) const {
     return "";
 }
 
-// The creature swings its right weapon, or a lightsaber in its left hand.
-// Its swing sounds begin with its first swing.
+// The creature swings its right weapon, or a lightsaber in its left hand,
+// in any clip that marks a swing: an attack, a flourish or a scripted one.
 void Creature::playSwingSound(const std::string &name, int variants) {
-    if (!_swingAttack) {
-        return;
-    }
     int row = 0;
     if (auto right = getEquippedItem(InventorySlots::rightWeapon)) {
         row = right->weaponMaterialType();
