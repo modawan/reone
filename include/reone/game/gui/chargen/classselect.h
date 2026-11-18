@@ -110,8 +110,6 @@ private:
     glm::ivec2 _defaultButtonSize {0};
     glm::ivec2 _enlargedButtonSize {0};
     std::vector<ClassButton> _classButtons;
-    /** For each gender, the player portraits its class buttons have not drawn yet. */
-    std::map<Gender, std::vector<int>> _undrawnPortraitRows;
 
     void onGUILoaded() override;
 
@@ -135,16 +133,17 @@ private:
         _controls.LBL_INSTRUCTION = findControl<gui::Label>("LBL_INSTRUCTION");
     }
 
-    void setupClassButton(int index, Gender gender, ClassType clazz);
+    /** \p undrawnPortraits holds, for each gender, the player portraits no button has drawn yet. */
+    void setupClassButton(int index, Gender gender, ClassType clazz, std::map<Gender, std::vector<int>> &undrawnPortraits);
 
     std::shared_ptr<scene::ModelSceneNode> getCharacterModel(int appearance, scene::ISceneGraph &sceneGraph);
     /**
      * Gives \p character a random player portrait of its gender, keeping the
      * portraits.2da row, and that portrait's appearance for \p clazz. The
-     * portrait is drawn from those of its gender no class button has drawn
-     * yet, from all of them again once none is left.
+     * portrait is drawn out of \p undrawn, the gender's portraits not drawn
+     * yet, which refills with all of them once it is empty.
      */
-    void pickRandomPortrait(Character &character, ClassType clazz);
+    void pickRandomPortrait(Character &character, ClassType clazz, std::vector<int> &undrawn);
     std::vector<int> getPCPortraitRowsByGender(Gender gender);
 
     void setButtonColors(gui::Control &control);

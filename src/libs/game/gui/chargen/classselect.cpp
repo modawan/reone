@@ -102,21 +102,22 @@ void ClassSelection::onGUILoaded() {
 
 void ClassSelection::setupClassButtons() {
     _classButtons.clear();
-    _undrawnPortraitRows.clear();
-    setupClassButton(0, Gender::Male, !_game.isTSL() ? ClassType::Scoundrel : ClassType::JediConsular);
-    setupClassButton(1, Gender::Male, !_game.isTSL() ? ClassType::Scout : ClassType::JediSentinel);
-    setupClassButton(2, Gender::Male, !_game.isTSL() ? ClassType::Soldier : ClassType::JediGuardian);
-    setupClassButton(3, Gender::Female, !_game.isTSL() ? ClassType::Soldier : ClassType::JediGuardian);
-    setupClassButton(4, Gender::Female, !_game.isTSL() ? ClassType::Scout : ClassType::JediSentinel);
-    setupClassButton(5, Gender::Female, !_game.isTSL() ? ClassType::Scoundrel : ClassType::JediConsular);
+    // The buttons of a gender never share a portrait while there are enough.
+    std::map<Gender, std::vector<int>> undrawn;
+    setupClassButton(0, Gender::Male, !_game.isTSL() ? ClassType::Scoundrel : ClassType::JediConsular, undrawn);
+    setupClassButton(1, Gender::Male, !_game.isTSL() ? ClassType::Scout : ClassType::JediSentinel, undrawn);
+    setupClassButton(2, Gender::Male, !_game.isTSL() ? ClassType::Soldier : ClassType::JediGuardian, undrawn);
+    setupClassButton(3, Gender::Female, !_game.isTSL() ? ClassType::Soldier : ClassType::JediGuardian, undrawn);
+    setupClassButton(4, Gender::Female, !_game.isTSL() ? ClassType::Scout : ClassType::JediSentinel, undrawn);
+    setupClassButton(5, Gender::Female, !_game.isTSL() ? ClassType::Scoundrel : ClassType::JediConsular, undrawn);
 
     setClassButtonEnlarged(0, false);
 }
 
-void ClassSelection::setupClassButton(int index, Gender gender, ClassType clazz) {
+void ClassSelection::setupClassButton(int index, Gender gender, ClassType clazz, std::map<Gender, std::vector<int>> &undrawnPortraits) {
     Character character;
     character.gender = gender;
-    pickRandomPortrait(character, clazz);
+    pickRandomPortrait(character, clazz, undrawnPortraits[gender]);
     character.soundSet = playerSoundSet(gender, _services.resource.twoDas);
     character.attributes = _services.game.classes.get(clazz)->defaultAttributes();
 
@@ -195,18 +196,16 @@ std::vector<int> ClassSelection::getPCPortraitRowsByGender(Gender gender) {
     return result;
 }
 
-void ClassSelection::pickRandomPortrait(Character &character, ClassType clazz) {
-    // The buttons of a gender never share a portrait while there are enough.
-    std::vector<int> &rows = _undrawnPortraitRows[character.gender];
-    if (rows.empty()) {
-        rows = getPCPortraitRowsByGender(character.gender);
+void ClassSelection::pickRandomPortrait(Character &character, ClassType clazz, std::vector<int> &undrawn) {
+    if (undrawn.empty()) {
+        undrawn = getPCPortraitRowsByGender(character.gender);
     }
-    if (rows.empty()) {
+    if (undrawn.empty()) {
         return;
     }
-    const auto pick = rows.begin() + randomInt(0, static_cast<int>(rows.size()) - 1);
+    const auto pick = undrawn.begin() + randomInt(0, static_cast<int>(undrawn.size()) - 1);
     const int row = *pick;
-    rows.erase(pick);
+    undrawn.erase(pick);
     const Portrait &portrait = _services.game.portraits.portraits()[row];
     character.portraitId = row;
 
