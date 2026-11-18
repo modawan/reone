@@ -106,3 +106,15 @@ TEST(OptionsConfiguration, every_options_page_round_trips_without_losing_another
         EXPECT_NE(std::string::npos, content.find(line)) << line;
     }
 }
+
+TEST(OptionsConfiguration, the_game_completed_record_round_trips_without_losing_another_key) {
+    TemporaryConfiguration configuration;
+    configuration.write("[Game Options]\r\nDifficulty Level=2\r\n");
+    // Without a record the caller's value stands.
+    EXPECT_EQ(1, loadGameCompleted(configuration.path, 1));
+
+    saveGameCompleted(configuration.path, 3);
+
+    EXPECT_EQ(3, loadGameCompleted(configuration.path, 1));
+    EXPECT_NE(std::string::npos, configuration.read().find("Difficulty Level=2"));
+}
