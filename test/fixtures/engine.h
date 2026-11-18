@@ -36,7 +36,7 @@ public:
     void init() {
         static bool loggerInitialized = false;
         if (!loggerInitialized) {
-            Logger::instance.init(LogSeverity::Error, {}, std::nullopt);
+            Logger::instance.init(LogSeverity::None, {}, std::nullopt);
             loggerInitialized = true;
         }
 
