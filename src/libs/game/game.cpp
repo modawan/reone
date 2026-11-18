@@ -1242,9 +1242,12 @@ void Game::update(float frameTime) {
 void Game::updateFrame(float frameTime) {
     updateMouseLookPointer();
     // What the pointer is over is picked once a frame, after the frame's
-    // mouse moves, and also while paused.
-    if (_module && _screen == Screen::InGame && !_movie) {
+    // mouse moves, and also while paused; a frame without play on the screen,
+    // or with a message box over it, leaves the next pick to be made afresh.
+    if (_module && _screen == Screen::InGame && !_movie && !topShownPopup()) {
         _module->updateHover();
+    } else if (_module) {
+        _module->markHoverStale();
     }
     // The death sequence sets how fast the world, its presentation and the
     // fade run this frame. A pending end keeps the death GUI up while its
@@ -5020,7 +5023,7 @@ void Game::updateLeaderVideoEffect() {
     const auto isLeaderEffectRow = [](int row) {
         return row == kForceSightVideoEffect || (row >= kFirstFuryVideoEffect && row <= kLastFuryVideoEffect);
     };
-    if (isConversationActive()) {
+    if (_dialogUnderWay) {
         if (isLeaderEffectRow(_videoEffectType)) {
             disableVideoEffect();
         }
@@ -6681,7 +6684,7 @@ void Game::updateSoloModeQuery() {
     }
     // The query is up only in play.
     auto leader = _party.getLeader();
-    if (isConversationActive() || _module->area()->transitionPending() ||
+    if (_dialogUnderWay || _module->area()->transitionPending() ||
         (leader && (leader->isDead() || (_party.isMember(*leader) && leader->currentHitPoints() <= 0)))) {
         _soloModeQueryOpen = false;
         _confirmPopup->hide();
@@ -6691,7 +6694,7 @@ void Game::updateSoloModeQuery() {
 // The query pauses play while it is up, unless play was already paused.
 void Game::showSoloModeQuery(bool forStealth) {
     auto leader = _party.getLeader();
-    if (isConversationActive() || _module->area()->transitionPending() || !leader || leader->isDead() ||
+    if (_dialogUnderWay || _module->area()->transitionPending() || !leader || leader->isDead() ||
         leader->currentHitPoints() <= 0 || _party.getSize() <= 1) {
         _services.game.guiSounds.play(_services.game.guiSounds.getActionUnavailable());
         return;
@@ -6785,8 +6788,9 @@ void Game::autoPause(AutoPauseReason reason) {
         _deferredAutoPauseReason = reason;
         return;
     }
-    // Autopause applies only over live play.
-    if (_screen != Screen::InGame) {
+    // Autopause applies only over live play, and never while a conversation
+    // is under way.
+    if (_screen != Screen::InGame || _dialogUnderWay) {
         return;
     }
     if (reason == AutoPauseReason::PartyKilled) {
@@ -6959,7 +6963,7 @@ bool Game::requestTutorialWindow(int id, uint32_t actor, uint32_t subject, uint3
     if (!isTSL() && id > kK1LastTutorial) {
         return false;
     }
-    if (_party.isTutorialShown(id) || isConversationActive() || !isTutorialWindowValid(id)) {
+    if (_party.isTutorialShown(id) || _dialogUnderWay || !isTutorialWindowValid(id)) {
         return false;
     }
     // One slot: a later request before the next frame replaces this one.
@@ -9447,8 +9451,8 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
         addFeedbackMessage(kLevelUpAvailableStrRef);
     }
     // TSL introduces levelling up the first time the player character can,
-    // outside a conversation.
-    if (isTSL() && creature.isPlayerCreated() && !isConversationActive()) {
+    // while no conversation is under way.
+    if (isTSL() && creature.isPlayerCreated() && !_dialogUnderWay) {
         runLevelUpDialogOnce();
     }
 }

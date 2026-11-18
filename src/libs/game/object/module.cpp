@@ -537,7 +537,18 @@ bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
     return true;
 }
 
+void Module::markHoverStale() {
+    _hoverStale = true;
+}
+
 void Module::updateHover() {
+    if (_hoverStale || _game.isDialogUnderWay() != _hoverDialogUnderWay) {
+        _hoverStale = false;
+        _hoverDialogUnderWay = _game.isDialogUnderWay();
+        if (!_hoverPoint) {
+            _hoverPoint = _game.pointerPosition();
+        }
+    }
     if (!_hoverPoint) {
         return;
     }
@@ -548,10 +559,11 @@ void Module::updateHover() {
     }
     CursorType cursor = CursorType::Default;
 
-    // While the mouse turns the camera, or the pointer is on a HUD control,
-    // nothing in the world is under the pointer.
+    // While the mouse turns the camera, the pointer is on a HUD control or a
+    // conversation is under way, nothing in the world is under the pointer.
     const Camera *camera = _game.getActiveCamera();
-    const bool worldHidden = (camera && camera->isMouseLookMode()) || _game.isPointerOnHUD(point.x, point.y);
+    const bool worldHidden = (camera && camera->isMouseLookMode()) || _game.isPointerOnHUD(point.x, point.y) ||
+                             _game.isDialogUnderWay();
     auto object = worldHidden ? std::nullopt : _area->getObjectAt(point.x, point.y);
     if (object && object->get().isSelectable()) {
         Object &picked = object->get();
@@ -570,7 +582,9 @@ void Module::updateHover() {
 }
 
 bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
-    if (event.button != input::MouseButton::Left) {
+    // While a conversation is under way a click in the world neither selects
+    // nor gives an order.
+    if (event.button != input::MouseButton::Left || _game.isDialogUnderWay()) {
         return false;
     }
     auto object = _area->getObjectAt(event.x, event.y);
@@ -595,8 +609,10 @@ bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     return true;
 }
 
+// No click gives an order while a conversation is under way, the default
+// action key's included.
 void Module::onObjectClick(const std::shared_ptr<Object> &object, bool sound) {
-    if (!_game.party().getLeader()) {
+    if (!_game.party().getLeader() || _game.isDialogUnderWay()) {
         return;
     }
     switch (object->type()) {

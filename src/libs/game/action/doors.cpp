@@ -740,9 +740,10 @@ static constexpr float kHeldUpUseReach = 1.0f;
 // use of a container waits for it to swing open, then opens it for the
 // controlled creature, which also counts as using it. An unusable or open
 // container refuses the use, and a creature the player does not control only
-// hears it open.
+// hears it open. No party member uses anything while a conversation is under
+// way.
 void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    if (!_object || !isa<Creature>(actor)) {
+    if (!_object || !isa<Creature>(actor) || (_game.isDialogUnderWay() && _game.party().isMember(actor))) {
         complete();
         return;
     }

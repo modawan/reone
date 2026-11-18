@@ -2363,9 +2363,9 @@ void Creature::interruptForSpell(int spellId, bool itemCast, bool hostile) {
         }
         return;
     }
-    // TSL casts leave activities alone while a conversation holds the screen,
+    // TSL casts leave activities alone while a conversation is under way,
     // and a stealthed caster keeps stealth through its stealth-compatible powers.
-    if (_game.isTSL() && _game.isConversationActive()) {
+    if (_game.isTSL() && _game.isDialogUnderWay()) {
         return;
     }
     bool keepStealth = false;
@@ -3166,7 +3166,7 @@ static bool isAttackingOrCasting(const OrdinaryActionQueue &queue) {
 // pose while looking around in free-look, over whatever loop it holds, and
 // otherwise keeps a pause loop and drops any other. A following party member
 // in the first two follow slots shows its pose over any loop, except a
-// dialog animation while a conversation runs.
+// dialog animation while a conversation is under way.
 //
 // Everyone else follows the default rules. The ready loop falls back to the
 // pause once the creature neither fights nor attacks or casts. A pause loop
@@ -3199,7 +3199,7 @@ void Creature::updateIdleLoop(const std::string &active) {
         if (isDebilitated() || followSlot() == -1) {
             return;
         }
-        if (_game.isConversationActive() && isPlayingDialogAnimation()) {
+        if (_game.isDialogUnderWay() && isPlayingDialogAnimation()) {
             return;
         }
         const bool injured = !_combatState.active && isInjured();
@@ -3613,7 +3613,7 @@ void Creature::stopOverlayLoop() {
 
 void Creature::presentEquippedItems(const std::string &clip) {
     const bool hides = _services.game.animations.hidesEquippedItems(clip);
-    if (!hides && (!_equipmentHidden || _game.isConversationActive())) {
+    if (!hides && (!_equipmentHidden || _game.isDialogUnderWay())) {
         return;
     }
     _equipmentHidden = hides;
@@ -5601,8 +5601,8 @@ void Creature::playScriptAnimation(const ScriptAnimation &animation, float speed
 
 // A creature idling in its plain pause glances or fidgets now and then: first
 // after one to two and a half minutes, then every fifteen to thirty seconds.
-// The time goes on during a conversation, but no fidget starts. Models with
-// the creature animations have fewer fidgets.
+// The time goes on while a conversation is under way, but no fidget starts.
+// Models with the creature animations have fewer fidgets.
 void Creature::updateFidget() {
     if (!_sceneNode) {
         return;
@@ -5612,7 +5612,7 @@ void Creature::updateFidget() {
         return;
     }
     _fidgetTime += _frameMilliseconds;
-    if (_fidgetTime < _fidgetDelay || _game.isConversationActive()) {
+    if (_fidgetTime < _fidgetDelay || _game.isDialogUnderWay()) {
         return;
     }
     struct Fidget {
