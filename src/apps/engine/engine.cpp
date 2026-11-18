@@ -108,6 +108,8 @@ void Engine::init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
+    // Closing the window asks the game before anything quits.
+    SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
 
     if (_options.graphics.headless) {
         _options.graphics.winScale = 100;
@@ -435,6 +437,8 @@ void Engine::processEvents(bool &quit) {
     std::queue<input::Event> unhandled;
     SDL_Event sdlEvent;
     while (SDL_PollEvent(&sdlEvent)) {
+        // Quitting the application, as a signal or the system asks, quits at
+        // once; closing the window asks the game first.
         if (sdlEvent.type == SDL_EVENT_QUIT) {
             quit = true;
             break;
@@ -444,6 +448,10 @@ void Engine::processEvents(bool &quit) {
                 quit = true;
                 break;
             }
+            continue;
+        }
+        if (sdlEvent.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && _window->isAssociatedWith(sdlEvent)) {
+            _game->queryExit();
             continue;
         }
         if (imguiHandle(sdlEvent)) {

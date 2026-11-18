@@ -60,9 +60,6 @@ static constexpr int kGraphicsDescriptionStrRefTSL = 48687;
 static constexpr int kSoundDescriptionStrRef = 48012;
 static constexpr int kSoundDescriptionStrRefTSL = 48688;
 
-// Exit Game asks this before it ends the game.
-static constexpr int kExitGameQuestionStrRef = 42348;
-
 // What an option the game takes only as it starts adds to its description.
 static const std::string kNextStartNote {"Takes effect the next time the game starts."};
 

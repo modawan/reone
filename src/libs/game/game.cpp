@@ -1509,6 +1509,9 @@ void Game::updateFrame(float frameTime) {
             _credits.reset();
         }
     }
+    if (_exitQueryPending && !_movie && !_credits) {
+        queryExit();
+    }
     updateSoloModeQuery();
     updateSceneGraph(dt);
     if (!_paused) {
@@ -6775,6 +6778,12 @@ void Game::requestAutoPause(AutoPauseReason reason) {
     autoPause(reason);
 }
 
+void Game::deferAutoPause(AutoPauseReason reason) {
+    _deferredAutoPauseDelay = kDeferredAutoPauseDelay;
+    _autoPauseDelayWindow = 0.0f;
+    _deferredAutoPauseReason = reason;
+}
+
 void Game::autoPause(AutoPauseReason reason) {
     // Autopause never stacks on an existing pause.
     if (_autoPaused || isPausedAtFrameEnd()) {
@@ -6783,9 +6792,7 @@ void Game::autoPause(AutoPauseReason reason) {
     // Within the delay window the request is deferred, even one made during
     // a conversation.
     if (_autoPauseDelayWindow > 0.0f) {
-        _deferredAutoPauseDelay = kDeferredAutoPauseDelay;
-        _autoPauseDelayWindow = 0.0f;
-        _deferredAutoPauseReason = reason;
+        deferAutoPause(reason);
         return;
     }
     // Autopause applies only over live play, and never while a conversation
@@ -10626,6 +10633,41 @@ bool Game::showConfirmPopup(
     putMessagePopupOnTop();
     _confirmPopup->showConfirm(message, std::move(onConfirm), std::move(onCancel), colors);
     return true;
+}
+
+// Only an animated cutscene ignores the close. During another conversation
+// the question is asked, but play is not paused: a conversation refuses the
+// pause. Nothing is drawn over a movie or the credits, and the credits take
+// the input first, so there the question waits for their end.
+void Game::queryExit() {
+    _exitQueryPending = false;
+    if (isAnimatedCutsceneShowing()) {
+        return;
+    }
+    if (_movie || _credits) {
+        _exitQueryPending = true;
+        return;
+    }
+    // A message box or solo mode question up gives way, unanswered, before
+    // the pause is settled: a box that held play paused lets it go, and the
+    // pause below takes it again.
+    if (_confirmPopup) {
+        putMessagePopupOnTop();
+    }
+    // Free look ends unless the leader is in combat or the game is over.
+    if (auto leader = _party.getLeader(); _module && leader && !leader->isInCombat() && !_gameOver) {
+        exitFreeLook();
+    }
+    if (!isPausedAtFrameEnd() && !_dialogUnderWay) {
+        // The pause also counts as an autopause, unless the autopause delay
+        // window is open, which it uses up instead.
+        const bool delayed = _autoPauseDelayWindow > 0.0f;
+        setPaused(true, PauseReason::Player, !delayed);
+        if (delayed) {
+            deferAutoPause(AutoPauseReason::EnemySighted);
+        }
+    }
+    showConfirmPopup(_services.resource.strings.getText(kExitGameQuestionStrRef), [this]() { quit(); });
 }
 
 void Game::showDatapad(Item &datapad) {

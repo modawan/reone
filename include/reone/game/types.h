@@ -59,6 +59,8 @@ constexpr float kSelectionDistance2 = kSelectionDistance * kSelectionDistance;
 constexpr int kSecurityStrRef = 329;
 /** The name of recovering a mine, in the log and the target menu. */
 constexpr int kRecoverActionStrRef = 1531;
+/** The question asked before the game ends or quits. */
+constexpr int kExitGameQuestionStrRef = 42348;
 
 constexpr char kSceneMain[] = "main";
 constexpr char kSceneMainMenu[] = "mainmenu";
