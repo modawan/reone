@@ -22,13 +22,24 @@
 
 namespace reone {
 
-class Logger {
+class Logger : boost::noncopyable {
 public:
     static Logger instance;
+
+    Logger();
+
+    ~Logger() {
+        deinit();
+    }
 
     void init(LogSeverity minSeverity,
               std::set<LogChannel> enabledChannels,
               std::optional<std::string> filename);
+
+    /** Writes to the given stream rather than a file or the console. */
+    void init(LogSeverity minSeverity,
+              std::set<LogChannel> enabledChannels,
+              std::unique_ptr<std::ostream> stream);
 
     void append(std::string message,
                 LogChannel channel,
@@ -64,8 +75,12 @@ public:
     bool isInited() const { return _inited; }
 
 private:
-    static thread_local std::optional<std::reference_wrapper<std::ostringstream>> buffer;
+    // Every thread that writes to a logger gets a buffer of its own in that
+    // logger. They are found by the logger's id, not its address, so a logger
+    // created where a destroyed one lived never picks up its buffers.
+    static thread_local std::unordered_map<uint64_t, std::ostringstream *> threadBuffers;
 
+    uint64_t _id;
     LogSeverity _minSeverity {LogSeverity::Warn};
     std::set<LogChannel> _enabledChannels;
     std::unique_ptr<std::ostream> _stream;
@@ -73,18 +88,15 @@ private:
 
     std::list<std::ostringstream> _buffers;
 
+    // Guards _buffers, which each thread adds its buffer to on its first line.
     std::mutex _buffersMutex;
+    // Guards _stream, which every thread's flush writes to.
     std::mutex _streamMutex;
 
     int64_t _initTimeNs {0};
 
-    Logger() = default;
-
-    ~Logger() {
-        deinit();
-    }
-
     void deinit();
+    std::ostringstream &threadBuffer();
     void flush(std::ostringstream &buffer);
 };
 
