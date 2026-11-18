@@ -99,3 +99,25 @@ TEST(Logger, should_keep_two_loggers_lines_apart_on_one_thread) {
     EXPECT_TRUE(contains(secondOutput, "from second"));
     EXPECT_FALSE(contains(secondOutput, "from first"));
 }
+
+TEST(Logger, should_write_a_warning_and_the_lines_before_it_at_once) {
+    std::stringbuf output;
+    Logger logger;
+    logger.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&output));
+
+    logger.append("earlier line", LogChannel::Global, LogSeverity::Info);
+    logger.append("the warning", LogChannel::Global, LogSeverity::Warn);
+
+    EXPECT_TRUE(contains(output, "earlier line"));
+    EXPECT_TRUE(contains(output, "the warning"));
+}
+
+TEST(Logger, should_write_an_error_at_once) {
+    std::stringbuf output;
+    Logger logger;
+    logger.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&output));
+
+    logger.append("the error", LogChannel::Global, LogSeverity::Error);
+
+    EXPECT_TRUE(contains(output, "the error"));
+}

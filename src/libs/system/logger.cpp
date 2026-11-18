@@ -106,7 +106,9 @@ void Logger::append(std::string message,
                          message);
     auto &buf = threadBuffer();
     buf.write(&formatted[0], formatted.length());
-    if (buf.tellp() >= kBufferSize) {
+    // A warning or error goes out at once, with whatever this thread buffered
+    // before it, so it survives a crash that follows.
+    if (severity >= LogSeverity::Warn || buf.tellp() >= kBufferSize) {
         flush(buf);
     }
 }
