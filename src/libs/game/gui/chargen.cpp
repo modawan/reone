@@ -487,9 +487,18 @@ void CharacterGeneration::acceptAbilities() {
     _levelUpBase.abilitiesAccepted = true;
 }
 
-void CharacterGeneration::confirmCancel(std::function<void()> onConfirm) {
+void CharacterGeneration::cancelSteps(int step, std::function<void()> restart) {
+    auto cancel = [this, restart = std::move(restart)]() {
+        restart();
+        resetCreationFeats();
+        openQuickOrCustom();
+    };
+    if (step == 0) {
+        cancel();
+        return;
+    }
     const int strRef = _game.isTSL() ? kTSLCancelConfirmStrRef : kK1CancelConfirmStrRef;
-    _game.showConfirmPopup(_services.resource.strings.getText(strRef), std::move(onConfirm));
+    _game.showConfirmPopup(_services.resource.strings.getText(strRef), std::move(cancel));
 }
 
 void CharacterGeneration::cancel() {

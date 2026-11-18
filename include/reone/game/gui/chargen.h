@@ -104,8 +104,12 @@ public:
 
     void finish();
     void cancel();
-    /** Asks whether to cancel the character being made, and runs \p onConfirm on Yes. */
-    void confirmCancel(std::function<void()> onConfirm);
+    /**
+     * Leaves the quick or custom panel for the quick or custom choice: at
+     * once from its first step, otherwise once the player confirms.
+     * \p restart puts the panel back on its first step.
+     */
+    void cancelSteps(int step, std::function<void()> restart);
 
     void openClassSelection();
     void openNameEntry();

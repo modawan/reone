@@ -51,25 +51,13 @@ void CustomCharacterGeneration::onGUILoaded() {
 
     doSetStep(0);
 
-    // Cancelling at the first step goes back at once; past it, only after
-    // asking.
-    const auto cancel = [this]() {
-        setStep(0);
-        _charGen.resetCreationFeats();
-        _charGen.openQuickOrCustom();
-    };
-    _controls.BTN_CANCEL->setOnClick([this, cancel]() {
-        if (_step == 0) {
-            cancel();
-        } else {
-            _charGen.confirmCancel(cancel);
-        }
+    _controls.BTN_CANCEL->setOnClick([this]() {
+        _charGen.cancelSteps(_step, [this]() { setStep(0); });
     });
-    // Back is disabled at the first step, where only Escape, which clicks
-    // it, reaches it: there it cancels at once.
-    _controls.BTN_BACK->setOnClick([this, cancel]() {
+    // Back is disabled at the first step, but Escape still clicks it there.
+    _controls.BTN_BACK->setOnClick([this]() {
         if (_step == 0) {
-            cancel();
+            _charGen.cancelSteps(0, [this]() { setStep(0); });
             return;
         }
         setStep(_step - 1);
