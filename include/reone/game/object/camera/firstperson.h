@@ -102,6 +102,9 @@ private:
     bool handleAttached(const input::Event &event);
     void updateAttached(Creature &creature, float dt);
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
+    bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
+    bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);

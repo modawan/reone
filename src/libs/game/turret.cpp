@@ -2048,6 +2048,18 @@ bool Turret::handle(const input::Event &event) {
     }
 }
 
+bool Turret::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Turret::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool Turret::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool Turret::handleKeyDown(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::Up:

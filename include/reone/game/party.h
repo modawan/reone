@@ -884,7 +884,11 @@ private:
 
     // END Follow path
 
+    bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
+    bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
+    bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);
+
     /**
      * The roster slot forgets its creature, when it binds the expected one or
      * no creature is expected. Returns the creature released.

@@ -75,6 +75,18 @@ bool FirstPersonCamera::handle(const input::Event &event) {
     }
 }
 
+bool FirstPersonCamera::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool FirstPersonCamera::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool FirstPersonCamera::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool FirstPersonCamera::handleMouseMotion(const input::MouseMotionEvent &event) {
     _facing = glm::mod(
         _facing - event.xrel * kMouseMultiplier,

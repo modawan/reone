@@ -301,6 +301,18 @@ bool GUI::handle(const input::Event &event) {
     return false;
 }
 
+bool GUI::handleGamepadButtonDown(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool GUI::handleGamepadButtonUp(const input::GamepadButtonEvent &event) {
+    return false;
+}
+
+bool GUI::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
+    return false;
+}
+
 bool GUI::handleKeyDown(input::KeyCode key) {
     std::stack<std::reference_wrapper<Control>> controls;
     controls.push(*_rootControl);
