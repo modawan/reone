@@ -636,6 +636,9 @@ void CharacterGeneration::finish() {
         if (_game.isTSL()) {
             _game.setGlobalNumber(kPlayerAlignmentGlobal, kNewCharacterGoodEvil);
             _game.setGlobalNumber(kPlayerLevelGlobal, player->attributes().getAggregateLevel());
+            // A finished game is remembered by the configuration and told to
+            // every new game.
+            _game.tellGameCompleted();
         }
 
         // Starting the game first fades the menu music out.

@@ -752,6 +752,7 @@ void Game::init() {
     _options.game.gameplay = GameplayOptions::load(_options.game.configurationPath);
     _options.game.moviesShown = loadMoviesShown(_options.game.configurationPath);
     _options.game.unlockedPlanetSongs = loadUnlockedPlanetSongs(_options.game.configurationPath);
+    _options.game.gameCompleted = loadGameCompleted(_options.game.configurationPath, _options.game.gameCompleted);
     initConsole();
     initTables();
     resetGalaxyMap();
@@ -3431,6 +3432,15 @@ bool Game::playVideo(const std::string &name, bool streamingMusic) {
     // A script's movie empties the transition list when it ends.
     _loadComesWithMovies = false;
     return startVideo(name, streamingMusic);
+}
+
+// TSL's end scripts keep the games finished, by side, in this global.
+static constexpr char kGameCompleteGlobal[] = "GBL_GAME_COMPLETE";
+// A global number is kept in a signed byte, as saves store it.
+static constexpr int kMaxGlobalNumber = 127;
+
+void Game::tellGameCompleted() {
+    setGlobalNumber(kGameCompleteGlobal, std::clamp(_options.game.gameCompleted, 0, kMaxGlobalNumber));
 }
 
 void Game::queueMovie(const std::string &name, bool skippable) {
@@ -6577,6 +6587,13 @@ void Game::openMainMenu() {
     // Only a committed playable session may replace the durable menu snapshot.
     // Cold startup and recovery from a partial load must not erase it.
     if (isTSL() && _runtimeSessionPlayable) {
+        // Leaving a game keeps the completion record its scripts left, for
+        // the games after it; an older game's lower record does not replace it.
+        const int completed = getGlobalNumber(kGameCompleteGlobal);
+        if (completed > _options.game.gameCompleted) {
+            _options.game.gameCompleted = completed;
+            saveGameCompleted(_options.game.configurationPath, completed);
+        }
         MenuPresentation state;
         state.selector = MenuPresentation::validateSelector(getGlobalNumber("GBL_MAIN_SITH_LORD"));
         if (state.selector == kLeaderMenuSelector) {

@@ -45,6 +45,12 @@ struct GameOptions {
     MoviesShown moviesShown;
     /** The planet groups of the main menu's music list that are open, one bit each (TSL). */
     int unlockedPlanetSongs {0};
+    /**
+     * TSL: the completion record the end scripts leave in GBL_GAME_COMPLETE (1
+     * the light side finished, 2 the dark side, 3 and above both, or the light
+     * side again), which every new game is told.
+     */
+    int gameCompleted {0};
     std::array<KeybindOptions, 1> keybinds;
     std::filesystem::path configurationPath; // Empty for embedded/test hosts.
 
