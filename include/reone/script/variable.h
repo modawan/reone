@@ -102,7 +102,6 @@ struct Variable {
 
 enum class ArgKind {
     Caller,
-    ScriptVar,
     UserDefinedEventNumber,
     LastClosedBy,
     LastOpenedBy,

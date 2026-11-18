@@ -272,20 +272,23 @@ static Variable DelayCommand(const std::vector<Variable> &args, const RoutineCon
 static Variable ExecuteScript(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sScript = getString(args, 0);
-    auto nScriptVar = getIntOrElse(args, 2, -1);
 
     // Transform
 
-    // Execute: the script runs as the target, even one that is gone. A script
-    // that has no owner, one the game's screens start, runs it with no owner
-    // either, whatever the target.
+    // Execute
+    // The script variable, when given, is the one every script reads from now on.
+    if (args.size() > 2) {
+        ctx.game.scriptRunner().setRunScriptVar(getInt(args, 2));
+    }
+    // The script runs as the target, even one that is gone. A script that has
+    // no owner, one the game's screens start, runs it with no owner either,
+    // whatever the target.
     const Variable *callerArg = ctx.execution.findArg(ArgKind::Caller);
     std::vector<script::Argument> scriptArgs;
     if (callerArg && callerArg->objectId != kObjectInvalid) {
         const uint32_t targetId = args[1].objectId == kObjectSelf ? callerArg->objectId : args[1].objectId;
         scriptArgs.emplace_back(script::ArgKind::Caller, Variable::ofObject(targetId));
     }
-    scriptArgs.emplace_back(script::ArgKind::ScriptVar, Variable::ofInt(nScriptVar));
 
     // Copy all arguments from the parent execution context. This essentially
     // extends lifetime of arguments to the callee script. For example, onNotice
@@ -3101,16 +3104,16 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
         mine->setMineRemovalFromFade(oDestroy->fadeOutTime());
     }
     if (auto creature = dyn_cast<Creature>(oDestroy)) {
-        // The creature leading hands the lead along the party to the first
-        // place naming a creature, dead or alive, and then leaves the party,
-        // at once, whatever the delay. A follower keeps its place, naming
-        // nothing, and stays listed with the party, as a puppet stays listed
-        // with it.
+        // The creature leading hands the lead, in one leader change, to the
+        // first place after it naming a creature, dead or alive, and then
+        // leaves the party, at once, whatever the delay. A follower keeps its
+        // place, naming nothing, and stays listed with the party, as a puppet
+        // stays listed with it.
         auto &party = ctx.game.party();
         if (party.getLeader() == creature) {
-            for (int tries = party.getSize(); tries > 0; --tries) {
-                party.switchLeader();
-                if (party.getLeader()) {
+            for (int index = 1; index < party.getSize(); ++index) {
+                if (party.getMember(index)) {
+                    party.changeLeader(index);
                     break;
                 }
             }
@@ -6181,10 +6184,7 @@ static Variable EndGame(const std::vector<Variable> &args, const RoutineContext 
 
 static Variable GetRunScriptVar(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    if (const Variable *var = ctx.execution.findArg(ArgKind::ScriptVar)) {
-        return *var;
-    }
-    return Variable::ofInt(-1);
+    return Variable::ofInt(ctx.game.scriptRunner().runScriptVar());
 }
 
 // The creaturespeed.2da row of a creature that cannot move.

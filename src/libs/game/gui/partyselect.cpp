@@ -135,16 +135,12 @@ void PartySelection::bindEventHandlers() {
         }
         releaseMaterialized();
         _game.openInGame();
-        if (!_context.exitScript.empty()) {
-            _game.scriptRunner().run(_context.exitScript);
-        }
+        runExitScript(true);
     });
     _controls.BTN_BACK->setOnClick([this]() {
         releaseMaterialized();
         _game.openInGame();
-        if (!_context.exitScript.empty()) {
-            _game.scriptRunner().run(_context.exitScript);
-        }
+        runExitScript(false);
     });
     _controls.BTN_NPC0->setOnClick([this]() {
         onNpcButtonClick(0);
@@ -416,6 +412,18 @@ void PartySelection::removeNpc(int npc) {
     _added[npc] = false;
     refreshNpcButtons();
     refreshAvailableCount();
+}
+
+// TSL's selection sets the script variable as it runs its exit script: 1
+// when it was accepted and 0 when it was left. KotOR's leaves it.
+void PartySelection::runExitScript(bool accepted) {
+    if (_context.exitScript.empty()) {
+        return;
+    }
+    if (_game.isTSL()) {
+        _game.scriptRunner().setRunScriptVar(accepted ? 1 : 0);
+    }
+    _game.scriptRunner().run(_context.exitScript);
 }
 
 void PartySelection::onNpcButtonClick(int npc) {

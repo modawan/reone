@@ -217,6 +217,8 @@ private:
 
     void onAcceptButtonClick();
     void onNpcButtonClick(int npc);
+    /** Runs the exit script a script gave, if any; \p accepted when the selection was accepted. */
+    void runExitScript(bool accepted);
 };
 
 } // namespace game

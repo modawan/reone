@@ -322,6 +322,13 @@ public:
      * @param sound whether the new leader makes its select sound
      */
     void setPartyLeaderByIndex(int index, bool sound = true);
+    /**
+     * The member at \p index takes the lead, as setPartyLeaderByIndex hands
+     * it, and a new leader's drive starts at rest.
+     *
+     * @param sound whether the new leader makes its select sound
+     */
+    void changeLeader(int index, bool sound = true);
     void setPlayer(const std::shared_ptr<Creature> &player);
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     /** Leaving solo mode ends the party's stealth. */
