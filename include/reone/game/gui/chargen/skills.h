@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <set>
+
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
@@ -118,6 +120,8 @@ private:
     CreatureAttributes _startAttributes;
     int _startPoints {0};
     int _allocationLevel {1};
+    /** The feats the levelled creature's effects give it; none for a new character. */
+    std::set<FeatType> _effectFeats;
 
     void onGUILoaded() override;
 

@@ -70,7 +70,7 @@ static bool canClassUseSkill(const Skill &rules, const CreatureClass &clazz) {
 }
 
 // Whether one of the creature's classes can use the skill.
-static bool canClassesUseSkill(const Skill &rules, const CreatureAttributes &attributes) {
+bool canClassesUseSkill(const Skill &rules, const CreatureAttributes &attributes) {
     const auto &classLevels = attributes.classLevels();
     return std::any_of(classLevels.begin(), classLevels.end(), [&rules](const auto &classLevel) {
         return canClassUseSkill(rules, *classLevel.first);

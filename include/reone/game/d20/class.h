@@ -54,15 +54,6 @@ public:
 
     bool isClassSkill(SkillType skill) const;
 
-    /** @return the skill points one more rank of the skill costs: 1 for a class skill, 2 for a cross-class one */
-    int skillPointCost(SkillType skill) const { return isClassSkill(skill) ? 1 : 2; }
-
-    /**
-     * @return the highest rank the skill can have at the given level: the
-     *         level + 3 for a class skill, half that for a cross-class one
-     */
-    int maxSkillRank(SkillType skill, int level) const;
-
     /**
      * The first level gives four times a level's points. On K1 a level gives
      * half the class's skill point base plus the Intelligence modifier at the

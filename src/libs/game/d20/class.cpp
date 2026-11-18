@@ -239,11 +239,6 @@ bool CreatureClass::isClassSkill(SkillType skill) const {
     return _classSkills.count(skill) > 0;
 }
 
-int CreatureClass::maxSkillRank(SkillType skill, int level) const {
-    const int classSkillRank = level + 3;
-    return isClassSkill(skill) ? classSkillRank : classSkillRank / 2;
-}
-
 // The per-level tables give level n's value in row n - 1, and nothing for a
 // level without a row.
 template <class T>

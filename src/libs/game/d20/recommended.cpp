@@ -26,7 +26,7 @@ namespace reone {
 
 namespace game {
 
-void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAttributes &attributes, int &points) {
+void recommendSkills(const CreatureClass &clazz, int &points, const std::function<bool(SkillType, int &)> &raiseRank) {
     // A class whose skills table has no recommendation column ranks no skill,
     // and is recommended to spend nothing: what the original does with such a
     // table is unknown, and spending nothing leaves the points to the player.
@@ -45,16 +45,12 @@ void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAt
     });
 
     for (const auto &[_, skill] : order) {
-        const int maxRank = clazz.maxSkillRank(skill, allocationLevel);
-        const int cost = clazz.skillPointCost(skill);
         // A skill that cannot take another rank gives way to the next, which
         // may cost less.
-        while (points >= cost && attributes.getSkillRank(skill) < maxRank) {
-            attributes.setSkillRank(skill, attributes.getSkillRank(skill) + 1);
-            points -= cost;
-        }
-        if (points == 0) {
-            break;
+        while (points > 0) {
+            if (!raiseRank(skill, points)) {
+                break;
+            }
         }
     }
 }

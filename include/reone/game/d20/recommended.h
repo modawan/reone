@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "../types.h"
 
 #include "attributes.h"
@@ -31,17 +33,15 @@ class ISpells;
 
 /**
  * Spends skill points as the class recommends: through the skills the class
- * ranks, in its order, raising each as far as the points and the skill's
- * rank cap allow before going on to the next. A skill the class does not
- * rank receives nothing.
+ * ranks, in its order, raising each by one rank with \p raiseRank for as long
+ * as it can before going on to the next, until no points are left. A skill
+ * the class does not rank receives nothing.
  *
- * @param clazz the class the points are spent in
- * @param allocationLevel the level the ranks are bought for: a class skill's
- *        rank reaches at most this level + 3, a cross-class skill's half that
- * @param attributes the ranks to raise, as the skills screen starts them
  * @param points the points to spend, left with those that could not be spent
+ * @param raiseRank raises the skill by one rank, spending its cost from the
+ *        points it is given, and tells whether it could
  */
-void recommendSkills(const CreatureClass &clazz, int allocationLevel, CreatureAttributes &attributes, int &points);
+void recommendSkills(const CreatureClass &clazz, int &points, const std::function<bool(SkillType, int &)> &raiseRank);
 
 /**
  * Chooses feats as the class recommends: one pick at a time, the feat the

@@ -103,6 +103,12 @@ private:
     // END Services
 };
 
+/**
+ * @return whether one of the creature's classes can use the skill: every
+ *         class can, or one of them has a skills table
+ */
+bool canClassesUseSkill(const Skill &rules, const CreatureAttributes &attributes);
+
 } // namespace game
 
 } // namespace reone
