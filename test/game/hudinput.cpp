@@ -270,3 +270,13 @@ TEST_F(HUDInputTest, no_autopause_while_a_conversation_is_under_way) {
     _game->requestAutoPause(AutoPauseReason::EnemySighted);
     EXPECT_TRUE(_game->isPausedAtFrameEnd());
 }
+
+TEST_F(HUDInputTest, asking_to_quit_pauses_play_unless_a_conversation_is_under_way) {
+    _game->setDialogUnderWay(true);
+    _game->queryExit();
+    EXPECT_FALSE(_game->isPausedAtFrameEnd());
+
+    _game->setDialogUnderWay(false);
+    _game->queryExit();
+    EXPECT_TRUE(_game->isPausedAtFrameEnd());
+}
