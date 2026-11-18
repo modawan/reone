@@ -60,7 +60,12 @@ public:
     const std::string &name() const { return _name; }
     const glm::vec3 &position() const { return _position; }
 
-    /** Shows or hides the room's model and grass; its walkmesh and the objects in it are left as they are. */
+    /**
+     * Shows or hides the room's model and grass; its walkmesh and the objects
+     * in it are left as they are. A model with an animation root, a node named
+     * for the model with an "a" after it, keeps that node and everything under
+     * it shown, as the animated part is drawn from every room.
+     */
     void setVisible(bool visible);
 
     // Scene Nodes
@@ -91,6 +96,10 @@ private:
 
     std::set<Object *> _tenants;
     bool _visible {true};
+    /** Whether the model has an animation root (see setVisible). */
+    bool _animationRoot {false};
+    /** The roots of the model's parts outside its animation root, which are hidden with the room. */
+    std::vector<scene::SceneNode *> _staticParts;
 
     // Scene Nodes
 

@@ -101,13 +101,28 @@ void Room::markStaticParts() {
             nodes.push(*child);
         }
     }
+    SceneNode *part = _model->getNodeByName(animationRootName);
+    _animationRoot = part != nullptr;
+    // The animation root's ancestors stay shown with it, so the static part is
+    // everything else under them.
+    for (; part && part != _model.get(); part = part->parent()) {
+        for (SceneNode *sibling : part->parent()->children()) {
+            if (sibling != part) {
+                _staticParts.push_back(sibling);
+            }
+        }
+    }
 }
 
 void Room::setVisible(bool visible) {
     if (_visible == visible) {
         return;
     }
-    if (_model) {
+    if (_animationRoot) {
+        for (SceneNode *part : _staticParts) {
+            part->setEnabled(visible);
+        }
+    } else if (_model) {
         _model->setEnabled(visible);
     }
     if (_grass) {

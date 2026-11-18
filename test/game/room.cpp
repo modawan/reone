@@ -53,6 +53,22 @@ struct RoomModelFixture {
 
 } // namespace
 
+TEST(Room, hiding_a_room_keeps_its_animation_root_shown) {
+    RoomModelFixture fixture(/*animated=*/true);
+    Room room {"room", glm::vec3(0.0f), fixture.model, nullptr};
+
+    room.setVisible(false);
+
+    EXPECT_FALSE(room.isVisible());
+    EXPECT_TRUE(fixture.model->isEnabled());
+    EXPECT_TRUE(fixture.model->getNodeByName("rooma")->isEnabled());
+    EXPECT_FALSE(fixture.model->getNodeByName("walls")->isEnabled());
+
+    room.setVisible(true);
+
+    EXPECT_TRUE(fixture.model->getNodeByName("walls")->isEnabled());
+}
+
 TEST(Room, nodes_outside_the_animation_root_are_static) {
     RoomModelFixture fixture(/*animated=*/true);
     Room room {"room", glm::vec3(0.0f), fixture.model, nullptr};
@@ -61,6 +77,15 @@ TEST(Room, nodes_outside_the_animation_root_are_static) {
     EXPECT_TRUE(fixture.model->getNodeByName("walls")->isStatic());
     EXPECT_FALSE(fixture.model->getNodeByName("rooma")->isStatic());
     EXPECT_FALSE(fixture.model->getNodeByName("screen")->isStatic());
+}
+
+TEST(Room, hiding_a_room_without_an_animation_root_hides_its_whole_model) {
+    RoomModelFixture fixture(/*animated=*/false);
+    Room room {"room", glm::vec3(0.0f), fixture.model, nullptr};
+
+    room.setVisible(false);
+
+    EXPECT_FALSE(fixture.model->isEnabled());
 }
 
 TEST(RoomEnvironment, env_audio_names_the_eax_room_types_in_order) {
