@@ -29,7 +29,9 @@ enum class LogSeverity {
     Debug,
     Info,
     Warn,
-    Error
+    Error,
+    // A minimum severity that nothing reaches, so nothing is written.
+    None
 };
 
 enum class LogChannel {
