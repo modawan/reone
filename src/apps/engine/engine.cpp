@@ -110,7 +110,7 @@ void Engine::init() {
     }
 
     if (!SDL_Init(SDL_INIT_GAMEPAD)) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "%s", SDL_GetError());
+        warn("Gamepad support unavailable: " + std::string(SDL_GetError()));
     }
 
     if (_options.graphics.headless) {
