@@ -47,18 +47,28 @@ void QuickCharacterGeneration::onGUILoaded() {
 
     doSetStep(0);
 
-    _controls.BTN_CANCEL->setOnClick([this]() {
+    // Cancelling at the first step goes back at once; past it, only after
+    // asking.
+    const auto cancel = [this]() {
         setStep(0);
         _charGen.resetCreationFeats();
         _charGen.openQuickOrCustom();
-    });
-    _controls.BTN_BACK->setOnClick([this]() {
+    };
+    _controls.BTN_CANCEL->setOnClick([this, cancel]() {
         if (_step == 0) {
-            _charGen.resetCreationFeats();
-            _charGen.openQuickOrCustom();
+            cancel();
         } else {
-            setStep(_step - 1);
+            _charGen.confirmCancel(cancel);
         }
+    });
+    // Back is disabled at the first step, where only Escape, which clicks
+    // it, reaches it: there it cancels at once.
+    _controls.BTN_BACK->setOnClick([this, cancel]() {
+        if (_step == 0) {
+            cancel();
+            return;
+        }
+        setStep(_step - 1);
     });
     _controls.BTN_STEPNAME1->setOnClick([this]() {
         _charGen.openPortraitSelection();
@@ -79,6 +89,7 @@ void QuickCharacterGeneration::setStep(int step) {
 
 void QuickCharacterGeneration::doSetStep(int step) {
     _step = step;
+    _controls.BTN_BACK->setDisabled(_step == 0);
 
     _controls.LBL_1->setDisabled(_step != 0);
     _controls.LBL_2->setDisabled(_step != 1);

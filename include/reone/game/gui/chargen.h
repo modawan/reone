@@ -104,6 +104,8 @@ public:
 
     void finish();
     void cancel();
+    /** Asks whether to cancel the character being made, and runs \p onConfirm on Yes. */
+    void confirmCancel(std::function<void()> onConfirm);
 
     void openClassSelection();
     void openNameEntry();
