@@ -63,7 +63,6 @@ void Room::computeBox() {
         }
         walkable = walkable || node.isAABBMesh();
         if (node.mesh()->backgroundGeometry) {
-            _backgroundGeometry = true;
             continue;
         }
         for (const auto &vertex : node.mesh()->mesh->vertices()) {

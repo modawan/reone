@@ -3568,17 +3568,11 @@ void Area::updateRoomVisibility() {
         }
     }
     _cullingRooms = _visibilityGraph && _shownRoom;
-    // In TSL a listed room must be in view or have background geometry.
-    const Camera *camera = _game.getActiveCamera();
-    auto shownWhenListed = [this, camera](const Room &room) {
-        return !_game.isTSL() || room.hasBackgroundGeometry() || !camera || camera->cameraSceneNode()->camera()->isInFrustum(room.box());
-    };
     for (auto &room : _rooms) {
         bool visible = !_cullingRooms || room.second.get() == _shownRoom;
         if (!visible) {
             auto seen = _visibility.equal_range(_shownRoom->name());
-            visible = std::any_of(seen.first, seen.second, [&room](const auto &pair) { return pair.second == room.first; }) &&
-                      shownWhenListed(*room.second);
+            visible = std::any_of(seen.first, seen.second, [&room](const auto &pair) { return pair.second == room.first; });
         }
         room.second->setVisible(visible);
     }

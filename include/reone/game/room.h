@@ -55,10 +55,6 @@ public:
      * holds no point.
      */
     bool boxHolds(const glm::vec2 &point) const;
-    /** The room's box (see boxHolds). */
-    graphics::AABB box() const { return graphics::AABB(_boxMin, _boxMax); }
-    /** Whether the room has background geometry. */
-    bool hasBackgroundGeometry() const { return _backgroundGeometry; }
 
     const std::string &name() const { return _name; }
     const glm::vec3 &position() const { return _position; }
@@ -91,8 +87,6 @@ private:
     /** See boxHolds. */
     glm::vec3 _boxMin {kEmptyBoxMin};
     glm::vec3 _boxMax {kEmptyBoxMax};
-    /** See hasBackgroundGeometry. */
-    bool _backgroundGeometry {false};
 
     std::set<Object *> _tenants;
     bool _visible {true};
