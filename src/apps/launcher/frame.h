@@ -41,6 +41,7 @@ private:
     struct Configuration {
         std::string gameDir;
         bool devMode {true};
+        bool wheelZoom {false};
         int width {1024};
         int height {768};
         int winscale {100};
@@ -66,6 +67,7 @@ private:
 
     wxTextCtrl *_textCtrlGameDir;
     wxCheckBox *_checkBoxDev;
+    wxCheckBox *_checkBoxWheelZoom;
     wxChoice *_choiceResolution;
     wxChoice *_choiceWinScale;
     wxChoice *_choiceRenderer;
