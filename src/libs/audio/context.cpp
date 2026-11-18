@@ -238,7 +238,7 @@ void Context::setAirAbsorption(AudioSource &source, float factor) {
     if (_obstructionFilter == 0 || name == 0) {
         return;
     }
-    alSourcef(name, AL_AIR_ABSORPTION_FACTOR, std::clamp(factor, 0.0f, 10.0f));
+    alSourcef(name, AL_AIR_ABSORPTION_FACTOR, std::clamp(factor, AL_MIN_AIR_ABSORPTION_FACTOR, AL_MAX_AIR_ABSORPTION_FACTOR));
 #else
     static_cast<void>(source);
     static_cast<void>(factor);
