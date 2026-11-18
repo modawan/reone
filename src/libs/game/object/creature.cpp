@@ -1685,6 +1685,8 @@ void Creature::updateModel() {
     }
     _specialAttackVisuals.reattachToBody(*this, *model);
     VisualEffect::showLatestShell(*this);
+    // A head look carries over to the new model, if it has the bone.
+    restartLookAt();
     _oneShot.reset();
     _animDirty = true;
     if (heldLoop) {
@@ -2934,6 +2936,26 @@ void Creature::updateLookAt() {
     const glm::vec3 aim {lookAtAimPoint(*target)};
     for (auto &model : models) {
         model.get().setLookAtPoint(aim);
+    }
+}
+
+void Creature::restartLookAt() {
+    if (!_lookAtRunning) {
+        return;
+    }
+    _lookAtRunning = false;
+    const auto target = _lookAtTarget.resolve();
+    for (auto &model : lookAtModels()) {
+        if (model.get().isLookingAt()) {
+            _lookAtRunning = true;
+        } else if (target && model.get().beginLookAt(_headBone, _headArcH, _headArcV)) {
+            model.get().setLookAtPoint(lookAtAimPoint(*target));
+            _lookAtRunning = true;
+        }
+    }
+    if (!_lookAtRunning) {
+        _lookAtId = script::kObjectInvalid;
+        _lookAtTarget.reset();
     }
 }
 

@@ -3403,6 +3403,12 @@ private:
 
     void updateLookAt();
     /**
+     * After a model swap, a running look goes on in each model that kept it
+     * and starts in any other with the appearance's head bone; a look no
+     * model holds ends, so a later one at the same object begins afresh.
+     */
+    void restartLookAt();
+    /**
      * The body model and a separate head model; the look runs in whichever has
      * the bone. The list is rebuilt in a buffer the creature keeps.
      */
