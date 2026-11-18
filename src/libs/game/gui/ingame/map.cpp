@@ -72,6 +72,11 @@ void MapMenu::onGUILoaded() {
     _controls.BTN_DOWN->setOnClick([this]() {
         selectAdjacentNote(-1);
     });
+    // TSL's note arrows pulse their hilight's fill.
+    if (_game.isTSL()) {
+        _controls.BTN_UP->setHilightPulsing(false, true);
+        _controls.BTN_DOWN->setHilightPulsing(false, true);
+    }
 
     if (_game.isTSL()) {
         // TSL's map offers no return.

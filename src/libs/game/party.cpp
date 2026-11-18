@@ -1436,6 +1436,16 @@ bool Party::isMemberAvailable(int npc) const {
     return isRosterAvailable({RosterKind::Npc, npc});
 }
 
+// The party's items are the actual player character's.
+bool Party::hasNewItems() const {
+    auto holder = actualPlayer();
+    if (!holder) {
+        return false;
+    }
+    const auto &items = holder->items();
+    return std::any_of(items.begin(), items.end(), [](const auto &item) { return item && item->isNewlyAcquired(); });
+}
+
 bool Party::addPuppet(
     int puppet,
     const std::shared_ptr<Creature> &creature) {
