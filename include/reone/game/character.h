@@ -34,6 +34,8 @@ struct Character {
     int appearance {0};
     /** The portraits.2da row; none until a class with a portrait is chosen. */
     std::optional<int> portraitId;
+    /** The soundset.2da row of the character's voice; none until a class is chosen. */
+    std::optional<int> soundSet;
     CreatureAttributes attributes;
 };
 

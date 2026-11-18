@@ -599,6 +599,7 @@ void CharacterGeneration::finish() {
                 player->setGender(_character.gender);
                 player->setAppearance(_character.appearance);
                 player->setPortraitId(_character.portraitId);
+                player->setSoundSet(_character.soundSet);
                 player->loadAppearance();
                 // A new character moves at the player's pace.
                 player->setMovementRate(kPlayerMovementRate);

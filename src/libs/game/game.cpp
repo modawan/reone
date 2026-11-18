@@ -10391,6 +10391,8 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
         throw std::runtime_error("Starting class is unavailable");
     }
     character.attributes = clazz->defaultAttributes();
+    // The character is made as a new one, with a new character's voice.
+    character.soundSet = playerSoundSet(character.gender, _services.resource.twoDas);
     _charGen->setCharacter(std::move(character));
 
     if (boost::iequals(screen, "quick")) {
