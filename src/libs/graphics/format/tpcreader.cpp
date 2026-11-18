@@ -17,6 +17,8 @@
 
 #include "reone/graphics/format/tpcreader.h"
 
+#include <numeric>
+
 #include "reone/graphics/format/txireader.h"
 #include "reone/graphics/textureutil.h"
 #include "reone/system/exception/validation.h"
@@ -74,14 +76,25 @@ void TpcReader::loadLayers() {
     for (int i = 0; i < _numLayers; ++i) {
         auto pixels = std::make_shared<ByteBuffer>(_tpc.readBytes(_dataSize));
 
-        // Ignore mip maps
+        // A few tiny textures declare a chain longer than the file holds, so
+        // their levels are skipped and the texture generates its own.
+        std::vector<int> levelSizes;
         for (int j = 1; j < _numMipMaps; ++j) {
             int w, h;
             getMipMapSize(j, w, h);
-            _tpc.skipBytes(getMipMapDataSize(w, h));
+            levelSizes.push_back(getMipMapDataSize(w, h));
+        }
+        int chainSize = std::accumulate(levelSizes.begin(), levelSizes.end(), 0);
+        std::vector<std::shared_ptr<ByteBuffer>> mips;
+        if (_tpc.position() + chainSize <= _tpc.length()) {
+            for (int size : levelSizes) {
+                mips.push_back(std::make_shared<ByteBuffer>(_tpc.readBytes(size)));
+            }
+        } else {
+            _tpc.skipBytes(chainSize);
         }
 
-        _layers.push_back(Texture::Layer {std::move(pixels)});
+        _layers.push_back(Texture::Layer {std::move(pixels), std::move(mips)});
     }
 }
 
