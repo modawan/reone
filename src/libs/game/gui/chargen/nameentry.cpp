@@ -17,10 +17,13 @@
 
 #include "reone/game/gui/chargen/nameentry.h"
 
+#include <boost/algorithm/string.hpp>
+
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
 #include "reone/resource/provider/ltrs.h"
+#include "reone/resource/strings.h"
 
 using namespace reone::audio;
 
@@ -36,6 +39,10 @@ static const ResRef kMaleNameLtrResRef("humanm");
 static const ResRef kFemaleNameLtrResRef("humanf");
 static const ResRef kLastNameLtrResRef("humanl");
 
+/** The most characters a typed name holds. */
+static constexpr size_t kMaxNameLength = 18;
+static constexpr int kEmptyNameStrRef = 42360;
+
 /** The controls the panel shows in both titles. */
 static const std::unordered_set<std::string> kPanelControls {"BTN_BACK", "BTN_RANDOM", "END_BTN", "MAIN_TITLE_LBL", "NAME_BOX_EDIT", "SUB_TITLE_LBL"};
 /** No further controls, for a title that names none of its own. */
@@ -44,27 +51,53 @@ static const std::unordered_set<std::string> kNoTitleControls;
 void NameEntry::onGUILoaded() {
     bindControls();
     showOnlyNamedControls(kPanelControls, kNoTitleControls);
-
-    _input.setText(_charGen.character().name);
-    _controls.NAME_BOX_EDIT->setTextMessage(_charGen.character().name);
+    _input.setMaxLength(kMaxNameLength);
+    _input.setCodePage(codePageOfLanguage(_services.resource.strings.language()));
 
     _controls.BTN_RANDOM->setOnClick([this]() {
         loadRandomName();
     });
     _controls.END_BTN->setOnClick([this]() {
-        _charGen.goToNextStep();
-        _charGen.openSteps();
+        confirm();
     });
     _controls.BTN_BACK->setOnClick([this]() {
         _charGen.openSteps();
     });
 }
 
+void NameEntry::reset() {
+    const std::string &name = _charGen.character().name;
+    setText(name);
+    if (name.empty()) {
+        loadRandomName();
+    }
+}
+
+void NameEntry::confirm() {
+    // Trailing spaces are dropped, and a name with nothing else is refused.
+    std::string name(_buffer.str());
+    boost::trim_right_if(name, boost::is_any_of(" "));
+    if (name.empty()) {
+        _game.showMessagePopup(_services.resource.strings.getText(kEmptyNameStrRef));
+        return;
+    }
+    _charGen.setCharacterName(std::move(name));
+    _charGen.goToNextStep();
+    _charGen.openSteps();
+}
+
 bool NameEntry::handle(const input::Event &event) {
+    if (event.type == input::EventType::KeyDown) {
+        // Enter and the keypad's Enter confirm the name, as Done does.
+        const auto key = event.key.code;
+        if (key == input::KeyCode::Return || key == input::KeyCode::KeypadEnter) {
+            confirm();
+            return true;
+        }
+    }
+    // The typed name stays in the box until Done; Back leaves the character's.
     if (_input.handle(event)) {
-        std::string name(_buffer.str());
-        _controls.NAME_BOX_EDIT->setTextMessage(name);
-        _charGen.setCharacterName(std::move(name));
+        _controls.NAME_BOX_EDIT->setTextMessage(std::string(_buffer.str()));
         return true;
     }
     return _gui->handle(event);
@@ -75,10 +108,12 @@ void NameEntry::loadRandomName() {
     const auto &nameLtrResRef = (gender == Gender::Female) ? kFemaleNameLtrResRef : kMaleNameLtrResRef;
     auto nameLtr = _services.resource.ltrs.get(nameLtrResRef);
     auto lastNameLtr = _services.resource.ltrs.get(kLastNameLtrResRef);
-    auto generated = nameLtr->randomName(8, {}) + " " + lastNameLtr->randomName(8, {});
-    _input.setText(generated);
-    _controls.NAME_BOX_EDIT->setTextMessage(generated);
-    _charGen.setCharacterName(std::move(generated));
+    setText(nameLtr->randomName(8, {}) + " " + lastNameLtr->randomName(8, {}));
+}
+
+void NameEntry::setText(const std::string &text) {
+    _input.setText(text);
+    _controls.NAME_BOX_EDIT->setTextMessage(text);
 }
 
 } // namespace game
