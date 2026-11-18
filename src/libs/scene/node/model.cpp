@@ -677,7 +677,13 @@ void ModelSceneNode::applyLookAt(float dt) {
     if (!_lookAt) {
         return;
     }
-    auto &bone = *_nodeByName.at(_lookAt->bone);
+    // A model swapped in by setModel may not have the bone, which ends the look.
+    auto node = _nodeByName.find(_lookAt->bone);
+    if (node == _nodeByName.end()) {
+        _lookAt.reset();
+        return;
+    }
+    auto &bone = *node->second;
     auto &look = *_lookAt;
     const glm::vec3 translation {bone.localTransform()[3]};
     if (look.returning) {

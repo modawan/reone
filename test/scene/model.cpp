@@ -1616,3 +1616,45 @@ TEST(ModelSceneNode, should_keep_lip_animation_alive_for_channel_lifetime) {
     EXPECT_EQ(1l, channels[0].lipAnim.use_count());
     EXPECT_NEAR(1.0f, channels[0].lipAnim->length(), 1e-5);
 }
+
+TEST(ModelSceneNode, a_look_at_ends_when_a_new_model_has_no_such_bone) {
+    // given
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    // A body with a head bone, swapped mid-look for a suit without one, as a
+    // disguise does. The look is only applied while an animation plays.
+    const glm::quat identity {1.0f, 0.0f, 0.0f, 0.0f};
+    auto bodyRoot = std::make_shared<ModelNode>(0, "body", glm::vec3(0.0f), identity, true, nullptr);
+    bodyRoot->addChild(std::make_shared<ModelNode>(1, "hturn_g", glm::vec3(0.0f), identity, true, bodyRoot.get()));
+    auto body = std::make_shared<Model>("body", 0, bodyRoot, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    body->init();
+    auto suitRoot = std::make_shared<ModelNode>(0, "suit", glm::vec3(0.0f), identity, true, nullptr);
+    std::vector<std::shared_ptr<Animation>> suitAnimations;
+    suitAnimations.push_back(std::make_shared<Animation>("default", 1.0f, 0.0f, "", nullptr, std::vector<Animation::Event>()));
+    auto suit = std::make_shared<Model>("suit", 0, suitRoot, suitAnimations, "", 1.0f);
+    suit->init();
+
+    auto modelSceneNode = scene->newModel(body, ModelUsage::Creature);
+    ASSERT_TRUE(modelSceneNode->beginLookAt("hturn_g", 60.0f, 30.0f));
+    modelSceneNode->setLookAtPoint(glm::vec3(10.0f, 0.0f, 0.0f));
+
+    // when
+    modelSceneNode->setModel(suit);
+    // The first frame on the new model starts its default animation.
+    modelSceneNode->update(1.0f / 60.0f);
+
+    // then
+    EXPECT_NO_THROW(modelSceneNode->update(1.0f / 60.0f));
+}

@@ -286,7 +286,8 @@ public:
     /**
      * Turn the named bone toward a world point, within the horizontal and
      * vertical arcs (degrees), closing a quarter-second of the gap each frame.
-     * False when this model has no such bone.
+     * False when this model has no such bone. The look ends if setModel swaps
+     * in a model without the bone.
      */
     bool beginLookAt(const std::string &bone, float arcH, float arcV);
     /** Moves the world point a running look-at turns toward. */
