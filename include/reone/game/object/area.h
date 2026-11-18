@@ -1296,6 +1296,28 @@ private:
      * height above the spot.
      */
     bool testsWaysFrom(const glm::vec3 &spot, const Creature &creature) const;
+    /**
+     * Whether another creature stands within the combined creature personal
+     * space of the creature at a point (where floors lie over others, one
+     * across its height), other than the dead and party members down at no
+     * vitality.
+     */
+    bool hasCreatureWithin(const glm::vec3 &point, const Creature &creature) const;
+    /**
+     * Whether a face of one of the \p blocking surfaces in an enabled door or
+     * placeable walkmesh lies within radius of a point, between two heights.
+     */
+    bool hasObjectWallWithin(
+        const std::set<uint32_t> &blocking, const glm::vec3 &point, float radius, float minZ, float maxZ) const;
+    /**
+     * Where a creature placed at a position by the area file or a script
+     * stands: the position on the ground when that is walkable, not inside a
+     * door or placeable (hasObjectWallWithin at no distance, across the
+     * creature's height) and no other creature is within reach of it
+     * (hasCreatureWithin); otherwise the first safe spot round it, or the
+     * position when nothing fits.
+     */
+    glm::vec3 placedCreaturePosition(const glm::vec3 &position, const Creature &creature) const;
 
     /** Each creature's perception pass that is due, or every creature's with all. */
     void updatePerceptionPasses(float dt, bool all);

@@ -127,8 +127,10 @@ static constexpr float kCreatureCollisionEpsilon = 0.01f;
 
 // Party members are placed within this radius of their formation spot.
 static constexpr float kPartyPlacementRadius = 10.0f;
-// A creature placed by the area file or created by a script stands at the
-// first safe spot this far around its position that it can walk to.
+// A creature placed by the area file or created by a script whose position
+// is off walkable ground, inside a door or placeable, or taken by another
+// creature stands at the first safe spot this far around it that it can walk
+// to.
 static constexpr float kCreaturePlacementRadius = 20.0f;
 // The leader enters an area on the first safe spot this near its entry point,
 // or on the entry point itself when there is none.
@@ -564,8 +566,7 @@ void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityConte
         if (identityContext.isSerializedState()) {
             creature->captureSaveRecord(*creatureGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
-        const glm::vec3 position {creature->position()};
-        creature->setPosition(computeSafeLocation(position, kCreaturePlacementRadius, *creature, true).value_or(position));
+        creature->setPosition(placedCreaturePosition(creature->position(), *creature));
         landObject(*creature);
         add(creature);
     }
@@ -2356,18 +2357,29 @@ bool Area::isSafeLocationPoint(const glm::vec3 &point, const Creature &creature)
             return false;
         }
     }
+    if (hasObjectWallWithin(blocking, point, radius, minZ, maxZ)) {
+        return false;
+    }
+
+    return !hasCreatureWithin(point, creature);
+}
+
+bool Area::hasObjectWallWithin(
+    const std::set<uint32_t> &blocking, const glm::vec3 &point, float radius, float minZ, float maxZ) const {
     for (const auto &object : _objectsByType.at(ObjectType::Door)) {
-        const auto &door = static_cast<const Door &>(*object);
-        if (blocked(door.walkmeshOpen1()) || blocked(door.walkmeshOpen2()) || blocked(door.walkmeshClosed())) {
-            return false;
+        if (hasDoorWallWithin(static_cast<const Door &>(*object), blocking, point, point, radius, minZ, maxZ)) {
+            return true;
         }
     }
     for (const auto &object : _objectsByType.at(ObjectType::Placeable)) {
-        if (blocked(static_cast<const Placeable &>(*object).walkmesh())) {
-            return false;
+        if (hasBlockingFaceWithin(static_cast<const Placeable &>(*object).walkmesh(), blocking, point, point, radius, minZ, maxZ)) {
+            return true;
         }
     }
+    return false;
+}
 
+bool Area::hasCreatureWithin(const glm::vec3 &point, const Creature &creature) const {
     const float ownRadius = creature.creaturePersonalSpace() + kCreatureCollisionEpsilon;
     const bool stacked = hasStackedFloors();
     for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
@@ -2379,10 +2391,25 @@ bool Area::isSafeLocationPoint(const glm::vec3 &point, const Creature &creature)
         const float reach = ownRadius + other.creaturePersonalSpace();
         const glm::vec2 offset {glm::vec2(other.position()) - glm::vec2(point)};
         if (glm::dot(offset, offset) < reach * reach) {
-            return false;
+            return true;
         }
     }
-    return true;
+    return false;
+}
+
+// A placed creature keeps its spot however near a wall it stands, though not
+// one inside a door or placeable; the wall test of a safe spot is for spots
+// the search picks.
+glm::vec3 Area::placedCreaturePosition(const glm::vec3 &position, const Creature &creature) const {
+    const glm::vec3 grounded {position.x, position.y, groundHeight(position, GroundFace::Locating)};
+    const float minZ = grounded.z - kSafeLocationFloorBand;
+    const float maxZ = grounded.z + creature.collisionHeight();
+    if (isPositionWalkable(grounded) &&
+        !hasObjectWallWithin(blockingSurfaces(_services.game.surfaces), grounded, 0.0f, minZ, maxZ) &&
+        !hasCreatureWithin(grounded, creature)) {
+        return grounded;
+    }
+    return computeSafeLocation(position, kCreaturePlacementRadius, creature, true).value_or(position);
 }
 
 std::optional<glm::vec3> Area::searchSquareRings(
@@ -3924,7 +3951,7 @@ std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &b
         object->setPosition(location->position());
         object->setFacing(objectFacingFromScript(location->facing()));
         if (auto *creature = dyn_cast<Creature>(object.get())) {
-            creature->setPosition(computeSafeLocation(location->position(), kCreaturePlacementRadius, *creature, true).value_or(location->position()));
+            creature->setPosition(placedCreaturePosition(location->position(), *creature));
             landObject(*creature);
         }
     }
