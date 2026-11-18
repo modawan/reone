@@ -86,6 +86,7 @@ void ClassSelection::onGUILoaded() {
 
 void ClassSelection::setupClassButtons() {
     _classButtons.clear();
+    _undrawnPortraitRows.clear();
     setupClassButton(0, Gender::Male, !_game.isTSL() ? ClassType::Scoundrel : ClassType::JediConsular);
     setupClassButton(1, Gender::Male, !_game.isTSL() ? ClassType::Scout : ClassType::JediSentinel);
     setupClassButton(2, Gender::Male, !_game.isTSL() ? ClassType::Soldier : ClassType::JediGuardian);
@@ -178,11 +179,17 @@ std::vector<int> ClassSelection::getPCPortraitRowsByGender(Gender gender) {
 }
 
 void ClassSelection::pickRandomPortrait(Character &character, ClassType clazz) {
-    std::vector<int> rows(getPCPortraitRowsByGender(character.gender));
+    // The buttons of a gender never share a portrait while there are enough.
+    std::vector<int> &rows = _undrawnPortraitRows[character.gender];
+    if (rows.empty()) {
+        rows = getPCPortraitRowsByGender(character.gender);
+    }
     if (rows.empty()) {
         return;
     }
-    const int row = rows[randomInt(0, static_cast<int>(rows.size()) - 1)];
+    const auto pick = rows.begin() + randomInt(0, static_cast<int>(rows.size()) - 1);
+    const int row = *pick;
+    rows.erase(pick);
     const Portrait &portrait = _services.game.portraits.portraits()[row];
     character.portraitId = row;
 
