@@ -42,3 +42,60 @@ TEST(Logger, should_drop_anything_below_the_minimum_severity) {
     EXPECT_FALSE(Logger::passesFilter(LogSeverity::Error, channels, LogChannel::Graphics, LogSeverity::Warn));
     EXPECT_TRUE(Logger::passesFilter(LogSeverity::Error, channels, LogChannel::Graphics, LogSeverity::Error));
 }
+
+static bool contains(const std::stringbuf &output, const std::string &text) {
+    return output.str().find(text) != std::string::npos;
+}
+
+TEST(Logger, should_hold_a_line_until_flushed) {
+    std::stringbuf output;
+    Logger logger;
+    logger.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&output));
+
+    logger.append("held line", LogChannel::Global, LogSeverity::Info);
+    EXPECT_FALSE(contains(output, "held line"));
+
+    logger.flush();
+    EXPECT_TRUE(contains(output, "held line"));
+}
+
+TEST(Logger, should_write_lines_once_its_buffer_fills) {
+    std::stringbuf output;
+    Logger logger;
+    logger.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&output));
+
+    // Longer than the logger's buffer on its own.
+    logger.append(std::string(600, 'x'), LogChannel::Global, LogSeverity::Info);
+
+    EXPECT_TRUE(contains(output, std::string(600, 'x')));
+}
+
+TEST(Logger, should_write_held_lines_when_destroyed) {
+    std::stringbuf output;
+    {
+        Logger logger;
+        logger.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&output));
+        logger.append("held line", LogChannel::Global, LogSeverity::Info);
+    }
+
+    EXPECT_TRUE(contains(output, "held line"));
+}
+
+TEST(Logger, should_keep_two_loggers_lines_apart_on_one_thread) {
+    std::stringbuf firstOutput;
+    std::stringbuf secondOutput;
+    Logger first;
+    Logger second;
+    first.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&firstOutput));
+    second.init(LogSeverity::Debug, {LogChannel::Global}, std::make_unique<std::ostream>(&secondOutput));
+
+    first.append("from first", LogChannel::Global, LogSeverity::Info);
+    second.append("from second", LogChannel::Global, LogSeverity::Info);
+    first.flush();
+    second.flush();
+
+    EXPECT_TRUE(contains(firstOutput, "from first"));
+    EXPECT_FALSE(contains(firstOutput, "from second"));
+    EXPECT_TRUE(contains(secondOutput, "from second"));
+    EXPECT_FALSE(contains(secondOutput, "from first"));
+}

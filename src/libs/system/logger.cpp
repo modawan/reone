@@ -44,20 +44,32 @@ static const std::unordered_map<LogChannel, std::string> kChannelToName {
 
 static constexpr int kBufferSize = 512;
 
+static std::atomic<uint64_t> g_nextLoggerId {0};
+
 Logger Logger::instance;
-thread_local std::optional<std::reference_wrapper<std::ostringstream>> Logger::buffer;
+thread_local std::unordered_map<uint64_t, std::ostringstream *> Logger::threadBuffers;
+
+Logger::Logger() :
+    _id(g_nextLoggerId++) {
+}
 
 void Logger::init(LogSeverity minSeverity,
                   std::set<LogChannel> enabledChannels,
                   std::optional<std::string> filename) {
+    if (filename) {
+        init(minSeverity, std::move(enabledChannels), std::make_unique<std::ofstream>(*filename));
+    } else {
+        init(minSeverity, std::move(enabledChannels), std::make_unique<std::ostream>(std::clog.rdbuf()));
+    }
+}
+
+void Logger::init(LogSeverity minSeverity,
+                  std::set<LogChannel> enabledChannels,
+                  std::unique_ptr<std::ostream> stream) {
     checkThat(!_inited, "Logger already initialized");
     _minSeverity = minSeverity;
     _enabledChannels = std::move(enabledChannels);
-    if (filename) {
-        _stream = std::make_unique<std::ofstream>(*filename);
-    } else {
-        _stream = std::make_unique<std::ostream>(std::clog.rdbuf());
-    }
+    _stream = std::move(stream);
     SDL_GetCurrentTime(&_initTimeNs);
     _inited = true;
 }
@@ -92,11 +104,7 @@ void Logger::append(std::string message,
                          threadName() %
                          kChannelToName.at(channel) %
                          message);
-    if (!buffer) {
-        std::lock_guard<std::mutex> lock {_buffersMutex};
-        buffer = _buffers.emplace_back();
-    }
-    auto &buf = buffer->get();
+    auto &buf = threadBuffer();
     buf.write(&formatted[0], formatted.length());
     if (buf.tellp() >= kBufferSize) {
         flush(buf);
@@ -104,10 +112,25 @@ void Logger::append(std::string message,
 }
 
 void Logger::flush() {
-    if (!_inited || !buffer) {
+    if (!_inited) {
         return;
     }
-    flush(buffer->get());
+    auto it = threadBuffers.find(_id);
+    if (it == threadBuffers.end()) {
+        return;
+    }
+    flush(*it->second);
+}
+
+std::ostringstream &Logger::threadBuffer() {
+    auto it = threadBuffers.find(_id);
+    if (it != threadBuffers.end()) {
+        return *it->second;
+    }
+    std::lock_guard<std::mutex> lock {_buffersMutex};
+    auto &buffer = _buffers.emplace_back();
+    threadBuffers[_id] = &buffer;
+    return buffer;
 }
 
 void Logger::flush(std::ostringstream &buffer) {
