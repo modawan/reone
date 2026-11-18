@@ -956,6 +956,17 @@ public:
         _quitRequested = true;
     }
 
+    /**
+     * Closing the window asks first: a message box or solo mode question up
+     * gives way unanswered, free look ends unless the leader is in combat or
+     * the game is over, play pauses as the player's pause does unless
+     * already paused or a conversation is under way, that pause also counting
+     * as an autopause, and 42348 asks; OK quits to the desktop and Cancel
+     * leaves play as it is. An animated cutscene ignores the close; over a
+     * movie or the credits the question waits until they are over.
+     */
+    void queryExit();
+
     bool isQuitRequested() {
         return _quitRequested;
     }
@@ -2342,6 +2353,8 @@ private:
      * @param reason the situation, already allowed by the autopause options
      */
     void autoPause(AutoPauseReason reason);
+    /** Uses up the autopause delay window: an autopause for \p reason follows after the deferral. */
+    void deferAutoPause(AutoPauseReason reason);
     /** Counts the deferred autopause down and pauses when it is due, or else counts the delay window down. */
     void updateDeferredAutoPause(float frameTime);
 
@@ -2391,6 +2404,8 @@ private:
     std::set<std::string> _moduleNames;
     std::set<std::string> _saveNames;
     bool _quitRequested {false};
+    /** Closing was asked for over a movie or the credits, and waits for their end. */
+    bool _exitQueryPending {false};
     bool _relativeMouseMode {false};
     /** Where the pointer stood when the mouse began turning the camera; set while it turns. */
     std::optional<glm::ivec2> _mouseLookPointer;
