@@ -468,6 +468,8 @@ public:
         const SerializedIdentityContext &identityContext);
     static std::optional<int> savedScriptLoop(const Creature &creature);
     static void setDoorClosedWalkmesh(Door &door, std::shared_ptr<scene::WalkmeshSceneNode> walkmesh);
+    static bool isSafeLocationPoint(const Area &area, const glm::vec3 &point, const Creature &creature);
+    static glm::vec3 placedCreaturePosition(const Area &area, const glm::vec3 &position, const Creature &creature);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
     static void configureSnapshotCamera(

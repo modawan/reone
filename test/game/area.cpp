@@ -41,6 +41,14 @@ void reone::game::TestGameModule::setDoorClosedWalkmesh(Door &door, std::shared_
     door._walkmeshClosed = std::move(walkmesh);
 }
 
+bool reone::game::TestGameModule::isSafeLocationPoint(const Area &area, const glm::vec3 &point, const Creature &creature) {
+    return area.isSafeLocationPoint(point, creature);
+}
+
+glm::vec3 reone::game::TestGameModule::placedCreaturePosition(const Area &area, const glm::vec3 &position, const Creature &creature) {
+    return area.placedCreaturePosition(position, creature);
+}
+
 namespace {
 
 constexpr uint32_t kFloorMaterial = 0;
@@ -306,4 +314,19 @@ TEST(Area, sound_obstruction_counts_an_object_once_where_the_line_enters_it) {
     EXPECT_FLOAT_EQ(obstructionThrough({{door.get()}, {door.get(), false}}), 0.55f);
     // A sound inside its own placeable only leaves it.
     EXPECT_FLOAT_EQ(obstructionThrough({{placeable.get(), false}}), 0.0f);
+}
+
+TEST(Area, a_placed_creature_keeps_a_walkable_spot_near_a_wall) {
+    WallsFixture fixture(10.0f, 5.0f);
+    ON_CALL(fixture.sceneGraph, findRoomWalkmesh(_)).WillByDefault(Return(fixture.roomNode));
+    ON_CALL(fixture.sceneGraph, findRoomFace(_, _, _))
+        .WillByDefault(Return(scene::RoomFace {kFloorMaterial, 0.0f, glm::vec3(0.0f, 0.0f, 1.0f)}));
+    auto &surfaces = dynamic_cast<MockSurfaces &>(fixture.engine.services().game.surfaces);
+    ON_CALL(surfaces, isWalkable(static_cast<int>(kFloorMaterial))).WillByDefault(Return(true));
+    // Inside the creature's personal space of the door's wall, which a safe
+    // spot keeps clear, but not inside the wall itself.
+    const glm::vec3 spot {4.7f, 0.0f, 0.0f};
+    ASSERT_FALSE(TestGameModule::isSafeLocationPoint(*fixture.area, spot, *fixture.walker));
+
+    EXPECT_EQ(spot, TestGameModule::placedCreaturePosition(*fixture.area, spot, *fixture.walker));
 }
