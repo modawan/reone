@@ -115,6 +115,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/reputes.cpp
     ${TESTS_SOURCE_DIR}/game/room.cpp
     ${TESTS_SOURCE_DIR}/game/rostermaterialization.cpp
+    ${TESTS_SOURCE_DIR}/game/runscriptvar.cpp
     ${TESTS_SOURCE_DIR}/game/itemmenubacking.cpp
     ${TESTS_SOURCE_DIR}/game/sharedpresentation.cpp
     ${TESTS_SOURCE_DIR}/game/spitempresentation.cpp
