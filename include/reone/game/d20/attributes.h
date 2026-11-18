@@ -163,14 +163,6 @@ public:
     void setSkillRank(SkillType skill, int rank);
 
     /**
-     * @param effectFeats the feats the creature's effects give it
-     * @return whether \p clazz makes the skill a class skill: it lists the
-     *         skill or, on TSL, the creature has the skill's class-skill
-     *         feat, held or given by an effect
-     */
-    bool isClassSkillIn(const CreatureClass &clazz, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
-
-    /**
      * Only the creature's classes with a skills table count (isClassSkillIn).
      *
      * @param effectFeats the feats the creature's effects give it
@@ -289,6 +281,14 @@ private:
     std::map<FeatType, int> _spentFeatUses;
     std::set<SpellType> _spells;
     std::map<ClassType, std::vector<SpellType>> _classSpells;
+
+    /**
+     * @param effectFeats the feats the creature's effects give it
+     * @return whether \p clazz makes the skill a class skill: it lists the
+     *         skill or, on TSL, the creature has the skill's class-skill
+     *         feat, held or given by an effect
+     */
+    bool isClassSkillIn(const CreatureClass &clazz, SkillType skill, const std::set<FeatType> &effectFeats, bool tsl) const;
 
     /**
      * @param effectFeats the feats the creature's effects give it
