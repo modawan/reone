@@ -212,8 +212,11 @@ void Texture::refresh() {
     }
     if (isMipmapFilter(_properties.minFilter)) {
         auto target = getTargetGL();
-        // Generated only when the file shipped no levels of its own.
-        if (levels == 1) {
+        if (levels > 1) {
+            // Sampling stops at the last level the file shipped, so a chain
+            // that ends before 1x1 still leaves the texture complete.
+            glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, levels - 1);
+        } else {
             glGenerateMipmap(target);
         }
         if (_properties.anisotropy > 1.0f) {
