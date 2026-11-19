@@ -83,6 +83,10 @@ if(MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
 
+if(NOT MSVC)
+    add_subdirectory(cmake/libbacktrace ${CMAKE_BINARY_DIR}/extern/libbacktrace) # backtrace static library
+endif()
+
 # END Dependencies
 
 # Compile options
