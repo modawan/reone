@@ -206,18 +206,27 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     }
     refreshNpcButtons();
 
-    Party &party = _game.party();
-    for (auto &member : party.members()) {
-        if (member.npc != kNpcPlayer && member.creature) {
-            addNpc(member.npc);
-        }
-    }
     if (ctx.forceNpc1 >= 0) {
         addNpc(ctx.forceNpc1);
     }
     if (ctx.forceNpc2 >= 0) {
         addNpc(ctx.forceNpc2);
     }
+
+    // Once all forced NPC are selected, add current party members until the
+    // limit.
+    Party &party = _game.party();
+    for (auto &member : party.members()) {
+        if (_availableCount <= 0) {
+            break;
+        }
+
+        int npc = member.npc;
+        if (npc != kNpcPlayer && member.creature && !_added[npc]) {
+            addNpc(npc);
+        }
+    }
+
     std::vector<Label *> charLabels {
         _controls.LBL_CHAR0.get(),
         _controls.LBL_CHAR1.get(),
