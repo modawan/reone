@@ -21,6 +21,8 @@
 #include <set>
 #include <vector>
 
+#include "reone/resource/types.h"
+
 #include "../types.h"
 
 #include "feat.h"
@@ -68,8 +70,6 @@ struct FeatChoice {
     std::reference_wrapper<const std::set<FeatType>> chosen;
     /** The character's tag; in TSL, Bao-Dur and Kreia cannot choose the feats their columns never grant them. */
     std::string tag;
-    /** True in TSL, whose choice rules KotOR does not have. */
-    bool tsl {false};
 
     /** @return the same choice with \p other as the feats chosen so far */
     FeatChoice withChosen(const std::set<FeatType> &other) const {
@@ -82,8 +82,6 @@ struct FeatChoice {
 class IFeats {
 public:
     virtual ~IFeats() = default;
-
-    virtual void init() = 0;
 
     virtual std::shared_ptr<Feat> get(FeatType type) const = 0;
 
@@ -115,20 +113,20 @@ public:
     /**
      * Adds the feats a character is granted with its newest level, which is
      * in the last of its classes. A character at its first level with no
-     * experience is granted the race's first-level feats as well.
+     * experience is granted the race's first-level feats as well. TSL's
+     * companion, Unarmed Specialist and new character rules KotOR does not
+     * have.
      *
      * @param race the character's race
      * @param experience the character's experience
      * @param tag the character's tag; TSL's companions have feats of their own
-     * @param tsl true in TSL, whose companion, Unarmed Specialist and new
-     *        character rules KotOR does not have
      * @param newCharacter true for a character being created, which in TSL
      *        also starts with its class's player-character feats and War Veteran
      * @return the feats the grant lists as granted: every feat it grants,
      *         held before or not, except the class's grants of the feats no
      *         TSL character chooses, and War Veteran when it was held
      */
-    virtual std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter) const = 0;
+    virtual std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool newCharacter) const = 0;
 };
 
 class Feats : public IFeats, boost::noncopyable {
@@ -146,19 +144,26 @@ public:
         _skills(skills) {
     }
 
-    void init() override;
+    /**
+     * Loads every feat.2da row.
+     *
+     * @param gameId the title, whose grant and choice rules the feats follow
+     */
+    void init(resource::GameID gameId);
 
     std::shared_ptr<Feat> get(FeatType type) const override;
     int getLevelUpChoiceCount(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
     std::vector<FeatType> getChoosableFeats(const FeatChoice &choice) const override;
     bool hasPrerequisites(FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen) const override;
     std::vector<FeatDisplayEntry> getLevelUpDisplayEntries(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
-    std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter) const override;
+    std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool newCharacter) const override;
 
 private:
     std::unordered_map<FeatType, std::shared_ptr<Feat>> _feats;
     /** The feats in feat order. */
     std::vector<FeatType> _featOrder;
+    /** Whether the table is TSL's, whose grant and choice rules KotOR does not have. */
+    bool _tsl {false};
 
     // Services
 

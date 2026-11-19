@@ -204,8 +204,7 @@ FeatChoice CharGenFeats::makeChoice(const CreatureAttributes &attributes) const 
         _bonusFeats > 0 ? _bonusFeats + 1 : 0,
         _effectFeats,
         _selectedFeats,
-        _levelUp ? _game.party().getLeader()->tag() : kObjectTagPlayer,
-        _game.isTSL()};
+        _levelUp ? _game.party().getLeader()->tag() : kObjectTagPlayer};
 }
 
 void CharGenFeats::buildAvailableFeats() {

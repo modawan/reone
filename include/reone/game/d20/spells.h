@@ -117,13 +117,16 @@ public:
 
     /**
      * Adds the powers a TSL character is granted with its newest level, which
-     * is in the last of its classes, to that class's powers. These come on
-     * top of the powers the player picks. A power without a row in the spell
-     * table is not granted.
+     * is in the last of its classes, to that class's powers: the forms of a
+     * Jedi base class, one a level from the Jedi level they start at, and the
+     * powers of a prestige class at the levels of the newest class. These
+     * come on top of the powers the player picks. A power without a row in
+     * the spell table is not granted. KotOR grants no powers this way.
      *
-     * @param tsl false in K1, which grants no powers this way
+     * @return the powers granted, in the order granted, once for each grant:
+     *         two Jedi base classes can grant the same form
      */
-    virtual void addGrantedPowers(CreatureAttributes &attributes, bool tsl) const = 0;
+    virtual std::vector<SpellType> addGrantedPowers(CreatureAttributes &attributes) const = 0;
 };
 
 class Spells : public ISpells, boost::noncopyable {
@@ -144,7 +147,8 @@ public:
     /**
      * Loads every spells.2da row.
      *
-     * @param gameId the title, which decides the CastAnim codes it knows
+     * @param gameId the title, which decides the CastAnim codes it knows and
+     *        whether powers are granted at a level
      */
     void init(resource::GameID gameId);
 
@@ -164,13 +168,15 @@ public:
         const CreatureAttributes &attributes,
         const CreatureClass &clazz,
         const std::set<SpellType> &chosen) const override;
-    void addGrantedPowers(CreatureAttributes &attributes, bool tsl) const override;
+    std::vector<SpellType> addGrantedPowers(CreatureAttributes &attributes) const override;
 
 private:
     /** The spells.2da rows, by spell. */
     std::unordered_map<SpellType, std::shared_ptr<Spell>> _spells;
     /** The ranges.2da rows, by row. */
     std::vector<RangeRow> _ranges;
+    /** Whether the table is TSL's, which grants powers at a level. */
+    bool _tsl {false};
 
     // Services
 

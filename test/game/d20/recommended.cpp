@@ -285,7 +285,7 @@ protected:
         ON_CALL(twoDas, get("feat")).WillByDefault(Return(std::move(featTable)));
         classes = std::make_unique<Classes>(strings, twoDas);
         feats = std::make_unique<Feats>(textures, strings, twoDas, races, skills);
-        feats->init();
+        feats->init(GameID::KotOR);
     }
 
     const CreatureClass &getClass(ClassType type) {
@@ -295,14 +295,14 @@ protected:
     /** A new character of the class, with its class's first-level feats and no skill ranks. */
     CreatureAttributes newCharacter(ClassType type) {
         CreatureAttributes attributes(getClass(type).defaultAttributes());
-        feats->addGrantedFeats(attributes, RacialType::Human, 0, kObjectTagPlayer, false, true);
+        feats->addGrantedFeats(attributes, RacialType::Human, 0, kObjectTagPlayer, true);
         return attributes;
     }
 
     /** The character with another level of its newest class, and the feats that level grants. */
     void addLevel(CreatureAttributes &attributes) {
         attributes.addClassLevels(attributes.classLevels().back().first, 1);
-        feats->addGrantedFeats(attributes, RacialType::Human, 1, kObjectTagPlayer, false, false);
+        feats->addGrantedFeats(attributes, RacialType::Human, 1, kObjectTagPlayer, false);
     }
 
     /** The feats the character is recommended for the given picks of a level offering \p normalFeats. */
@@ -325,8 +325,7 @@ protected:
             bonusFeats > 0 ? bonusFeats + 1 : 0,
             noEffectFeats,
             noneChosen,
-            kObjectTagPlayer,
-            false};
+            kObjectTagPlayer};
         return recommendFeats(*feats, choice, picks, fillWithUnranked);
     }
 

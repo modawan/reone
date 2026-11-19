@@ -289,7 +289,9 @@ static bool hasOwnedChainMember(
     return false;
 }
 
-void Feats::init() {
+void Feats::init(resource::GameID gameId) {
+    _tsl = gameId == resource::GameID::TSL;
+
     std::shared_ptr<TwoDA> feats(_twoDas.get("feat"));
     if (!feats) {
         return;
@@ -401,7 +403,7 @@ std::vector<FeatType> Feats::getChoosableFeats(const FeatChoice &choice) const {
 }
 
 bool Feats::canChooseFeat(FeatType type, const FeatChoice &choice) const {
-    if (choice.tsl && isUnchoosableFeat(type)) {
+    if (_tsl && isUnchoosableFeat(type)) {
         return false;
     }
     std::shared_ptr<Feat> feat(get(type));
@@ -410,7 +412,7 @@ bool Feats::canChooseFeat(FeatType type, const FeatChoice &choice) const {
     }
     // In TSL, Bao-Dur and Kreia cannot choose the feats their columns never
     // grant them.
-    if (choice.tsl && isExcludedForCompanion(*feat, boost::to_lower_copy(choice.tag))) {
+    if (_tsl && isExcludedForCompanion(*feat, boost::to_lower_copy(choice.tag))) {
         return false;
     }
     if (choice.attributes.hasFeat(type) || choice.chosen.get().count(type) > 0) {
@@ -502,7 +504,7 @@ bool Feats::meetsRequirements(const Feat &feat, const FeatChoice &choice) const 
     // The required skill is tested as the creature uses it, the feats its
     // effects give it counting.
     auto hasFeat = [&attributes, &choice](FeatType held) { return attributes.hasFeat(held, choice.effectFeats); };
-    return canCreatureUseSkill(_skills, *feat.requiredSkill, attributes, hasFeat, choice.tsl);
+    return canCreatureUseSkill(_skills, *feat.requiredSkill, attributes, hasFeat, _tsl);
 }
 
 bool Feats::hasPrerequisites(FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen) const {
@@ -545,7 +547,7 @@ std::vector<FeatDisplayEntry> Feats::getLevelUpDisplayEntries(const CreatureAttr
     return result;
 }
 
-std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool tsl, bool newCharacter) const {
+std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool newCharacter) const {
     const auto &classLevels = attributes.classLevels();
     assert(!classLevels.empty());
     const CreatureClass &clazz = *classLevels.back().first;
@@ -577,10 +579,10 @@ std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, Rac
 
         const Feat &feat = *_feats.at(type);
         auto companionLevel = feat.companionLevels.find(companion);
-        bool hasCompanionLevel = tsl && companionLevel != feat.companionLevels.end();
+        bool hasCompanionLevel = _tsl && companionLevel != feat.companionLevels.end();
 
         if (auto grantedLevel = clazz.getFeatGrantedLevel(type)) {
-            if (tsl && isUnarmedSpecialistFeat(type)) {
+            if (_tsl && isUnarmedSpecialistFeat(type)) {
                 if (clazz.isJedi() && *grantedLevel == jediLevel) {
                     grant(type, true);
                 }
@@ -589,10 +591,10 @@ std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, Rac
             if (*grantedLevel != classLevel) {
                 continue;
             }
-            if (!(tsl && isExcludedForCompanion(feat, companion))) {
-                grant(type, !(tsl && isUnchoosableFeat(type)));
+            if (!(_tsl && isExcludedForCompanion(feat, companion))) {
+                grant(type, !(_tsl && isUnchoosableFeat(type)));
             }
-        } else if (tsl && newCharacter && clazz.isPCGrantedFeat(type)) {
+        } else if (_tsl && newCharacter && clazz.isPCGrantedFeat(type)) {
             grant(type, true);
         } else if (companion != kKreiaColumn && hasCompanionLevel && companionLevel->second == characterLevel) {
             // The other companions gain their own feats at a character level.
@@ -601,7 +603,7 @@ std::vector<FeatType> Feats::addGrantedFeats(CreatureAttributes &attributes, Rac
     }
 
     // War Veteran is listed only when it was not held.
-    if (tsl && newCharacter && !attributes.hasFeat(FeatType::WarVeteran)) {
+    if (_tsl && newCharacter && !attributes.hasFeat(FeatType::WarVeteran)) {
         grant(FeatType::WarVeteran, true);
     }
     return result;

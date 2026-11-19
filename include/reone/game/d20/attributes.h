@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <functional>
 #include <set>
+#include <string>
 
 #include "../types.h"
 
@@ -40,6 +41,14 @@ constexpr int getAbilityScoreFromParts(int base, int bonus, int racial) {
     return std::max(kMinimumAbilityScore, base + bonus + racial);
 }
 
+/** Every character level divisible by this raises an ability by one. */
+constexpr int kAbilityPointLevelInterval = 4;
+
+/** @return whether reaching the character level raises an ability by one */
+constexpr bool gainsAbilityPoint(int level) {
+    return level > 0 && level % kAbilityPointLevelInterval == 0;
+}
+
 /** The modifier of an ability score: half its distance from 10, rounded down. */
 constexpr int getAbilityModifierFromScore(int score) {
     return score >= 10 ? (score - 10) / 2 : (score - 11) / 2;
@@ -54,6 +63,8 @@ constexpr int getAbilityPointCostFromScore(int score) {
 }
 
 class CreatureClass;
+class IFeats;
+class ISpells;
 struct Skill;
 
 /**
@@ -65,6 +76,11 @@ public:
     // Class Levels
 
     void addClassLevels(CreatureClass *clazz, int levels);
+    /**
+     * @return these attributes with the creature's coming level: one more
+     *         level in its last class
+     */
+    CreatureAttributes withComingLevel() const;
 
     /**
      * @return class type at the specified position (1-based)
@@ -297,6 +313,32 @@ private:
      */
     bool hasClassSkillFeat(SkillType skill, const std::set<FeatType> &effectFeats) const;
 };
+
+/**
+ * Add the feats the creature's coming level in its last class grants
+ * (IFeats::addGrantedFeats, on the creature with that level); the level
+ * itself is not added.
+ *
+ * @param race the creature's race, for the first character level's feats
+ * @return the feats the grant lists as granted
+ */
+std::vector<FeatType> addLevelGrantedFeats(
+    CreatureAttributes &attributes,
+    const IFeats &feats,
+    RacialType race,
+    int experience,
+    const std::string &tag);
+
+/**
+ * Add the powers the creature's coming level in its last class grants
+ * (ISpells::addGrantedPowers, on the creature with that level), each one it
+ * can learn in that class, known through that class; the level itself is not
+ * added.
+ */
+void addLevelGrantedPowers(
+    CreatureAttributes &attributes,
+    const ISpells &spells,
+    const std::function<bool(SpellType, ClassType)> &canLearnPower);
 
 } // namespace game
 

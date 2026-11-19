@@ -20,6 +20,7 @@
 
 #include "../../fixtures/resource.h"
 
+#include "reone/game/d20/attributes.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/spells.h"
 #include "reone/resource/2da.h"
@@ -66,14 +67,14 @@ protected:
     std::unique_ptr<Classes> classes;
     std::unique_ptr<CreatureClass> guardian;
 
-    void load(std::shared_ptr<TwoDA> table) {
+    void load(std::shared_ptr<TwoDA> table, GameID gameId = GameID::KotOR) {
         EXPECT_CALL(twoDas, get("spells")).WillOnce(Return(std::move(table)));
         // Spell ranges are outside these tests.
         EXPECT_CALL(twoDas, get("ranges"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
         spells = std::make_unique<Spells>(textures, audioClips, models, strings, twoDas);
-        spells->init(GameID::KotOR);
+        spells->init(gameId);
     }
 
     CreatureClass &getGuardian() {
@@ -99,8 +100,12 @@ protected:
     std::map<ClassType, std::unique_ptr<CreatureClass>> classObjects;
 
     void SetUp() override {
-        // A spell table with a row for every granted power.
-        load(makeSpellsTable({"usertype"}, static_cast<int>(SpellType::FormForceIChannel) + 1, {}));
+        loadGrantedPowers(GameID::TSL);
+    }
+
+    // A spell table with a row for every granted power.
+    void loadGrantedPowers(GameID gameId) {
+        load(makeSpellsTable({"usertype"}, static_cast<int>(SpellType::FormForceIChannel) + 1, {}), gameId);
     }
 
     CreatureClass &getClass(ClassType type) {
@@ -112,9 +117,9 @@ protected:
     }
 
     // Gains a level in the character's newest class, with the powers it grants.
-    void levelUp(CreatureAttributes &attributes, bool tsl) {
-        attributes.addClassLevels(attributes.classLevels().back().first, 1);
-        spells->addGrantedPowers(attributes, tsl);
+    void levelUp(CreatureAttributes &attributes) {
+        attributes = attributes.withComingLevel();
+        spells->addGrantedPowers(attributes);
     }
 };
 
@@ -339,16 +344,16 @@ TEST_F(GrantedPowersTest, should_grant_each_jedi_base_class_its_forms_at_jedi_le
     for (auto &[type, order] : forms) {
         CreatureAttributes jedi;
         jedi.addClassLevels(&getClass(type), 9);
-        levelUp(jedi, true);
+        levelUp(jedi);
         EXPECT_TRUE(jedi.spells().empty()) << static_cast<int>(type);
 
         for (size_t gained = 1; gained <= order.size(); ++gained) {
-            levelUp(jedi, true);
+            levelUp(jedi);
             std::vector<SpellType> expected(order.begin(), order.begin() + gained);
             EXPECT_EQ(jedi.spellsForClass(type), expected) << static_cast<int>(type) << " level " << (10 + gained);
         }
 
-        levelUp(jedi, true);
+        levelUp(jedi);
         EXPECT_EQ(jedi.spellsForClass(type), order) << static_cast<int>(type);
     }
 }
@@ -357,7 +362,7 @@ TEST_F(GrantedPowersTest, should_grant_the_forms_at_the_characters_jedi_level_to
     CreatureAttributes jedi;
     jedi.addClassLevels(&getClass(ClassType::JediGuardian), 10);
     jedi.addClassLevels(&getClass(ClassType::SithMarauder), 1);
-    spells->addGrantedPowers(jedi, true);
+    spells->addGrantedPowers(jedi);
 
     EXPECT_TRUE(jedi.spellsForClass(ClassType::JediGuardian).empty());
     EXPECT_THAT(jedi.spellsForClass(ClassType::SithMarauder), ElementsAre(SpellType::FormSaberIShiiCho, SpellType::Fury));
@@ -374,11 +379,11 @@ TEST_F(GrantedPowersTest, should_grant_prestige_class_powers_at_their_class_leve
     for (auto &[type, byLevel] : grants) {
         CreatureAttributes prestige;
         prestige.addClassLevels(&getClass(type), 1);
-        spells->addGrantedPowers(prestige, true);
+        spells->addGrantedPowers(prestige);
         std::vector<SpellType> expected;
         for (int level = 1; level <= 20; ++level) {
             if (level > 1) {
-                levelUp(prestige, true);
+                levelUp(prestige);
             }
             auto grant = byLevel.find(level);
             if (grant != byLevel.end()) {
@@ -393,16 +398,17 @@ TEST_F(GrantedPowersTest, should_grant_nothing_to_a_new_character) {
     for (auto type : {ClassType::Soldier, ClassType::Scout, ClassType::Scoundrel, ClassType::JediGuardian, ClassType::JediConsular, ClassType::JediSentinel}) {
         CreatureAttributes attributes;
         attributes.addClassLevels(&getClass(type), 1);
-        spells->addGrantedPowers(attributes, true);
+        spells->addGrantedPowers(attributes);
         EXPECT_TRUE(attributes.spells().empty()) << static_cast<int>(type);
     }
 }
 
 TEST_F(GrantedPowersTest, should_grant_no_powers_in_k1) {
+    loadGrantedPowers(GameID::KotOR);
     CreatureAttributes guardian;
     guardian.addClassLevels(&getClass(ClassType::JediGuardian), 10);
     for (int level = 11; level <= 20; ++level) {
-        levelUp(guardian, false);
+        levelUp(guardian);
     }
     EXPECT_TRUE(guardian.spells().empty());
 }
@@ -412,13 +418,48 @@ TEST_F(GrantedPowersTest, should_show_a_granted_power_as_known_on_the_powers_scr
         {"name", "usertype", "sithlord"},
         static_cast<int>(SpellType::CrushOppositionI) + 1,
         {{static_cast<int>(SpellType::CrushOppositionI), {{"name", "1"}, {"usertype", "1"}, {"sithlord", "1"}}}});
-    load(std::move(table));
+    load(std::move(table), GameID::TSL);
 
     CreatureAttributes sithLord;
     sithLord.addClassLevels(&getClass(ClassType::SithLord), 1);
-    spells->addGrantedPowers(sithLord, true);
+    spells->addGrantedPowers(sithLord);
 
     auto entries = spells->getLevelUpDisplayEntries(sithLord, getClass(ClassType::SithLord), {});
     EXPECT_EQ(getEntry(entries, SpellType::CrushOppositionI).availability, SpellAvailability::Known);
     EXPECT_TRUE(spells->getLevelUpCandidates(sithLord, getClass(ClassType::SithLord), {}).empty());
+}
+
+TEST_F(GrantedPowersTest, should_neither_grant_nor_list_a_power_without_a_row) {
+    load(makeSpellsTable({"usertype"}, 1, {}), GameID::TSL);
+    CreatureAttributes guardian;
+    guardian.addClassLevels(&getClass(ClassType::JediGuardian), 11);
+
+    EXPECT_TRUE(spells->addGrantedPowers(guardian).empty());
+    EXPECT_TRUE(guardian.spells().empty());
+}
+
+TEST_F(GrantedPowersTest, should_add_the_coming_levels_powers_only_where_the_class_can_learn_them) {
+    CreatureAttributes guardian;
+    guardian.addClassLevels(&getClass(ClassType::JediGuardian), 10);
+
+    addLevelGrantedPowers(guardian, *spells, [](SpellType, ClassType) { return false; });
+    EXPECT_TRUE(guardian.spells().empty());
+
+    addLevelGrantedPowers(guardian, *spells, [](SpellType power, ClassType clazz) {
+        return power == SpellType::FormSaberIShiiCho && clazz == ClassType::JediGuardian;
+    });
+    EXPECT_THAT(guardian.spellsForClass(ClassType::JediGuardian), ElementsAre(SpellType::FormSaberIShiiCho));
+    // The level itself is not added.
+    EXPECT_EQ(guardian.getAggregateLevel(), 10);
+}
+
+TEST_F(GrantedPowersTest, should_add_a_granted_power_through_the_newest_class_when_another_knows_it) {
+    CreatureAttributes jedi;
+    jedi.addClassLevels(&getClass(ClassType::JediGuardian), 9);
+    jedi.addClassLevels(&getClass(ClassType::JediConsular), 1);
+    jedi.addSpell(SpellType::FormSaberIShiiCho, ClassType::JediGuardian);
+
+    addLevelGrantedPowers(jedi, *spells, [](SpellType, ClassType) { return true; });
+    EXPECT_THAT(jedi.spellsForClass(ClassType::JediConsular), ElementsAre(SpellType::FormSaberIShiiCho));
+    EXPECT_THAT(jedi.spellsForClass(ClassType::JediGuardian), ElementsAre(SpellType::FormSaberIShiiCho));
 }
