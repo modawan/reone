@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=reone
+GenericName=Game engine for KotOR and TSL
+Comment=Play Star Wars: Knights of the Old Republic and The Sith Lords with the reone engine
+Exec=reone-launcher
+Icon=io.github.modawan.reone
+Terminal=false
+Categories=Game;RolePlaying;
+Keywords=kotor;tsl;star wars;knights of the old republic;sith lords;

@@ -2,3 +2,6 @@
 .vs/
 .vscode/
 build/
+result
+result-*
+.direnv/

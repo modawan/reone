@@ -26,10 +26,8 @@ jobs:
       - name: Tag a release
         shell: bash
         working-directory: ${{github.workspace}}/build
-        run: |-
-          gh release create $TAG $RELEASE.zip \
-            --title "Reone $TAG" \
-            --notes "Commit: ${{github.sha}}" \
-            --draft --prerelease
+        # The Linux release workflow attaches its packages to the same
+        # release; whichever finishes first creates it.
+        run: bash ../.github/scripts/upload-release.sh "$TAG" "$RELEASE.zip"
         env:
           GH_TOKEN: ${{ github.token }}

@@ -263,6 +263,7 @@ TEST_F(K2ModuleLoadingTest, resolves_global_and_module_sources_in_raw_lookup_ord
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -291,6 +292,7 @@ TEST_F(K2ModuleLoadingTest, prefers_the_adx_image_then_the_area_image_over_the_m
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -312,6 +314,7 @@ TEST_F(K2ModuleLoadingTest, suppresses_the_static_and_dialogue_sources_when_a_mo
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -338,6 +341,7 @@ TEST_F(K2ModuleLoadingTest, mounts_the_static_and_dialogue_sources_in_the_split_
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -366,6 +370,7 @@ TEST_F(K2ModuleLoadingTest, mounts_localization_from_the_module_and_lips_locatio
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -393,6 +398,7 @@ TEST_F(K2ModuleLoadingTest, prefers_the_staged_image_over_the_staged_archive) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("000001");
@@ -419,6 +425,7 @@ TEST_F(K2ModuleLoadingTest, mounts_the_staged_archive_when_no_staged_image_exist
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("000001");
@@ -442,6 +449,7 @@ TEST_F(K2ModuleLoadingTest, keeps_loose_metadata_separate_from_outer_working_sta
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("000001");
@@ -471,6 +479,7 @@ TEST_F(K2ModuleLoadingTest, ignores_staged_state_for_a_module_the_save_table_exc
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("000001");
@@ -497,6 +506,7 @@ TEST_F(K2ModuleLoadingTest, includes_a_module_the_save_table_does_not_mention) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onGameLoad("000001");
@@ -526,6 +536,7 @@ TEST_F(K2ModuleLoadingTest, reads_each_module_save_rule_from_the_save_table) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -602,6 +613,7 @@ TEST_F(K2ModuleLoadingTest, drops_the_previous_module_sources_on_a_transition) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -633,6 +645,7 @@ TEST_F(K2ModuleLoadingTest, keeps_streamed_audio_out_of_the_odyssey_resource_lis
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -665,6 +678,7 @@ TEST_F(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         EXPECT_NO_THROW(director->init());
     }
     EXPECT_NO_THROW(director->onGameLoad("000001"));
@@ -690,6 +704,7 @@ TEST_F(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_ca
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -753,6 +768,7 @@ TEST_F(K2ModuleLoadingTest, mounts_bound_live_packages_in_fixed_global_order) {
     auto director = makeDirector(game.path, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         ASSERT_NO_THROW(director->init());
     }
 
@@ -785,6 +801,7 @@ TEST_F(K2ModuleLoadingTest, configured_k2_override_roots_mount_in_natural_order)
     auto director = makeDirector(game.path, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -809,6 +826,7 @@ TEST_F(K2ModuleLoadingTest, live_primary_selection_uses_package_order_not_global
     auto director = makeDirector(game.path, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -837,6 +855,7 @@ TEST_F(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_prim
         auto director = makeDirector(game.path, roots, gameId);
         {
             CwdGuard guard(cwd.path);
+            director->setDataDirectories({cwd.path});
             director->init();
         }
         director->onModuleLoad("foo");
@@ -855,7 +874,7 @@ TEST_F(K2ModuleLoadingTest, activates_the_default_nwm_root_directly_for_both_gam
         writeErf(game.mkdir("nwm") / "foo.nwm", ErfWriter::FileType::MOD,
                  {{"nwm_only", ResType::Txt, "nwm"}});
         auto director = makeDirector(game.path, {}, gameId);
-        { CwdGuard guard(cwd.path); director->init(); }
+        { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
         director->onModuleLoad("foo");
         EXPECT_EQ("nwm", find("nwm_only"));
         _resources->clearOwner(ResourceOwner::ActiveModuleState);
@@ -881,7 +900,7 @@ TEST_F(K2ModuleLoadingTest, nwm_precedes_every_unsaved_disk_primary) {
         OdysseyResourceRoots roots;
         roots.livePackages[0] = live.path;
         auto director = makeDirector(game.path, roots, gameId);
-        { CwdGuard guard(cwd.path); director->init(); }
+        { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
         director->onModuleLoad("foo");
         EXPECT_EQ("nwm", find("primary"));
     }
@@ -896,7 +915,7 @@ TEST_F(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) 
              {{"sidecar", ResType::Txt, "localization"}});
     writeRim(nwm / "foo_s.rim", {{"static_sidecar", ResType::Txt, "static"}});
     auto director = makeDirector(game.path);
-    { CwdGuard guard(cwd.path); director->init(); }
+    { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
     EXPECT_NO_THROW(director->onModuleLoad("foo"));
     EXPECT_FALSE(has("sidecar"));
     EXPECT_FALSE(has("static_sidecar"));
@@ -913,7 +932,7 @@ TEST_F(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
         writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "modules"}});
         writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "modules"}});
         auto director = makeDirector(game.path);
-        { CwdGuard guard(cwd.path); director->init(); }
+        { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
         director->onModuleLoad("foo");
         EXPECT_EQ("modules", find("primary"));
         EXPECT_FALSE(has("stray_area"));
@@ -932,7 +951,7 @@ TEST_F(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
         writeRim(nwm / "foo_a.rim", {{"stray_area", ResType::Txt, "nwm"}});
         writeRim(nwm / "foo_adx.rim", {{"stray_adx", ResType::Txt, "nwm"}});
         auto director = makeDirector(game.path);
-        { CwdGuard guard(cwd.path); director->init(); }
+        { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
         director->onModuleLoad("foo");
         EXPECT_EQ("nwm", find("primary"));
         EXPECT_FALSE(has("stray_area"));
@@ -953,7 +972,7 @@ TEST_F(K2ModuleLoadingTest, live_module_roots_cannot_supply_rims_adjuncts) {
     OdysseyResourceRoots roots;
     roots.livePackages[0] = live.path;
     auto director = makeDirector(game.path, roots);
-    { CwdGuard guard(cwd.path); director->init(); }
+    { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
     director->onModuleLoad("foo");
     EXPECT_EQ("live", find("primary"));
     EXPECT_FALSE(has("stray_area"));
@@ -973,7 +992,7 @@ TEST_F(K2ModuleLoadingTest, configured_module_roots_cannot_supply_rims_adjuncts)
     OdysseyResourceRoots roots;
     roots.k2OverrideRoots = {configured.path};
     auto director = makeDirector(game.path, roots);
-    { CwdGuard guard(cwd.path); director->init(); }
+    { CwdGuard guard(cwd.path); director->setDataDirectories({cwd.path}); director->init(); }
     director->onModuleLoad("foo");
     EXPECT_EQ("base", find("primary"));
     EXPECT_FALSE(has("stray_area"));
@@ -1024,6 +1043,7 @@ TEST_F(K2ModuleLoadingTest, configured_module_families_follow_the_established_tr
     auto director = makeDirector(game.path, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("foo");
@@ -1146,6 +1166,7 @@ TEST_F(K2ModuleLoadingTest, prepared_module_is_private_until_exact_plan_commit) 
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("old");
@@ -1187,6 +1208,7 @@ TEST_F(K2ModuleLoadingTest, rejected_module_structure_leaves_active_mounts_untou
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     director->onModuleLoad("old");

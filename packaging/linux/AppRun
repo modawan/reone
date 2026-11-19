@@ -1,0 +1,57 @@
+#!/bin/sh
+# Entry point of the reone AppImage and of the Linux tarball (where it is
+# also linked as ./reone).
+#
+#   reone                                  the launcher
+#   reone --game DIR [engine options]      the engine
+#   reone engine|launcher|toolkit [args]   that application
+#   reone dataminer|gff2json|unerf|ncsrun [args]
+#   reone --version                        the version
+#
+# The applications find their data relative to themselves and keep reone.cfg
+# and engine.log in ~/.config/reone (or in the current directory when a
+# reone.cfg is already there), so nothing here changes directory or sets up
+# the environment: the bundled libraries are found through each binary's
+# RUNPATH.
+set -e
+
+here=$(dirname "$(readlink -f "$0")")
+libexec="$here/usr/libexec/reone"
+bin="$here/usr/bin"
+
+usage() {
+    cat <<EOF
+usage: reone                                  start the launcher
+       reone --game DIR [engine options]      start the engine
+       reone engine|launcher|toolkit [args]   start that application
+       reone dataminer|gff2json|unerf|ncsrun [args]
+       reone --version
+EOF
+}
+
+case "${1:-}" in
+    "")
+        exec "$libexec/launcher"
+        ;;
+    engine | launcher | toolkit)
+        app=$1
+        shift
+        exec "$libexec/$app" "$@"
+        ;;
+    dataminer | gff2json | unerf | ncsrun)
+        app=$1
+        shift
+        exec "$bin/$app" "$@"
+        ;;
+    -h | --help | help)
+        usage
+        ;;
+    -*)
+        exec "$libexec/engine" "$@"
+        ;;
+    *)
+        echo "reone: unknown command '$1'" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

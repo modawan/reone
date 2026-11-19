@@ -1,0 +1,240 @@
+name: Build Linux packages
+# An AppImage and a tarball for x86_64 Linux, attached to the same draft
+# pre-release as the Windows build for every tag.
+#
+# - build: AlmaLinux 8 (glibc 2.28, the manylinux_2_28 baseline) with
+#   gcc-toolset-14, so the packages run there and on anything newer: Debian
+#   10, Ubuntu 18.10, RHEL 8, SteamOS and later. Its own packages are too old
+#   for reone (no SDL3), so the libraries come from vcpkg at a pinned
+#   release, built as shared libraries and bundled, except wxWidgets, which
+#   is built against the system's GTK 3 (packaging/linux/build-wxwidgets.sh
+#   says why); make-packages.sh says what is bundled and what is left to the
+#   system.
+# - smoke: the AppImage on the oldest and newest distributions it supports,
+#   each with nothing but an OpenGL driver and GTK installed
+#   (packaging/linux/smoke-test.sh).
+# - publish (tags only): checksums, a build provenance attestation, and the
+#   upload.
+#
+# Pull requests and pushes to master that change the packaging, or what the
+# smoke test relies on, run build and smoke, so a broken package is found
+# before a tag is. The pushes to master also keep the vcpkg and wxWidgets
+# caches warm for tags: a tag's run can only restore caches saved on its own
+# ref or on master.
+on:
+  push:
+    tags: ["*"]
+    branches: [master]
+    paths: &package-paths
+      - .github/workflows/release-linux.yml
+      - .github/scripts/**
+      - packaging/**
+      - cmake/**
+      - CMakeLists.txt
+      - include/reone/system/**
+      - src/libs/system/**
+      - src/libs/resource/director.cpp
+      - src/apps/**
+  pull_request:
+    paths: *package-paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Steps in a container otherwise run under "sh -e", which on AlmaLinux is
+# bash in POSIX mode and rejects process substitution.
+defaults:
+  run:
+    shell: bash
+env:
+  VCPKG_TAG: 2026.10.16
+  VCPKG_TRIPLET: x64-linux-dynamic
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:8
+    timeout-minutes: 240
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Install build tools and system headers
+        # gcc-toolset-14 builds C++20 code whose binaries need no newer
+        # libstdc++ than the system's: what the old libstdc++ lacks is linked
+        # in statically. The -devel packages are for libraries reone takes
+        # from the system at run time (OpenGL, X11, Wayland, GTK) and for
+        # vcpkg ports that build against them.
+        run: |
+          dnf install -y dnf-plugins-core epel-release
+          dnf config-manager --set-enabled powertools
+          dnf install -y \
+            gcc-toolset-14-gcc gcc-toolset-14-gcc-c++ gcc-toolset-14-binutils \
+            git curl zip unzip tar bzip2 xz file patchelf findutils which perl \
+            pkgconf-pkg-config python3.11 autoconf autoconf-archive automake libtool libtool-ltdl-devel \
+            bison flex nasm gperf kernel-headers \
+            mesa-libGL-devel mesa-libEGL-devel mesa-libGLU-devel \
+            libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXfixes-devel \
+            libXi-devel libXScrnSaver-devel libXtst-devel libXmu-devel libXxf86vm-devel \
+            libxkbcommon-devel wayland-devel wayland-protocols-devel gtk3-devel
+          echo /opt/rh/gcc-toolset-14/root/usr/bin >> "$GITHUB_PATH"
+          echo CC=/opt/rh/gcc-toolset-14/root/usr/bin/gcc >> "$GITHUB_ENV"
+          echo CXX=/opt/rh/gcc-toolset-14/root/usr/bin/g++ >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          # git describe needs the tags.
+          fetch-depth: 0
+      - name: Version
+        id: version
+        # The tag being built, so a moving tag such as nightly names its files
+        # after itself (and the next nightly replaces them) as the Windows
+        # workflow does; otherwise git describe. Only characters safe in a
+        # file name and a C string.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$GITHUB_REF_NAME
+          else
+            version=$(git describe --tags --always)
+          fi
+          echo "version=$(printf %s "$version" | tr -c 'A-Za-z0-9._+~-' '_')" >> "$GITHUB_OUTPUT"
+      # Restore and save are separate steps so a build that fails later
+      # still keeps the libraries it took half an hour to build.
+      - name: Restore vcpkg
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/vcpkg
+          key: linux-alma8-gcc14-vcpkg-${{ env.VCPKG_TAG }}-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('packaging/linux/vcpkg-packages.txt') }}
+      - name: Build the libraries with vcpkg
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$VCPKG_TAG" https://github.com/microsoft/vcpkg.git /opt/vcpkg
+          /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          mapfile -t packages < <(grep -v '^#' packaging/linux/vcpkg-packages.txt)
+          /opt/vcpkg/vcpkg install --triplet "$VCPKG_TRIPLET" --clean-after-build "${packages[@]}"
+          # The cache keeps the built libraries and vcpkg's tools, not the
+          # source archives.
+          find /opt/vcpkg/downloads -maxdepth 1 -type f -delete
+          rm -rf /opt/vcpkg/buildtrees /opt/vcpkg/packages
+      - name: Save vcpkg
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/vcpkg
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+      - name: Restore wxWidgets
+        id: wx-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/wx
+          key: linux-alma8-gcc14-wx-${{ hashFiles('packaging/linux/build-wxwidgets.sh') }}
+      - name: Build wxWidgets against the system's GTK 3
+        if: steps.wx-cache.outputs.cache-hit != 'true'
+        run: |
+          PATH="$(dirname "$(/opt/vcpkg/vcpkg fetch cmake | tail -n 1)"):$(dirname "$(/opt/vcpkg/vcpkg fetch ninja | tail -n 1)"):$PATH" \
+            bash packaging/linux/build-wxwidgets.sh /opt/wx
+      - name: Save wxWidgets
+        if: steps.wx-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/wx
+          key: ${{ steps.wx-cache.outputs.cache-primary-key }}
+      - name: Use vcpkg's CMake and Ninja
+        # AlmaLinux 8 has no CMake new enough for vcpkg's package files, and
+        # no Ninja.
+        run: |
+          dirname "$(/opt/vcpkg/vcpkg fetch cmake | tail -n 1)" >> "$GITHUB_PATH"
+          dirname "$(/opt/vcpkg/vcpkg fetch ninja | tail -n 1)" >> "$GITHUB_PATH"
+      - name: Configure
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # libGL.so.1 rather than GLVND's libOpenGL.so.0, and --as-needed:
+        # reone reaches OpenGL through SDL and glad, so the GL and GLU
+        # libraries CMake would link are dropped where nothing calls them.
+        # See packaging/linux/build-wxwidgets.sh.
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
+            -DCMAKE_PREFIX_PATH=/opt/wx \
+            -DOpenGL_GL_PREFERENCE=LEGACY \
+            -DCMAKE_EXE_LINKER_FLAGS="-Wl,--as-needed" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--as-needed" \
+            -DREONE_VERSION="$VERSION"
+      - name: Build
+        run: cmake --build build
+      - name: Run the unit tests
+        env:
+          LD_LIBRARY_PATH: /opt/vcpkg/installed/${{ env.VCPKG_TRIPLET }}/lib:/opt/wx/lib
+        run: ctest --test-dir build --output-on-failure
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash packaging/linux/make-packages.sh build "$VERSION" \
+            "/opt/vcpkg/installed/$VCPKG_TRIPLET/lib:/opt/wx/lib" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reone-linux-x86_64
+          path: dist/
+          if-no-files-found: error
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["almalinux:8", "ubuntu:22.04", "debian:12", "ubuntu:26.04", "fedora:latest", "archlinux:latest"]
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install an OpenGL driver and GTK
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              libgl1 libegl1 libgl1-mesa-dri libgtk-3-0
+          elif command -v dnf >/dev/null; then
+            dnf install -y mesa-libGL mesa-libEGL mesa-dri-drivers gtk3 findutils which
+          elif command -v pacman >/dev/null; then
+            pacman -Syu --noconfirm mesa gtk3
+          fi
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: reone-linux-x86_64
+          path: dist
+      - name: Smoke test
+        run: bash packaging/linux/smoke-test.sh dist/*.AppImage
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: reone-linux-x86_64
+          path: dist
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.AppImage
+            dist/*.tar.gz
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/upload-release.sh "${GITHUB_REF_NAME}" dist/*
