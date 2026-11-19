@@ -848,13 +848,22 @@ coff_add (struct backtrace_state *state, int descriptor,
   if (syms_num != 0)
     {
       struct coff_syminfo_data *sdata;
+      struct libbacktrace_base_address module_base;
+
+      /* Symbol addresses are relative to where the module was loaded,
+	 which with ASLR is not the preferred image base.  */
+      module_base = image_base;
+#ifdef HAVE_WINDOWS_H
+      if (module_handle != 0)
+	module_base.m = module_handle;
+#endif
 
       sdata = ((struct coff_syminfo_data *)
 	       backtrace_alloc (state, sizeof *sdata, error_callback, data));
       if (sdata == NULL)
 	goto fail;
 
-      if (!coff_initialize_syminfo (state, image_base, is_64,
+      if (!coff_initialize_syminfo (state, module_base, is_64,
 				    sects, sects_num,
 				    syms_view.data, syms_size,
 				    str_view.data, str_size,
