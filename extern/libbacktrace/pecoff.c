@@ -398,6 +398,7 @@ coff_initialize_syminfo (struct backtrace_state *state,
   struct coff_symbol *coff_symbols;
   struct coff_symbol *coff_sym;
   char *coff_str;
+  uintptr_t image_end;
   size_t i;
 
   syms_count = syms_size / SYM_SZ;
@@ -501,9 +502,20 @@ coff_initialize_syminfo (struct backtrace_state *state,
       i += asym->number_of_aux_symbols;
     }
 
-  /* End of symbols marker.  */
+  /* End of symbols marker.  It sits at the end of the image, so that the
+     last symbol doesn't claim addresses in other modules.  */
+  image_end = 0;
+  for (i = 0; i < sects_num; ++i)
+    {
+      uintptr_t sect_end;
+
+      sect_end = ((uintptr_t) sects[i].virtual_address
+		  + sects[i].virtual_size);
+      if (sect_end > image_end)
+	image_end = sect_end;
+    }
   coff_sym->name = NULL;
-  coff_sym->address = -1;
+  coff_sym->address = libbacktrace_add_base (image_end, base_address);
 
   backtrace_qsort (coff_symbols, coff_symbol_count,
 		   sizeof (struct coff_symbol), coff_symbol_compare);
