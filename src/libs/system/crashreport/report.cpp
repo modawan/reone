@@ -240,4 +240,13 @@ std::string currentBacktrace() {
     return boost::stacktrace::to_string(trace);
 }
 
+std::string thrownFromBacktrace() {
+#ifdef R_ENABLE_THROW_SITE_TRACES
+    auto trace = boost::stacktrace::stacktrace::from_current_exception();
+    return trace ? boost::stacktrace::to_string(trace) : std::string();
+#else
+    return {};
+#endif
+}
+
 } // namespace reone

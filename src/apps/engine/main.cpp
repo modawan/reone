@@ -65,6 +65,10 @@ int main(int argc, char **argv) {
         return exitCode;
     } catch (const std::exception &ex) {
         auto message = str(boost::format("Engine failure: %1%") % ex.what());
+        auto thrownFrom = thrownFromBacktrace();
+        if (!thrownFrom.empty()) {
+            message += "\nThrown from:\n" + thrownFrom;
+        }
         try {
             error(message);
         } catch (...) {

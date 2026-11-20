@@ -31,6 +31,7 @@ option(BUILD_NCSRUN "build ncsrun application" ON)
 
 option(ENABLE_MOVIE "enable movie playback" ON)
 option(ENABLE_ASAN "enable address sanitizer" OFF)
+option(ENABLE_THROW_SITE_TRACES "log where fatal exceptions are thrown" ON)
 
 # END Options
 
@@ -85,6 +86,15 @@ endif()
 
 if(NOT MSVC)
     add_subdirectory(cmake/libbacktrace ${CMAKE_BINARY_DIR}/extern/libbacktrace) # backtrace static library
+endif()
+
+if(ENABLE_THROW_SITE_TRACES)
+    find_package(Boost QUIET OPTIONAL_COMPONENTS stacktrace_from_exception)
+    if(TARGET Boost::stacktrace_from_exception)
+        message(STATUS "Throw-site traces: on")
+    else()
+        message(STATUS "Throw-site traces: off, Boost doesn't provide them")
+    endif()
 endif()
 
 # END Dependencies

@@ -48,4 +48,10 @@ inline constexpr std::size_t kMaxBacktraceFrames = 128;
 /** The calling thread's backtrace, one frame per line. */
 std::string currentBacktrace();
 
+/**
+ * The backtrace of where the exception being handled was thrown, or an empty
+ * string where this build can't record it. Call it inside a catch block.
+ */
+std::string thrownFromBacktrace();
+
 } // namespace reone
