@@ -87,9 +87,9 @@ void park() {
 // The C runtime's own filter, which installHandlers replaces.
 static LPTOP_LEVEL_EXCEPTION_FILTER g_runtimeFilter = nullptr;
 
-// The helper thread symbolises the frames on a stack of its own, and keeps
-// dbghelp, which is single-threaded, to one caller. It is also the watchdog
-// for the walk.
+// The helper thread symbolises the frames on a stack of its own, which an
+// overflow leaves the crashing thread without, and keeps dbghelp, which is
+// single-threaded, to one caller. It is also the watchdog for the walk.
 static HANDLE g_framesReady = nullptr;
 static std::atomic<DWORD> g_exitCode {0};
 
@@ -175,6 +175,8 @@ static const char *describeExceptionCode(DWORD code) {
         return "integer divide by zero";
     case EXCEPTION_INT_OVERFLOW:
         return "integer overflow";
+    case EXCEPTION_STACK_OVERFLOW:
+        return "stack overflow";
     default:
         return "unrecognised exception";
     }
@@ -203,8 +205,11 @@ static LONG WINAPI onUnhandledException(EXCEPTION_POINTERS *info) {
     if (code == kMsvcException && g_runtimeFilter) {
         return g_runtimeFilter(info);
     }
-    // Too little stack is left after an overflow to walk the stack and log.
-    if (code == EXCEPTION_STACK_OVERFLOW) {
+    // After an overflow, only a thread with stack set aside can report. On
+    // MinGW, the trace of an overflow in a function with a frame over 4 KB
+    // stops at GCC's stack probe, ___chkstk_ms, which has no Windows unwind
+    // information.
+    if (code == EXCEPTION_STACK_OVERFLOW && !hasCrashStack()) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     switch (claimReport()) {
@@ -220,6 +225,13 @@ static LONG WINAPI onUnhandledException(EXCEPTION_POINTERS *info) {
     writeHeadline(what.data());
     writeTraceWithinDeadline(code, false);
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+bool setUpThread(char *) {
+    // MSVC keeps a terminate handler per thread.
+    std::set_terminate(onTerminate);
+    ULONG guarantee = kCrashStackSize;
+    return SetThreadStackGuarantee(&guarantee) != 0;
 }
 
 void installHandlers() {

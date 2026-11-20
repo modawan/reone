@@ -32,9 +32,10 @@ class Logger;
  * structured exceptions on Windows. The first thread to crash writes the
  * report, a headline and then its backtrace, and any other waits for the
  * process to end. The backtrace has ten seconds, and past that its frames are
- * written unnamed. A stack overflow isn't reported. The default handling then
- * runs, so core dumps and debuggers see the crash as usual. Call it once,
- * after the logger's init.
+ * written unnamed. A stack overflow is reported only on the calling thread,
+ * which gets stack set aside for it. The default handling then runs, so core
+ * dumps and debuggers see the crash as usual. Call it once, after the
+ * logger's init.
  */
 void installCrashReport(const Logger &logger);
 

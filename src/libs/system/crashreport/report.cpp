@@ -54,6 +54,7 @@ static std::atomic<std::size_t> g_frameCount {0};
 // Set up by setUpThisThread on the threads it covers. The name is a plain array,
 // so reading it in a signal handler runs no constructor.
 static thread_local char t_threadName[32] {};
+static thread_local bool t_hasCrashStack = false;
 
 Claim claimReport() {
     if (t_ownsReport) {
@@ -201,13 +202,18 @@ void onTerminate() {
     abortWithoutReport();
 }
 
+bool hasCrashStack() {
+    return t_hasCrashStack;
+}
+
 // Prepares the calling thread for a crash: its name where the report can read
-// it.
-static void setUpThisThread() {
+// it, and stack set aside for reporting an overflow.
+static void setUpThisThread(char *crashStack) {
     const auto &name = threadName();
     auto length = name.size() < sizeof(t_threadName) - 1 ? name.size() : sizeof(t_threadName) - 1;
     std::memcpy(t_threadName, name.data(), length);
     t_threadName[length] = '\0';
+    t_hasCrashStack = setUpThread(crashStack);
 }
 
 } // namespace crashreport
@@ -218,7 +224,9 @@ void installCrashReport(const Logger &logger) {
     crashreport::g_moduleBase = crashreport::engineLoadAddress();
     std::set_terminate(crashreport::onTerminate);
     crashreport::installHandlers();
-    crashreport::setUpThisThread();
+    // The installing thread keeps its crash stack for the life of the process.
+    alignas(16) static char installingThreadStack[crashreport::kCrashStackSize];
+    crashreport::setUpThisThread(installingThreadStack);
 }
 
 std::string currentBacktrace() {
