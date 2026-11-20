@@ -150,6 +150,22 @@ TEST(CrashReport, should_keep_only_the_frames_nearest_a_deep_backtrace) {
     EXPECT_EQ(kMaxBacktraceFrames, static_cast<std::size_t>(std::count(trace.begin(), trace.end(), '\n')));
 }
 
+TEST(CrashReport, should_trace_where_a_caught_exception_was_thrown) {
+    std::string trace;
+    try {
+        throwFromNamedHelper();
+    } catch (const std::exception &) {
+        trace = thrownFromBacktrace();
+    }
+
+    if (trace.empty()) {
+        GTEST_SKIP() << "This build can't record where exceptions are thrown";
+    }
+#ifndef _MSC_VER
+    EXPECT_NE(std::string::npos, trace.find(NAME_OF(throwFromNamedHelper)));
+#endif
+}
+
 // A worker thread is where Windows' C runtimes don't turn a crash into a
 // signal, and it's outside the SEH handler gtest puts around each test body
 // on MSVC.
