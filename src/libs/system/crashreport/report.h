@@ -33,6 +33,12 @@ namespace reone::crashreport {
 // compressed debug info.
 inline constexpr unsigned kDeadlineSeconds = 10;
 
+// Stack a thread sets aside for reporting a crash after its own stack has
+// overflowed: the alternate signal stack on POSIX, and the stack guarantee on
+// Windows. Four times what a Debug build's signal handler was measured to
+// need, which also covered the Windows filter in the stack-overflow demo.
+inline constexpr std::size_t kCrashStackSize = 64 * 1024;
+
 // Builds a line in a fixed buffer, so the headline needs no allocation.
 // Anything past the buffer is dropped.
 class FixedLine {
@@ -116,6 +122,9 @@ const char *describeSignal(int sig);
 
 [[noreturn]] void onTerminate();
 
+// Whether the calling thread has stack set aside for reporting an overflow.
+bool hasCrashStack();
+
 // In posix.cpp or windows.cpp.
 
 // Opens the report's own append handle to the logger's file, or standard
@@ -141,6 +150,11 @@ std::uintptr_t engineLoadAddress();
 // Writes the calling thread's trace within the deadline; past it, writes the
 // raw frames and ends the process as abort would.
 void writeAbortTraceWithinDeadline(bool describeExceptionBeingHandled);
+
+// Sets aside kCrashStackSize bytes at crashStack for reporting an overflow on
+// the calling thread, and returns whether it could. Windows reserves its own
+// and ignores crashStack. The memory must stay valid while the thread runs.
+bool setUpThread(char *crashStack);
 
 // Installs the platform's crash handlers: signals, and on Windows the
 // unhandled-exception filter.

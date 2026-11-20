@@ -130,6 +130,7 @@ static void writeTraceWithinDeadline(int signalOnDeadline, bool describeExceptio
     g_deadlineSignal.store(signalOnDeadline);
     struct sigaction action {};
     action.sa_handler = onDeadline;
+    action.sa_flags = SA_ONSTACK;
     sigemptyset(&action.sa_mask);
     // Installing the handler and unblocking the signal fail only for an
     // invalid signal number or mask operation.
@@ -175,16 +176,24 @@ static void onFatalSignal(int sig) {
     resetAndRaise(sig);
 }
 
+bool setUpThread(char *crashStack) {
+    stack_t stack {};
+    stack.ss_sp = crashStack;
+    stack.ss_size = kCrashStackSize;
+    return sigaltstack(&stack, nullptr) == 0;
+}
+
 static constexpr int kFatalSignals[] = {SIGSEGV, SIGFPE, SIGILL, SIGBUS, SIGABRT};
 
 void installHandlers() {
     for (int sig : kFatalSignals) {
         // The handler stays installed, so a second crashing thread parks while
         // the first reports. It isn't blocked while it runs, so a crash in the
-        // report comes straight back and ends the process.
+        // report comes straight back and ends the process. It runs on the
+        // signal stack on a thread that has one.
         struct sigaction action {};
         action.sa_handler = onFatalSignal;
-        action.sa_flags = SA_NODEFER;
+        action.sa_flags = SA_NODEFER | SA_ONSTACK;
         sigemptyset(&action.sa_mask);
         // Installing fails only for an invalid signal number, and these are
         // all standard signals.
