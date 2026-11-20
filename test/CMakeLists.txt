@@ -195,6 +195,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/system/binaryreader.cpp
     ${TESTS_SOURCE_DIR}/system/binarywriter.cpp
     ${TESTS_SOURCE_DIR}/system/cast.cpp
+    ${TESTS_SOURCE_DIR}/system/crashreport.cpp
     ${TESTS_SOURCE_DIR}/system/fileutil.cpp
     ${TESTS_SOURCE_DIR}/system/hexutil.cpp
     ${TESTS_SOURCE_DIR}/system/logger.cpp

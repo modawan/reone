@@ -21,6 +21,7 @@
 #undef min
 #endif
 
+#include "reone/system/crashreport.h"
 #include "reone/system/logger.h"
 #include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
@@ -50,6 +51,7 @@ int main(int argc, char **argv) {
     }
     try {
         Logger::instance.init(options->logging.severity, options->logging.channels, kLogFilename);
+        installCrashReport(Logger::instance);
         info(kEngineStartupMessage);
         Logger::instance.flush();
     } catch (const std::exception &ex) {

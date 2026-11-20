@@ -24,6 +24,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
     ${SYSTEM_INCLUDE_DIR}/clipboard.h
     ${SYSTEM_INCLUDE_DIR}/clock.h
+    ${SYSTEM_INCLUDE_DIR}/crashreport.h
     ${SYSTEM_INCLUDE_DIR}/di/module.h
     ${SYSTEM_INCLUDE_DIR}/di/services.h
     ${SYSTEM_INCLUDE_DIR}/exception/endofstream.h
@@ -61,6 +62,7 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/binarywriter.cpp
     ${SYSTEM_SOURCE_DIR}/clipboard.cpp
     ${SYSTEM_SOURCE_DIR}/clock.cpp
+    ${SYSTEM_SOURCE_DIR}/crashreport/report.cpp
     ${SYSTEM_SOURCE_DIR}/di/module.cpp
     ${SYSTEM_SOURCE_DIR}/fileutil.cpp
     ${SYSTEM_SOURCE_DIR}/hexutil.cpp
@@ -76,6 +78,12 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/timeevents.cpp
     ${SYSTEM_SOURCE_DIR}/unicodeutil.cpp)
 
+if(WIN32)
+    list(APPEND SYSTEM_SOURCES ${SYSTEM_SOURCE_DIR}/crashreport/windows.cpp)
+else()
+    list(APPEND SYSTEM_SOURCES ${SYSTEM_SOURCE_DIR}/crashreport/posix.cpp)
+endif()
+
 add_library(system STATIC ${SYSTEM_HEADERS} ${SYSTEM_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(system PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
 set_target_properties(system PROPERTIES DEBUG_POSTFIX "d")
@@ -85,4 +93,16 @@ if(MSVC)
     target_link_libraries(system PRIVATE SDL3::SDL3)
 else()
     target_link_libraries(system PRIVATE ${SDL3_LIBRARIES} ${SDL3_LDFLAGS} Threads::Threads)
+endif()
+
+# Backtraces come from Boost.Stacktrace, header-only: libbacktrace reads the
+# debug info everywhere but MSVC, which uses dbghelp. Only crashreport/report.cpp
+# includes it, so the backend's macros stay out of the rest of the build.
+if(MSVC)
+    set_source_files_properties(${SYSTEM_SOURCE_DIR}/crashreport/report.cpp PROPERTIES
+        COMPILE_DEFINITIONS BOOST_STACKTRACE_USE_WINDBG_CACHED)
+else()
+    set_source_files_properties(${SYSTEM_SOURCE_DIR}/crashreport/report.cpp PROPERTIES
+        COMPILE_DEFINITIONS "BOOST_STACKTRACE_USE_BACKTRACE;BOOST_STACKTRACE_BACKTRACE_INCLUDE_FILE=<backtrace.h>;BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED")
+    target_link_libraries(system PRIVATE backtrace)
 endif()
