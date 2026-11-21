@@ -6176,8 +6176,8 @@ void Creature::runSpawnScript() {
     // control, carried through an ordinary module transition is the same
     // creature: the destination area takes it in without recreating it, and
     // its OnSpawn does not run a second time. A companion or puppet made from
-    // its roster record is a new creature and runs it again. The flag is set
-    // whether or not a script was authored.
+    // its roster record takes the record's flag. The flag is set whether or
+    // not a script was authored.
     if (_spawnScriptFired) {
         return;
     }
