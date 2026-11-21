@@ -37,6 +37,10 @@ struct Skill {
     Ability keyAbility {Ability::Strength};
     /** The skill is not turned on a creature that regards its user as a friend. */
     bool hostile {false};
+    /** Creatures other than the player character may put ranks into the skill. */
+    bool npcCanUse {true};
+    /** Droids may put ranks into the skill. */
+    bool droidCanUse {true};
 };
 
 } // namespace game

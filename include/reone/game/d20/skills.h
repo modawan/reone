@@ -18,6 +18,8 @@
 #pragma once
 
 #include <functional>
+#include <set>
+#include <string>
 
 #include "../types.h"
 
@@ -36,6 +38,7 @@ class Textures;
 namespace game {
 
 class CreatureAttributes;
+class CreatureClass;
 
 class ISkills {
 public:
@@ -108,6 +111,48 @@ private:
  *         class can, or one of them has a skills table
  */
 bool canClassesUseSkill(const Skill &rules, const CreatureAttributes &attributes);
+
+/**
+ * The creature a character creation or level-up is for, as far as the skill
+ * rules that refuse a raise need it.
+ */
+struct LevellingCreature {
+    /** The creature levels as the player character (Creature::levelsAsPlayerCharacter). */
+    bool pcRules {false};
+    /** Droids may not raise some skills. */
+    bool droid {false};
+    /** The creature's tag, for the TSL companions' own rules. */
+    std::string tag;
+};
+
+/**
+ * @return whether ranks may be put into the skill by the recommended
+ *         spending, an automatic level-up or the skills screen's restriction
+ *         marks: every skill under player character rules; otherwise not one
+ *         the skills table closes to non-player characters, nor, for a droid,
+ *         one it closes to droids, though on TSL the creature tagged g0t0 may
+ *         still raise Stealth
+ */
+bool canRaiseSkill(const Skill &skill, SkillType type, const LevellingCreature &creature, bool tsl);
+
+/**
+ * Spend points on the class's recommended skills, in its order
+ * (recommendSkills). Each skill the creature may raise is raised until it
+ * reaches its maximum rank at totalLevel or the points run short
+ * (CreatureAttributes::increaseSkillRank); spending stops when no points are
+ * left.
+ *
+ * @param effectFeats the feats the creature's effects give it
+ */
+void addRecommendedSkills(
+    const ISkills &skills,
+    CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    int &points,
+    int totalLevel,
+    const LevellingCreature &creature,
+    const std::set<FeatType> &effectFeats,
+    bool tsl);
 
 } // namespace game
 
