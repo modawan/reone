@@ -100,11 +100,23 @@ bool Slider::handleClick(int x, int y, int clicks) {
 
 // Only a press on the thumb holds it; a press on the track is a click.
 bool Slider::handleMouseDown(int x, int y) {
-    return thumbExtent().contains(x, y);
+    _holdsThumb = thumbExtent().contains(x, y);
+    return _holdsThumb;
 }
 
-void Slider::handleMouseDrag(int x, int y) {
+// The thumb follows the pointer while it is held.
+bool Slider::handleMouseDrag(int x, int y) {
+    if (!_holdsThumb) {
+        return false;
+    }
     changeValue((x - _extent.left) * _maxValue / _extent.width);
+    return true;
+}
+
+bool Slider::handleMouseUp(int x, int y, bool over, int clicks) {
+    const bool heldThumb = _holdsThumb;
+    _holdsThumb = false;
+    return over && !heldThumb;
 }
 
 void Slider::setValue(int value) {

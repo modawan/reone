@@ -135,6 +135,7 @@ enum class PolygonMode {
 };
 
 enum class TextGravity {
+    LeftBottom,
     LeftCenter,
     LeftTop,
     CenterBottom,

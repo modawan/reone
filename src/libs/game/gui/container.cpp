@@ -53,9 +53,9 @@ void ContainerGUI::onGUILoaded() {
     // The hilight follows the keys; the buttons leave the keys with the list
     // when the pointer comes onto them.
     _gui->setHilightFollowsKeyboard(true);
-    _controls.BTN_OK->setNavigable(false);
-    _controls.BTN_GIVEITEMS->setNavigable(false);
-    _controls.BTN_CANCEL->setNavigable(false);
+    _controls.BTN_OK->setTakesKeyboardOnHover(false);
+    _controls.BTN_GIVEITEMS->setTakesKeyboardOnHover(false);
+    _controls.BTN_CANCEL->setTakesKeyboardOnHover(false);
     centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
 
     _giveItemMsg = _game.getInterfaceText(kSwitchToResRef) + " " + _game.getInterfaceText(kGiveItemResRef);

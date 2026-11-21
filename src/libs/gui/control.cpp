@@ -18,6 +18,7 @@
 #include "reone/gui/control.h"
 
 #include "reone/graphics/context.h"
+#include "reone/graphics/font.h"
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
@@ -127,19 +128,20 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
 
     auto border = std::make_shared<Border>();
 
-    if (!corner.empty() && corner != "0") {
+    if (namesArt(corner)) {
         border->corner = _resourceSvc.textures.get(corner, TextureUsage::GUI);
     }
-    if (!edge.empty() && edge != "0") {
+    if (namesArt(edge)) {
         border->edge = _resourceSvc.textures.get(edge, TextureUsage::GUI);
     }
-    if (!fill.empty() && fill != "0") {
+    if (namesArt(fill)) {
         border->fill = _resourceSvc.textures.get(fill, TextureUsage::GUI);
     }
 
     border->fillStyle = static_cast<Border::FillStyle>(gui.FILLSTYLE);
     border->dimension = gui.DIMENSION;
     border->innerOffset = gui.INNEROFFSET;
+    border->innerOffsetY = gui.INNEROFFSETY;
     border->color = gui.COLOR;
     border->pulseFrame = (gui.PULSING & kPulsingFrameFlag) != 0;
     border->pulseFill = (gui.PULSING & kPulsingFillFlag) != 0;
@@ -149,6 +151,8 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
 void Control::loadBorder(const resource::generated::GUI_BORDER &gui) {
     _border = createBorder(gui);
     _authoredBorderDimension = gui.DIMENSION;
+    _authoredInnerOffset = gui.INNEROFFSET;
+    _authoredInnerOffsetY = gui.INNEROFFSETY;
 }
 
 void Control::loadText(const resource::generated::GUI_TEXT &gui) {
@@ -167,13 +171,15 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
 void Control::updateTextLines() {
     _textLines.clear();
     if (_text.font && !_text.text.empty()) {
-        _textLines = breakText(_text.text, *_text.font, textExtent().width, _scale);
+        _textLines = breakText(_text.text, *_text.font, innerExtent(textExtent()).width, _scale);
     }
 }
 
 void Control::loadHilight(const resource::generated::GUI_BORDER &gui) {
     _hilight = createBorder(gui);
     _authoredHilightDimension = gui.DIMENSION;
+    _authoredHilightInnerOffset = gui.INNEROFFSET;
+    _authoredHilightInnerOffsetY = gui.INNEROFFSETY;
 }
 
 void Control::updateTransform() {
@@ -219,18 +225,10 @@ bool Control::handleClick(int x, int y, int clicks) {
     return true;
 }
 
-bool Control::handleMouseDown(int x, int y) {
-    return false;
-}
-
-void Control::handleMouseDrag(int x, int y) {
-}
-
 void Control::update(float dt) {
     if (!_visible) {
         return;
     }
-    _textureTime += dt;
     for (auto &child : _children) {
         child.get().update(dt);
     }
@@ -305,6 +303,20 @@ void Control::renderScene(const glm::ivec2 &screenSize,
     });
 }
 
+glm::mat3x4 Control::upsideDownUV() {
+    return glm::mat3x4(
+        glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+}
+
+glm::mat3x4 Control::leftToRightUV() {
+    return glm::mat3x4(
+        glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+}
+
 void Control::renderBorder(const Border &border,
                            const glm::ivec2 &offset,
                            const glm::ivec2 &size,
@@ -362,7 +374,7 @@ void Control::renderBorder(const Border &border,
                             ? BlendMode::Additive
                             : BlendMode::Normal;
         glm::ivec2 fillPosition {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y};
-        int frame = getCycleFrame(*border.fill, _textureTime);
+        int frame = getCycleFrame(*border.fill, _gui.textureTime());
         auto drawFill = [&](const glm::ivec2 &position, const glm::ivec2 &drawSize) {
             pass.drawImage(
                 *border.fill,
@@ -534,98 +546,168 @@ void Control::renderText(const std::vector<std::string> &lines,
                          IRenderPass &pass) {
     glm::ivec2 position;
     TextGravity gravity;
-    getTextPosition(position, static_cast<int>(lines.size()), size, gravity);
+    const Extent area = innerExtent({_extent.left, _extent.top, size.x, size.y});
+    getTextPosition(position, static_cast<int>(lines.size()), area, gravity);
 
     glm::vec3 linePosition(0.0f);
     const auto &hilight = shownHilight();
-    const bool pulsing = _text.pulsing || (_selected && _text.hilightPulsing);
-    glm::vec4 color {_text.color, pulsing ? _gui.pulsingAlpha() : _text.opacity};
+    auto textColor = _text.color;
     if (_selected && _text.selectedColor) {
-        color = glm::vec4(*_text.selectedColor, color.a);
+        textColor = *_text.selectedColor;
     } else if (_selected && hilight) {
-        color = glm::vec4(hilight->color, color.a);
+        textColor = hilight->color;
     }
+    const bool pulsing = _text.pulsing || (_selected && _text.hilightPulsing);
+    glm::vec4 color {textColor, pulsing ? _gui.pulsingAlpha() : _text.opacity};
 
-    for (auto &line : lines) {
-        linePosition.x = static_cast<float>(position.x + offset.x);
-        linePosition.y = static_cast<float>(position.y + offset.y);
-        _text.font->render(line, linePosition, color, gravity, _scale);
-        position.y += static_cast<int>(_text.font->height() * _scale);
+    // Each line is drawn a line advance below the one before, unrounded.
+    const float lineAdvance = _text.font->lineAdvance(_scale);
+    linePosition.x = static_cast<float>(position.x + offset.x);
+    linePosition.y = static_cast<float>(position.y + offset.y);
+
+    // Text taller than its area, measured as the block screens size it by,
+    // shows the lines its alignment keeps: middle aligned text drops its
+    // first lines, a line advance each, until the half of the overflow above
+    // the area is gone, and bottom aligned text until the rest fits, though
+    // never its last line. The first line kept is drawn; no later line
+    // starting below the area is.
+    const int lineCount = static_cast<int>(lines.size());
+    const int overflow = textBlockHeight(lineCount) - area.height;
+    const int vertical = static_cast<int>(_text.align) & kTextAlignVertical;
+    int first = 0;
+    if (overflow > 0 && vertical == kTextAlignMiddle) {
+        while (first < lineCount - 1 && static_cast<float>(first) * lineAdvance < 0.5f * static_cast<float>(overflow)) {
+            ++first;
+        }
+    } else if (overflow > 0 && vertical == kTextAlignBottom) {
+        while (first < lineCount - 1 && textBlockHeight(lineCount - first) > area.height) {
+            ++first;
+        }
+    }
+    // A line's top, from the point it is drawn at.
+    const float fontHeight = _text.font->height() * _scale;
+    const float lineTop = vertical == kTextAlignMiddle ? -0.5f * fontHeight : (vertical == kTextAlignBottom ? -fontHeight : 0.0f);
+    const float areaBottom = static_cast<float>(area.top + area.height + offset.y);
+    linePosition.y += static_cast<float>(first) * lineAdvance;
+    for (int i = first; i < lineCount; ++i) {
+        if (i > first && linePosition.y + lineTop > areaBottom) {
+            break;
+        }
+        _text.font->render(lines[i], linePosition, color, gravity, _scale);
+        linePosition.y += lineAdvance;
     }
 }
 
-void Control::getTextPosition(glm::ivec2 &position, int lineCount, const glm::ivec2 &size, TextGravity &gravity) const {
-    // Gravity
-    switch (_text.align) {
-    case TextAlign::LeftTop:
-        gravity = TextGravity::RightBottom;
-        break;
-    case TextAlign::CenterTop:
-        gravity = TextGravity::CenterBottom;
-        break;
-    case TextAlign::RightCenter:
-    case TextAlign::RightCenter2:
-        gravity = TextGravity::LeftCenter;
-        break;
-    case TextAlign::LeftCenter:
-        gravity = TextGravity::RightCenter;
-        break;
-    case TextAlign::CenterBottom:
-        gravity = TextGravity::CenterTop;
-        break;
-    case TextAlign::CenterCenter:
-    default:
-        gravity = TextGravity::CenterCenter;
-        break;
+int Control::textBlockHeight(int lineCount) const {
+    if (!_text.font) {
+        return 0;
     }
-    // Vertical alignment
-    switch (_text.align) {
-    case TextAlign::LeftTop:
-    case TextAlign::CenterTop:
-        position.y = _extent.top;
-        break;
-    case TextAlign::CenterBottom:
-        position.y = _extent.top + size.y - static_cast<int>(glm::max(0, lineCount - 1) * _text.font->height() * _scale);
-        break;
-    case TextAlign::RightCenter:
-    case TextAlign::LeftCenter:
-    case TextAlign::CenterCenter:
-    case TextAlign::RightCenter2:
-    default:
-        position.y = _extent.top + size.y / 2 - static_cast<int>(0.5f * (lineCount - 1) * _text.font->height() * _scale);
-        break;
-    }
-    // Horizontal alignment
-    switch (_text.align) {
-    case TextAlign::LeftTop:
-    case TextAlign::LeftCenter:
-        position.x = _extent.left + textPaddingLeft();
-        break;
-    case TextAlign::RightCenter:
-    case TextAlign::RightCenter2:
-        position.x = _extent.left + _extent.width;
-        break;
-    case TextAlign::CenterTop:
-    case TextAlign::CenterCenter:
-    case TextAlign::CenterBottom:
-    default:
-        position.x = _extent.left + size.x / 2;
-        break;
-    }
+    return _text.font->blockHeight(lineCount, _scale);
 }
 
-int Control::textPaddingLeft() const {
-    if (_textPaddingLeft > 0) {
-        return _textPaddingLeft;
+float Control::textLineAdvance() const {
+    return _text.font ? _text.font->lineAdvance(_scale) : 0.0f;
+}
+
+int Control::textLineUnit() const {
+    if (!_text.font) {
+        return 0;
     }
-    // Left-aligned text starts inside the authored frame art, not under its
-    // border slice. Image buttons use the same frame for the name plate next
-    // to their icon, so their item names need the same inset as labels.
-    if ((_type == ControlType::Label || _type == ControlType::ImageButton) &&
-        _border && (_border->corner || _border->edge)) {
-        return _border->dimension;
+    return static_cast<int>(std::lround(_text.font->lineAdvance(_scale)));
+}
+
+// Text is centred or put at the right only by those bits, and in the middle
+// or at the bottom only by those; any other alignment is left and top.
+void Control::getTextPosition(glm::ivec2 &position, int lineCount, const Extent &area, TextGravity &gravity) const {
+    const int align = static_cast<int>(_text.align);
+    const int horizontal = align & kTextAlignHorizontal;
+    const int vertical = align & kTextAlignVertical;
+    int column = 0;
+    position.x = area.left;
+    if (horizontal == kTextAlignCenter) {
+        column = 1;
+        position.x = area.left + area.width / 2;
+    } else if (horizontal == kTextAlignRight) {
+        column = 2;
+        position.x = area.left + area.width;
     }
-    return 0;
+    const float lineAdvance = _text.font->lineAdvance(_scale);
+    int row = 0;
+    position.y = area.top;
+    if (vertical == kTextAlignMiddle) {
+        row = 1;
+        position.y = area.top + area.height / 2 - static_cast<int>(0.5f * (lineCount - 1) * lineAdvance);
+    } else if (vertical == kTextAlignBottom) {
+        row = 2;
+        position.y = area.top + area.height - static_cast<int>(glm::max(0, lineCount - 1) * lineAdvance);
+    }
+    // The way the text runs from its anchor, by column and row.
+    static constexpr TextGravity kGravities[3][3] {
+        {TextGravity::RightBottom, TextGravity::RightCenter, TextGravity::RightTop},
+        {TextGravity::CenterBottom, TextGravity::CenterCenter, TextGravity::CenterTop},
+        {TextGravity::LeftBottom, TextGravity::LeftCenter, TextGravity::LeftTop}};
+    gravity = kGravities[column][row];
+}
+
+Control::Extent Control::innerExtent(const Extent &area) const {
+    return _border ? borderInnerExtent(*_border, area) : area;
+}
+
+Control::Extent Control::innerExtentWithHilight(const Extent &area) const {
+    const Extent inner = Control::innerExtent(area);
+    return _hilight ? intersection(inner, borderInnerExtent(*_hilight, area)) : inner;
+}
+
+int Control::borderDimension() const {
+    return _border ? _border->dimension : 0;
+}
+
+// The area inside a frame is inset by its dimension on each axis, as the
+// frame is drawn, or, with less room than half the dimension, collapses onto
+// its centre; the inner offsets then widen it, across at most by the
+// dimension and up and down by all of the vertical one.
+Control::Extent Control::borderInnerExtent(const Border &border, const Extent &area) const {
+    const int dimension = border.dimension;
+    // A border without frame art whose dimension leaves no room is drawn
+    // over the whole control, and so leaves the whole of it.
+    if (!border.corner && !border.edge && (area.width <= 2 * dimension || area.height <= 2 * dimension)) {
+        return area;
+    }
+    auto inset = [dimension](int start, int length, int &innerStart, int &innerLength) {
+        const int room = length - 2 * dimension;
+        if (room <= 0 || dimension / 2 > room) {
+            innerStart = start + length / 2;
+            innerLength = 0;
+        } else {
+            innerStart = start + dimension;
+            innerLength = room;
+        }
+    };
+    Extent inner;
+    inset(area.left, area.width, inner.left, inner.width);
+    inset(area.top, area.height, inner.top, inner.height);
+    const int offsetX = std::min(border.innerOffset, dimension);
+    const int offsetY = border.innerOffsetY != 0 ? border.innerOffsetY : border.innerOffset;
+    inner.left -= offsetX;
+    inner.width += 2 * offsetX;
+    inner.top -= offsetY;
+    inner.height += 2 * offsetY;
+    return inner;
+}
+
+Control::Extent Control::intersection(const Extent &a, const Extent &b) {
+    const int left = std::max(a.left, b.left);
+    const int top = std::max(a.top, b.top);
+    const int right = std::min(a.left + a.width, b.left + b.width);
+    const int bottom = std::min(a.top + a.height, b.top + b.height);
+    return {left, top, std::max(0, right - left), std::max(0, bottom - top)};
+}
+
+glm::ivec2 Control::frameArtSize(const std::shared_ptr<Texture> &art) const {
+    if (!art) {
+        return glm::ivec2(0);
+    }
+    return {static_cast<int>(std::lround(art->width() * _frameLayoutScale)), static_cast<int>(std::lround(art->height() * _frameLayoutScale))};
 }
 
 void Control::stretch(float x, float y, int mask) {
@@ -654,14 +736,25 @@ void Control::setPresentationScale(float frameLayoutScale, float textLayoutScale
     // Text and frame slices do not follow the extent on their own. Keeping
     // this separate lets compound controls give their contents an independent
     // density while retaining the parent's layout rectangle.
-    _frameLayoutScale = frameLayoutScale;
     _scale = textLayoutScale * _gui.textScale();
+    _frameLayoutScale = frameLayoutScale * _gui.borderScale();
+    // An authored frame size is never scaled down to 0, which would take the
+    // art's own size.
+    auto frameSize = [this](int authored) {
+        const int scaled = static_cast<int>(std::lround(authored * _frameLayoutScale));
+        return authored > 0 ? std::max(scaled, 1) : scaled;
+    };
     if (_border) {
-        _border->dimension = static_cast<int>(_authoredBorderDimension * frameLayoutScale * _gui.borderScale());
+        _border->dimension = frameSize(_authoredBorderDimension);
+        _border->innerOffset = static_cast<int>(std::lround(_authoredInnerOffset * _frameLayoutScale));
+        _border->innerOffsetY = static_cast<int>(std::lround(_authoredInnerOffsetY * _frameLayoutScale));
     }
     if (_hilight) {
-        _hilight->dimension = static_cast<int>(_authoredHilightDimension * frameLayoutScale * _gui.borderScale());
+        _hilight->dimension = frameSize(_authoredHilightDimension);
+        _hilight->innerOffset = static_cast<int>(std::lround(_authoredHilightInnerOffset * _frameLayoutScale));
+        _hilight->innerOffsetY = static_cast<int>(std::lround(_authoredHilightInnerOffsetY * _frameLayoutScale));
     }
+    scaleOwnFrames();
     updateTextLines();
 }
 
@@ -720,6 +813,23 @@ void Control::setExtentTop(int top) {
 void Control::setBorder(Border border) {
     _border = std::make_shared<Border>(std::move(border));
     _authoredBorderDimension = _border->dimension;
+    _authoredInnerOffset = _border->innerOffset;
+    _authoredInnerOffsetY = _border->innerOffsetY;
+}
+
+// Gives \p border the fill \p texture, making the border when there is
+// none; without a texture, the border loses its fill.
+static void giveFill(std::shared_ptr<Control::Border> &border, std::shared_ptr<Texture> texture) {
+    if (!texture) {
+        if (border) {
+            border->fill.reset();
+        }
+        return;
+    }
+    if (!border) {
+        border = std::make_shared<Control::Border>();
+    }
+    border->fill = std::move(texture);
 }
 
 void Control::setBorderFill(std::string resRef) {
@@ -731,22 +841,20 @@ void Control::setBorderFill(std::string resRef) {
     if (!resRef.empty()) {
         texture = _resourceSvc.textures.get(resRef, TextureUsage::GUI);
     }
-    setBorderFill(std::move(texture));
+    giveFill(_border, std::move(texture));
     _borderFillResRef = std::move(resRef);
 }
 
 void Control::setBorderFill(std::shared_ptr<Texture> texture) {
     _borderFillResRef.clear();
-    if (!texture && _border) {
-        _border->fill.reset();
-        return;
+    giveFill(_border, std::move(texture));
+}
+
+void Control::setBorderFillStyle(Border::FillStyle style) {
+    if (!_border) {
+        _border = std::make_shared<Border>();
     }
-    if (texture) {
-        if (!_border) {
-            _border = std::make_shared<Border>();
-        }
-        _border->fill = std::move(texture);
-    }
+    _border->fillStyle = style;
 }
 
 void Control::setBorderFillTransform(Border::FillTransform transform) {
@@ -756,11 +864,16 @@ void Control::setBorderFillTransform(Border::FillTransform transform) {
 }
 
 void Control::setBorderColor(glm::vec3 color) {
+    if (!_border) {
+        _border = std::make_shared<Border>();
+    }
     _border->color = std::move(color);
 }
 
 void Control::setBorderAlpha(float alpha) {
-    _border->alpha = alpha;
+    if (_border) {
+        _border->alpha = alpha;
+    }
 }
 
 void Control::setBorderColorOverride(glm::vec3 color) {
@@ -774,6 +887,8 @@ void Control::setUseBorderColorOverride(bool use) {
 void Control::setHilight(Border hilight) {
     _hilight = std::make_shared<Border>(hilight);
     _authoredHilightDimension = _hilight->dimension;
+    _authoredHilightInnerOffset = _hilight->innerOffset;
+    _authoredHilightInnerOffsetY = _hilight->innerOffsetY;
 }
 
 void Control::setHilightColor(glm::vec3 color) {
@@ -781,6 +896,10 @@ void Control::setHilightColor(glm::vec3 color) {
         _hilight = std::make_shared<Border>();
     }
     _hilight->color = color;
+    _text.selectedColor = color;
+}
+
+void Control::setSelectedTextColor(std::optional<glm::vec3> color) {
     _text.selectedColor = color;
 }
 
@@ -797,22 +916,13 @@ void Control::setHilightFill(std::string resRef) {
     if (!resRef.empty()) {
         texture = _resourceSvc.textures.get(resRef, TextureUsage::GUI);
     }
-    setHilightFill(texture);
+    giveFill(_hilight, std::move(texture));
     _hilightFillResRef = std::move(resRef);
 }
 
 void Control::setHilightFill(std::shared_ptr<Texture> texture) {
     _hilightFillResRef.clear();
-    if (!texture && _hilight) {
-        _hilight->fill.reset();
-        return;
-    }
-    if (texture) {
-        if (!_hilight) {
-            _hilight = std::make_shared<Border>();
-        }
-        _hilight->fill = std::move(texture);
-    }
+    giveFill(_hilight, std::move(texture));
 }
 
 void Control::setHilightFillTransform(Border::FillTransform transform) {

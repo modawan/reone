@@ -90,7 +90,7 @@ protected:
 
         auto &options = _engine.options().graphics;
         _gui = std::make_shared<gui::GUI>(
-            options, _engine.services().scene.graphs, _engine.services().graphics, _engine.services().resource, _pulsingAlpha);
+            options, _engine.services().scene.graphs, _engine.services().graphics, _engine.services().resource, _clock);
         _gui->setResolution(options.width, options.height);
         auto extent = Gff::Builder()
                           .field(Gff::Field::newInt("WIDTH", options.width))
@@ -138,7 +138,7 @@ protected:
     std::shared_ptr<Area> _area;
     std::shared_ptr<Creature> _leader;
     std::shared_ptr<Creature> _companion;
-    gui::PulsingAlpha _pulsingAlpha;
+    gui::GUIClock _clock;
     std::shared_ptr<gui::GUI> _gui;
     std::shared_ptr<gui::Button> _button;
     HUD *_hud {nullptr};

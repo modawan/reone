@@ -117,10 +117,8 @@ void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingA
 }
 
 void Map::renderScissored(const glm::vec4 &bounds, const std::function<void()> &block) {
-    const int height = _game.options().graphics.height;
-    const glm::ivec4 scissorBounds(
-        bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
-    _services.graphics.context.withScissorTest(scissorBounds, block);
+    const glm::ivec4 clip(bounds[0], bounds[1], bounds[2], bounds[3]);
+    graphics::withScissorRect(_services.graphics.context, _game.options().graphics.height, clip, block, true);
 }
 
 glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {

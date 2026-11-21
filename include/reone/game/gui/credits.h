@@ -88,7 +88,10 @@ private:
 
     /** The text's scale for the screen height. */
     float textScale() const;
-    int lineHeight() const;
+    /** The height of the lines shown, measured as one block (gui::Control::textBlockHeight). */
+    int textBlockHeight() const;
+    /** The text's line unit: how far apart its lines are drawn, at the text's scale. */
+    float lineUnit() const;
     /** The area the text is drawn in: left, top, width and height in pixels. */
     glm::ivec4 textRegion() const;
 };

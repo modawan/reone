@@ -201,7 +201,7 @@ void FloatingText::render() {
     const glm::vec3 cameraPosition = graphicsCamera->position();
     const float layoutScale = std::min(options.width / 800.0f, options.height / 600.0f) * options.guiScale;
     const float textScale = layoutScale * options.guiTextScale * kK1CombatTextScale;
-    const float lineHeight = _font->height() * textScale;
+    const float lineHeight = _font->lineAdvance(textScale);
 
     _services.graphics.uniforms.setGlobals([&options](auto &globals) {
         globals.reset();

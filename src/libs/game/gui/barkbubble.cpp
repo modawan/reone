@@ -162,16 +162,15 @@ void BarkBubble::setBarkText(const std::string &text, float duration, uint32_t s
         _barkText = text;
         _controls.LBL_BARKTEXT->setTextMessage(text);
 
-        int lineCount = std::max(1, static_cast<int>(_controls.LBL_BARKTEXT->textLines().size()));
-        int lineHeight = std::max(1, static_cast<int>(std::lround(
-                                         _controls.LBL_BARKTEXT->text().font->height() *
-                                         _controls.LBL_BARKTEXT->scale())));
+        // The text is its lines' block height, at least a line's.
+        const int lineCount = std::max(1, static_cast<int>(_controls.LBL_BARKTEXT->textLines().size()));
+        const int textHeight = _controls.LBL_BARKTEXT->textBlockHeight(lineCount);
         // Baked into the control extents by place.
         int padding = std::max(0, _controls.LBL_BARKTEXT->extent().left - _gui->rootControl().extent().left);
 
-        _gui->rootControl().setExtentHeight(lineCount * lineHeight + 2 * padding);
+        _gui->rootControl().setExtentHeight(textHeight + 2 * padding);
 
-        _controls.LBL_BARKTEXT->setExtentHeight(lineCount * lineHeight);
+        _controls.LBL_BARKTEXT->setExtentHeight(textHeight);
         _barking = true;
         _speaker = speaker;
         _ignoresDistance = ignoresDistance;

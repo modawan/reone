@@ -81,6 +81,22 @@ public:
 
     float height() const { return _height; }
 
+    /**
+     * The height of \p lineCount lines of text measured as one block, in
+     * whole pixels: the glyphs' height and the spacing below a line, scaled,
+     * over all the lines, rounded once.
+     *
+     * @param lineCount the number of lines
+     * @param scale the scale the text is drawn at
+     */
+    int blockHeight(int lineCount, float scale) const;
+
+    /**
+     * How far each line of drawn text is below the one before, unrounded:
+     * the glyphs' height and the spacing below a line, at \p scale.
+     */
+    float lineAdvance(float scale) const;
+
     Texture &texture() { return *_texture; }
 
 private:
@@ -93,6 +109,8 @@ private:
     std::shared_ptr<Texture> _texture;
     float _height {0.0f};
     float _spacingR {0.0f};
+    /** The height a line takes unscaled, the spacing below it included. */
+    float _lineSpan {0.0f};
     std::vector<Glyph> _glyphs;
 
     // Services
