@@ -97,8 +97,9 @@ public:
      * no recommendation fills take the other choices, lowest row first.
      *
      * @return whether the level was applied: not when the leader has no level
-     *         pending, nor when an attribute point, feat pick or power pick
-     *         cannot be filled, which leaves the level pending
+     *         pending, nor when an attribute point or feat pick cannot be
+     *         filled, which leaves the level pending; power picks the
+     *         recommendation cannot fill are left open
      */
     bool autoLevelUp();
 

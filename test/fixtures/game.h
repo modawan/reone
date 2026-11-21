@@ -234,7 +234,7 @@ public:
     MOCK_METHOD((std::optional<std::reference_wrapper<const RangeRow>>), findRange, (int row), (const override));
     MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
-    MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+    MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen, bool ownedForms), (const override));
     MOCK_METHOD(std::vector<SpellType>, addGrantedPowers, (CreatureAttributes & attributes), (const override));
 
 private:

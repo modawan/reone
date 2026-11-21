@@ -336,6 +336,41 @@ TEST_F(SpellsTest, should_filter_non_picker_rows_and_preserve_class_gate_locking
     EXPECT_TRUE(spells->isLevelUpCandidate(static_cast<SpellType>(0), attributes, getGuardian(), {}));
 }
 
+TEST_F(SpellsTest, should_measure_a_powers_level_by_the_total_level_after_the_level_up) {
+    load(makeSpellsTable({"name", "usertype", "guardian"}, 1, {{0, {{"name", "1"}, {"usertype", "1"}, {"guardian", "5"}}}}));
+    CreatureClass &guardian = getGuardian();
+    CreatureClass soldier(ClassType::Soldier, *classes, strings, twoDas);
+
+    // A soldier who took up the Jedi path: level 4 after this level-up.
+    CreatureAttributes jedi;
+    jedi.addClassLevels(&soldier, 2);
+    jedi.addClassLevels(&guardian, 1);
+    EXPECT_FALSE(spells->isLevelUpCandidate(static_cast<SpellType>(0), jedi, guardian, {}));
+    EXPECT_EQ(getEntry(spells->getLevelUpDisplayEntries(jedi, guardian, {}), static_cast<SpellType>(0)).availability, SpellAvailability::LockedClassLevel);
+
+    // Level 5 after it, though only the second level in the class.
+    jedi.addClassLevels(&soldier, 1);
+    EXPECT_TRUE(spells->isLevelUpCandidate(static_cast<SpellType>(0), jedi, guardian, {}));
+    EXPECT_EQ(getEntry(spells->getLevelUpDisplayEntries(jedi, guardian, {}), static_cast<SpellType>(0)).availability, SpellAvailability::Selectable);
+}
+
+TEST_F(SpellsTest, should_offer_a_force_power_of_user_type_5_on_level_up) {
+    load(makeSpellsTable({"name", "usertype", "guardian"}, 1, {{0, {{"name", "1"}, {"usertype", "5"}, {"guardian", "0"}}}}));
+    CreatureAttributes attributes;
+    attributes.addClassLevels(&getGuardian(), 1);
+
+    EXPECT_TRUE(getEntry(spells->getLevelUpDisplayEntries(attributes, getGuardian(), {}), static_cast<SpellType>(0)).visible);
+    EXPECT_TRUE(spells->isLevelUpCandidate(static_cast<SpellType>(0), attributes, getGuardian(), {}));
+}
+
+TEST_F(SpellsTest, should_keep_affect_mind_and_dominate_from_a_creature_that_may_not_take_them) {
+    EXPECT_TRUE(ISpells::isPickDenied(SpellType::AffectMind, false));
+    EXPECT_TRUE(ISpells::isPickDenied(SpellType::Dominate, false));
+    EXPECT_FALSE(ISpells::isPickDenied(SpellType::AffectMind, true));
+    EXPECT_FALSE(ISpells::isPickDenied(SpellType::Dominate, true));
+    EXPECT_FALSE(ISpells::isPickDenied(SpellType::ForcePush, false));
+}
+
 TEST_F(GrantedPowersTest, should_grant_each_jedi_base_class_its_forms_at_jedi_levels_11_to_14) {
     const std::map<ClassType, std::vector<SpellType>> forms {
         {ClassType::JediGuardian, {SpellType::FormSaberIShiiCho, SpellType::FormSaberIIMakashi, SpellType::FormSaberIIISoresu, SpellType::FormForceIChannel}},

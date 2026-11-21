@@ -554,12 +554,10 @@ bool CharacterGeneration::autoLevelUp() {
     if (_levelUp->hasPowerChoices()) {
         addLevelPowers();
         _charGenPowers->reset();
+        // The recommendation fills every pick a power it may give can fill;
+        // the others are left open.
         _charGenPowers->recommend(true);
-        if (_charGenPowers->remainingPicks() > 0) {
-            warn("Auto level-up refused: " + std::to_string(_charGenPowers->remainingPicks()) + " power pick(s) cannot be filled");
-            return false;
-        }
-        _charGenPowers->accept();
+        _charGenPowers->learnChosenPowers();
     }
 
     applyLevelUpToLeader();
