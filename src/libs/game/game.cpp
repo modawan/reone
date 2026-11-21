@@ -2618,6 +2618,9 @@ void Game::resetGame() {
     _floatingText.reset();
     _cheatUsed = false;
     _playedTimeFraction = 0.0;
+    // The message lists are the session's: a load reads its own back, and a
+    // new game starts with none.
+    _messageLog.clear();
     // A new game and a load each start the autosave interval afresh.
     _secondsSinceSave = 0.0;
     _services.resource.director.onNewGame();

@@ -1284,6 +1284,11 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
         put(record, Gff::Field::newCExoLocString("LastName", creature._lastName.id(), creature._lastName.str()));
     }
     put(record, Gff::Field::newByte("IsPC", creature._isPC));
+    // The party identity is written by the module's player and party lists
+    // alone, after this; a record read from one of them carries none into
+    // any other record.
+    removeSaveField(record, "PartyIdKind");
+    removeSaveField(record, "PartyIdSlot");
     // A party member's follow state: whether it was within 5 m of the leader.
     if (_game.party().isMember(creature)) {
         auto followInfo = Gff::Builder().field(Gff::Field::newByte("InSafetyRange", creature._withinSafetyRange)).build();

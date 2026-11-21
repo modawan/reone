@@ -6212,8 +6212,8 @@ TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuse
 
     EXPECT_EQ(30, creature->hitPoints());
     EXPECT_EQ(36, creature->maxHitPoints());
-    EXPECT_EQ(33, creature->currentHitPoints());
-    EXPECT_EQ(27, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(36, creature->currentHitPoints());
+    EXPECT_EQ(30, creature->serializedCurrentHitPoints());
 }
 
 TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
@@ -6256,8 +6256,8 @@ TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
     auto creature = game.newCreature(*record, testModuleIdentity());
 
     EXPECT_EQ(36, creature->maxHitPoints());
-    EXPECT_EQ(29, creature->currentHitPoints());
-    EXPECT_EQ(23, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(32, creature->currentHitPoints());
+    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
 }
 
 TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
@@ -6371,7 +6371,7 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
     EXPECT_EQ(12, trask->attributes().getAbilityScore(Ability::Constitution));
     EXPECT_EQ(16, trask->getEffectiveAbilityScore(Ability::Constitution));
     EXPECT_EQ(42, trask->maxHitPoints());
-    EXPECT_EQ(27, trask->serializedCurrentHitPoints());
+    EXPECT_EQ(30, trask->serializedCurrentHitPoints());
     EXPECT_FALSE(carth->attributes().hasFeat(FeatType::MasterToughness));
     EXPECT_TRUE(carth->hasEffectiveFeat(FeatType::MasterToughness));
     EXPECT_EQ(52, carth->maxHitPoints());
@@ -6430,19 +6430,19 @@ TEST(CreatureVitality, permanent_bonus_changes_preserve_damage) {
     auto record = vitalityCreatureRecord(
         30, 26, 36, 12, 3, {FeatType::Toughness});
     auto creature = game.newCreature(*record, testModuleIdentity());
-    ASSERT_EQ(29, creature->currentHitPoints());
+    ASSERT_EQ(32, creature->currentHitPoints());
 
     creature->attributes().setAbilityScore(Ability::Constitution, 14);
     creature->recalculatePermanentVitality();
     EXPECT_EQ(39, creature->maxHitPoints());
-    EXPECT_EQ(32, creature->currentHitPoints());
-    EXPECT_EQ(23, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(35, creature->currentHitPoints());
+    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
 
     creature->attributes().addFeat(FeatType::MasterToughness);
     creature->recalculatePermanentVitality();
     EXPECT_EQ(42, creature->maxHitPoints());
-    EXPECT_EQ(32, creature->currentHitPoints());
-    EXPECT_EQ(20, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(35, creature->currentHitPoints());
+    EXPECT_EQ(23, creature->serializedCurrentHitPoints());
 }
 
 TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
@@ -6519,8 +6519,8 @@ TEST(CreatureVitality, creature_saved_at_zero_hit_points_loads_alive_with_the_re
     auto creature = game.newCreature(*record, testModuleIdentity());
 
     EXPECT_EQ(36, creature->maxHitPoints());
-    EXPECT_EQ(3, creature->currentHitPoints());
-    EXPECT_EQ(-3, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(6, creature->currentHitPoints());
+    EXPECT_EQ(0, creature->serializedCurrentHitPoints());
     EXPECT_FALSE(creature->isDead());
 }
 

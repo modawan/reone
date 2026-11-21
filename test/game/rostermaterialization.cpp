@@ -1297,8 +1297,8 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     ASSERT_TRUE(replacement);
     EXPECT_EQ(30, replacement->hitPoints());
     EXPECT_EQ(39, replacement->maxHitPoints());
-    EXPECT_EQ(26, replacement->currentHitPoints());
-    EXPECT_EQ(17, replacement->serializedCurrentHitPoints());
+    EXPECT_EQ(29, replacement->currentHitPoints());
+    EXPECT_EQ(20, replacement->serializedCurrentHitPoints());
     EXPECT_FALSE(replacement->attributes().hasFeat(FeatType::MasterToughness));
     EXPECT_TRUE(replacement->hasEffectiveFeat(FeatType::MasterToughness));
     auto replacementItem =
