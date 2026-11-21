@@ -142,6 +142,15 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
     return true;
 }
 
+bool Journal::hasNewEntries() {
+    for (const auto &quest : _quests) {
+        if (quest.unread && !isCompleted(quest.plotId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void Journal::markRead(const std::string &plotId) {
     if (Quest *quest = findQuest(plotId)) {
         quest->unread = false;

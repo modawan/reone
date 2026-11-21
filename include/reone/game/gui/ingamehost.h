@@ -40,6 +40,10 @@ struct InGameMenuFooter {
     std::array<std::string, 2> classes;
     std::array<std::string, 2> levels;
     int vitalityPercent {0};
+    /** Whether the party's items hold one not yet seen, which pulses the inventory's plate. */
+    bool newItems {false};
+    /** Whether the journal has a quest not yet read, which pulses the journal's plate. */
+    bool newJournalEntries {false};
 };
 
 /** Common menu chrome and routing. The owner supplies availability and policy. */
@@ -197,7 +201,11 @@ private:
     void navigate(InGameMenuTab tab);
     void updateTabButtons();
     void updateK2SectionTitle();
-    void refreshK2Footer();
+    /** The footer the owner supplies; an empty one without an owner's. */
+    InGameMenuFooter currentFooter() const;
+    void refreshK2Footer(const InGameMenuFooter &footer);
+    /** The inventory's and the journal's plates pulse their fill while there is something new. */
+    void pulseNewIndicators(const InGameMenuFooter &footer);
     PresentationGUI *getActiveTabGUI() const;
 };
 

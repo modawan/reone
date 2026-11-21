@@ -180,6 +180,8 @@ void Equipment::onGUILoaded() {
 
     for (auto &slotButton : _btnInv) {
         auto slot = slotButton.first;
+        // KotOR's slot buttons pulse their hilight's fill; TSL's never pulse.
+        slotButton.second->setHilightPulsing(false, !isTSL());
         slotButton.second->setOnClick([this, slot]() {
             _view = _backing ? _backing->readEquipment(getInventorySlot(slot)) : EquipmentView {};
             // A slot that will not open says why in a message box.

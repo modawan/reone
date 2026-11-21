@@ -451,6 +451,8 @@ public:
     bool removeAvailableMember(int npc);
 
     bool isMemberAvailable(int npc) const;
+    /** Whether the party's items hold one the player has not yet seen. */
+    bool hasNewItems() const;
     std::shared_ptr<Creature> getAvailableMember(int npc) const;
     std::shared_ptr<Creature> getAvailableMember(
         int npc, bool loadIfMissing);

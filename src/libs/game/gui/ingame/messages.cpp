@@ -70,7 +70,9 @@ void MessagesMenu::onGUILoaded() {
         _controls.BTN_SHOW->setOnClick([this]() {
             toggleMessages();
         });
+        // The logs' rows pulse their hilight frame.
         for (const auto &list : {_controls.LB_MESSAGES, _controls.LB_DIALOG}) {
+            list->protoItem().setHilightPulsing(true, false);
             list->setItemsInteractive(false);
             list->setProtoMatchContent(true);
         }
@@ -94,6 +96,7 @@ void MessagesMenu::onGUILoaded() {
     });
 
     for (const auto &list : {_controls.LB_MESSAGES, _controls.LB_COMBAT, _controls.LB_DIALOG}) {
+        list->protoItem().setHilightPulsing(true, false);
         list->setItemsInteractive(false);
         list->setProtoMatchContent(true);
     }

@@ -93,6 +93,9 @@ public:
     /** @return true if the current entry of the quest ends it */
     bool isCompleted(const std::string &plotId);
 
+    /** @return true if a quest still under way has not been read since it arrived or moved on */
+    bool hasNewEntries();
+
     std::string getQuestName(const std::string &plotId);
     std::string getEntryText(const std::string &plotId, int state);
 
