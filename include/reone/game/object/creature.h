@@ -3490,6 +3490,11 @@ private:
     void setAnimationSource(AnimationSource source);
     void playTopFireForgetAnimation();
     /**
+     * Whether a flourish plays as the one-shot or waits in the fire-and-forget
+     * queue, or the draw layer a flourish plays while moving is still on.
+     */
+    bool isFlourishing() const;
+    /**
      * The hit of a melee swing sounds the weapon against the target, makes a
      * creature-model target that can react flinch at once, as a layer outside
      * its queue, may draw a pain grunt from a creature target, and shows the
