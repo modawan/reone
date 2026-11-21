@@ -67,9 +67,7 @@ public:
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
-    std::optional<Resource> findExcludingOwners(
-        const ResourceId &id,
-        const std::set<ResourceOwner> &excludedOwners) override;
+    std::unique_ptr<IResources> detached(const std::set<ResourceOwner> &excludedOwners) const override;
     std::optional<ResourceSourceRef> locate(const ResourceId &id) const override;
     std::vector<ResourceSourceRef> explain(const ResourceId &id) const override;
     std::uint64_t generation() const override;

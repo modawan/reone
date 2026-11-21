@@ -255,13 +255,30 @@ public:
      * whether a source has it; how a source knows is the caller's business.
      */
     template <class Holds>
-    const Entry *resolve(Holds holds, const std::set<ResourceOwner> &excludedOwners = {}) const {
+    const Entry *resolve(Holds holds) const {
         for (const auto &entry : _entries) {
-            if (excludedOwners.count(entry.owner) == 0 && holds(entry)) {
+            if (holds(entry)) {
                 return &entry;
             }
         }
         return nullptr;
+    }
+
+    /**
+     * A list of its own with the entries of every owner but the excluded
+     * ones, in this list's order and with its tokens. Mounting into the copy
+     * or retiring from it leaves this list as it is.
+     */
+    ResourceSourceList detached(const std::set<ResourceOwner> &excludedOwners) const {
+        ResourceSourceList copy;
+        for (const auto &entry : _entries) {
+            if (excludedOwners.count(entry.owner) == 0) {
+                copy._entries.push_back(entry);
+            }
+        }
+        copy._nextSequence = _nextSequence;
+        copy._generation = _generation;
+        return copy;
     }
 
     /// Every source that holds the resource, in lookup order. The first is the

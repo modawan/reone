@@ -49,7 +49,6 @@ enum class ResourceOwner {
     SaveSlot,
     ActiveModule,
     ActiveModuleState,
-    TemporaryDiscovery,
 };
 
 enum class ModulePrimaryKind { SavedResourceImage, SavedArchive, Nwm, Mod, Rim };

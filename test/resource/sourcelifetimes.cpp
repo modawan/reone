@@ -195,16 +195,7 @@ TEST_F(SourceOwnerTest, retires_only_the_owner_asked_for) {
     mount("save", ResourceOwner::SaveSlot);
     mount("module", ResourceOwner::ActiveModule);
     mount("state", ResourceOwner::ActiveModuleState);
-    mount("temp", ResourceOwner::TemporaryDiscovery);
 
-    EXPECT_TRUE(has("global_only"));
-    EXPECT_TRUE(has("save_only"));
-    EXPECT_TRUE(has("module_only"));
-    EXPECT_TRUE(has("state_only"));
-    EXPECT_TRUE(has("temp_only"));
-
-    _resources->clearOwner(ResourceOwner::TemporaryDiscovery);
-    EXPECT_FALSE(has("temp_only"));
     EXPECT_TRUE(has("global_only"));
     EXPECT_TRUE(has("save_only"));
     EXPECT_TRUE(has("module_only"));
@@ -251,7 +242,6 @@ TEST_F(SourceOwnerTest, retiring_an_owner_with_no_members_changes_nothing) {
 
     _resources->clearOwner(ResourceOwner::SaveSlot);
     _resources->clearOwner(ResourceOwner::ActiveModuleState);
-    _resources->clearOwner(ResourceOwner::TemporaryDiscovery);
 
     EXPECT_EQ("global", find("shared"));
     EXPECT_EQ(1u, _count());
@@ -406,10 +396,10 @@ public:
 
     Resource get(const ResourceId &id) override { return _backend->get(id); }
     std::optional<Resource> find(const ResourceId &id) override { return _backend->find(id); }
-    std::optional<Resource> findExcludingOwners(
-        const ResourceId &id,
-        const std::set<ResourceOwner> &excludedOwners) override {
-        return _backend->findExcludingOwners(id, excludedOwners);
+    // A detached list rejects the same file, so a module prepared in one
+    // fails where it failed mounted here.
+    std::unique_ptr<IResources> detached(const std::set<ResourceOwner> &excludedOwners) const override {
+        return std::make_unique<RejectingResources>(_backend->detached(excludedOwners), _rejectedName);
     }
     std::optional<ResourceSourceRef> locate(const ResourceId &id) const override { return _backend->locate(id); }
     std::vector<ResourceSourceRef> explain(const ResourceId &id) const override { return _backend->explain(id); }

@@ -271,9 +271,10 @@ private:
     std::unique_ptr<PreparedModuleLoad> planModuleLoad(
         const std::string &name,
         std::shared_ptr<const SaveWorkingState> workingState);
+    /** Mounts the candidate's plan into a list: the game's at a commit, a detached one while preparing. */
     ModuleMountReport mountModuleLoad(
-        const PreparedModuleLoad &candidate,
-        bool temporary);
+        IResources &resources,
+        const PreparedModuleLoad &candidate);
     void logModuleMount(
         const PreparedModuleLoad &candidate,
         const ModuleMountReport &report) const;

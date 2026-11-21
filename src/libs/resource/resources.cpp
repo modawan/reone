@@ -124,8 +124,7 @@ std::string describe(const ResourceSourceRef &source) {
         {ResourceOwner::Global, "global"},
         {ResourceOwner::SaveSlot, "save slot"},
         {ResourceOwner::ActiveModule, "module"},
-        {ResourceOwner::ActiveModuleState, "module state"},
-        {ResourceOwner::TemporaryDiscovery, "module being prepared"}};
+        {ResourceOwner::ActiveModuleState, "module state"}};
     auto text = forms.at(source.form) + " " + (source.path.empty() ? std::string("in memory") : source.path.string());
     text += " (";
     if (source.bucket) {
@@ -144,17 +143,17 @@ Resource Resources::get(const ResourceId &id) {
 }
 
 std::optional<Resource> Resources::find(const ResourceId &id) {
-    return findExcludingOwners(id, {});
-}
-
-std::optional<Resource> Resources::findExcludingOwners(
-    const ResourceId &id,
-    const std::set<ResourceOwner> &excludedOwners) {
-    auto container = _containers.resolve(holds(id), excludedOwners);
+    auto container = _containers.resolve(holds(id));
     if (!container) {
         return std::nullopt;
     }
     return Resource {*container->provider->findResourceData(id), ResourceContainerList::sourceRef(*container)};
+}
+
+std::unique_ptr<IResources> Resources::detached(const std::set<ResourceOwner> &excludedOwners) const {
+    auto copy = std::make_unique<Resources>();
+    copy->_containers = _containers.detached(excludedOwners);
+    return copy;
 }
 
 std::optional<ResourceSourceRef> Resources::locate(const ResourceId &id) const {

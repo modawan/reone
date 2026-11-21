@@ -75,18 +75,18 @@ Resource ReplacementResources::get(const ResourceId &id) {
     return *data;
 }
 
-std::optional<Resource> ReplacementResources::find(const ResourceId &id) {
-    return findExcludingOwners(id, {});
+// The replacements are the game's, not a list's: a detached list reads the
+// same ones.
+std::unique_ptr<IResources> ReplacementResources::detached(const std::set<ResourceOwner> &excludedOwners) const {
+    return std::make_unique<ReplacementResources>(_backend->detached(excludedOwners), _replacements);
 }
 
-std::optional<Resource> ReplacementResources::findExcludingOwners(
-    const ResourceId &id,
-    const std::set<ResourceOwner> &excludedOwners) {
+std::optional<Resource> ReplacementResources::find(const ResourceId &id) {
     auto replacement = _replacements.findResourceReplacement(id);
     if (replacement) {
         return replacement;
     }
-    auto resource = _backend->findExcludingOwners(id, excludedOwners);
+    auto resource = _backend->find(id);
     if (resource) {
         resource->source.replacementRevision = _replacements.revision(id);
     }

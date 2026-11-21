@@ -149,18 +149,6 @@ std::shared_ptr<Gff> decodeModuleGff(
     return reader.root();
 }
 
-ModuleLoadPlan temporaryModulePlan(ModuleLoadPlan plan) {
-    for (auto &family : plan.families) {
-        for (auto &attempt : family.attempts) {
-            attempt.metadata.owner = ResourceOwner::TemporaryDiscovery;
-        }
-    }
-    plan.activeState.owner = ResourceOwner::TemporaryDiscovery;
-    plan.activeState.encapsulatedArchive.owner = ResourceOwner::TemporaryDiscovery;
-    plan.activeState.resourceImage.owner = ResourceOwner::TemporaryDiscovery;
-    return plan;
-}
-
 } // namespace
 
 std::unique_ptr<PreparedModuleLoad> ResourceDirector::prepareModuleLoad(
@@ -168,22 +156,22 @@ std::unique_ptr<PreparedModuleLoad> ResourceDirector::prepareModuleLoad(
     std::shared_ptr<const SaveWorkingState> workingState) {
     auto candidate = planModuleLoad(name, std::move(workingState));
 
-    // The outgoing module stays mounted while the candidate is inspected.
-    // Candidate sources use their real buckets but a temporary owner; filtered
-    // lookup therefore sees globals/overrides plus the candidate, never the
-    // outgoing module's generic module.ifo.
-    ResourceMountTransaction transaction(_resources);
-    auto report = mountModuleLoad(*candidate, /*temporary=*/true);
+    // The candidate is inspected in a list of its own: the sources mounted
+    // here, open as they are, without the outgoing module's, and the
+    // candidate's on top. A lookup there sees globals and overrides plus the
+    // candidate, never the outgoing module's generic module.ifo, and the list
+    // the game reads from is not touched until the commit.
+    static const std::set<ResourceOwner> kOutgoingModuleOwners {
+        ResourceOwner::ActiveModule,
+        ResourceOwner::ActiveModuleState};
+    auto view = _resources.detached(kOutgoingModuleOwners);
+    auto report = mountModuleLoad(*view, *candidate);
     if (report.outcome == ModuleLoadOutcome::Failed) {
         throw ResourceNotFoundException(
             "Module resources could not be prepared: " + candidate->_moduleName);
     }
-
-    static const std::set<ResourceOwner> kOutgoingModuleOwners {
-        ResourceOwner::ActiveModule,
-        ResourceOwner::ActiveModuleState};
-    auto findCandidate = [this](const ResourceId &id) {
-        return _resources.findExcludingOwners(id, kOutgoingModuleOwners);
+    auto findCandidate = [&view](const ResourceId &id) {
+        return view->find(id);
     };
 
     candidate->_moduleIfo = decodeModuleGff(
@@ -230,7 +218,7 @@ void ResourceDirector::commitModuleLoad(
     _resources.clearOwner(ResourceOwner::ActiveModuleState);
 
     ResourceMountTransaction transaction(_resources);
-    auto report = mountModuleLoad(*candidate, /*temporary=*/false);
+    auto report = mountModuleLoad(_resources, *candidate);
     if (report.outcome != ModuleLoadOutcome::Failed) {
         transaction.commit();
     } else if (candidate->_structurallyValidated) {
@@ -846,13 +834,10 @@ std::unique_ptr<PreparedModuleLoad> ResourceDirector::planModuleLoad(
 }
 
 ModuleMountReport ResourceDirector::mountModuleLoad(
-    const PreparedModuleLoad &candidate,
-    bool temporary) {
-    auto plan = temporary
-                    ? temporaryModulePlan(candidate._plan)
-                    : candidate._plan;
-    ModuleMountExecutor executor(_resources, candidate._sources);
-    return executor.run(plan);
+    IResources &resources,
+    const PreparedModuleLoad &candidate) {
+    ModuleMountExecutor executor(resources, candidate._sources);
+    return executor.run(candidate._plan);
 }
 
 void ResourceDirector::logModuleMount(
