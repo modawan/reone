@@ -57,7 +57,12 @@ void Logger::init(LogSeverity minSeverity,
                   std::set<LogChannel> enabledChannels,
                   std::optional<std::string> filename) {
     if (filename) {
-        init(minSeverity, std::move(enabledChannels), std::make_unique<std::ofstream>(*filename));
+        // The crash report appends to the same file through a handle of its
+        // own, and appending keeps either from overwriting the other.
+        std::ofstream truncated(*filename);
+        truncated.close();
+        init(minSeverity, std::move(enabledChannels), std::make_unique<std::ofstream>(*filename, std::ios::app));
+        _filename = std::move(filename);
     } else {
         init(minSeverity, std::move(enabledChannels), std::make_unique<std::ostream>(std::clog.rdbuf()));
     }

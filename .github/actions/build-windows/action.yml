@@ -14,16 +14,16 @@ runs:
       id: vcpkg-installed
       with:
         path: ${{ env.VCPKG_ROOT }}/installed
-        key: ${{ runner.os }}-vcpkg-installed-v3
+        key: ${{ runner.os }}-vcpkg-installed-v4
         restore-keys: |
-          ${{ runner.os }}-vcpkg-installed-v3
+          ${{ runner.os }}-vcpkg-installed-v4
 
     - name: Install dependencies
       shell: bash
       if: steps.vcpkg-installed.outputs.cache-hit != 'true'
       run: |-
         vcpkg install --triplet x64-windows \
-          boost-algorithm boost-endian boost-format boost-functional boost-program-options boost-json \
+          boost-algorithm boost-endian boost-format boost-functional boost-program-options boost-json boost-stacktrace \
           glm sdl2 sdl3 glew openal-soft libmad ffmpeg wxwidgets gtest
 
     - name: Configure ccache
