@@ -78,8 +78,6 @@ void AbilitiesMenu::onGUILoaded() {
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         useK2ShellTitle(_controls.LBL_ABILITIES);
-        enableK2ButtonBodyFill(_controls.BTN_EXIT);
-        enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
         _controls.LB_DESC_FEATS->setProtoMatchContent(true);

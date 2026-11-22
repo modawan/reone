@@ -157,8 +157,7 @@ protected:
      * unselected.
      */
     void useK1NewEntryStyle(gui::ListBox::Item &entry) const;
-    void enableK2ButtonBodyFill(gui::Control &control);
-    void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
+
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
     void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);
     void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);

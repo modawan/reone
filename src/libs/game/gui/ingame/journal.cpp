@@ -44,8 +44,6 @@ void JournalMenu::onGUILoaded() {
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         useK2ShellTitle(_controls.LBL_TITLE);
-        enableK2ButtonBodyFill(_controls.BTN_EXIT);
-        enableK2ButtonBodyFill(_controls.BTN_MESSAGES);
         _controls.BTN_MESSAGES->setOnClick([this]() {
             _game.openInGameMenu(InGameMenuTab::Messages);
         });

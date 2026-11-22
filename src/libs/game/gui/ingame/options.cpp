@@ -137,7 +137,6 @@ void OptionsMenu::loadFrontPage() {
         buttons.push_back({_inGameControls.BTN_QUIT, kExitGameDescriptionStrRef});
     }
     for (const auto &[button, strRef] : buttons) {
-        enableK2ButtonBodyFill(button);
         button->setOnSelectionChanged([this, strRef = strRef](bool selected) {
             if (selected) {
                 describe(*_controls.LB_DESC, strRef);
@@ -162,13 +161,11 @@ void OptionsMenu::loadFrontPage() {
     });
 
     if (!_inGame) {
-        enableK2ButtonBodyFill(_mainMenuBack);
         _mainMenuBack->setOnClick([this]() {
             _game.closeMainMenuOptions();
         });
         return;
     }
-    enableK2ButtonBodyFill(_inGameControls.BTN_EXIT);
     _inGameControls.BTN_LOADGAME->setOnClick([this]() {
         _game.openSaveLoad(SaveLoadMode::LoadFromInGame);
     });
@@ -283,8 +280,6 @@ void OptionsMenu::loadFeedbackPanel() {
         controls.LBL_BAR1 = std::static_pointer_cast<Label>(find("LBL_BAR1"));
         controls.LBL_BAR2 = std::static_pointer_cast<Label>(find("LBL_BAR2"));
         fillK2SectionStrip(controls.LBL_BAR1, controls.LBL_BAR2);
-        enableK2ButtonBodyFill(controls.BTN_BACK);
-        enableK2ButtonBodyFill(controls.BTN_DEFAULT);
     }
 
     // Row order and names: TSL has eight rows, KotOR adds small fonts before tooltips.
@@ -380,9 +375,6 @@ void OptionsMenu::loadGameplayPanel() {
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     showCheckBoxes(*_gameplayGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
     // The level changes at once; the configuration is written when the options close.
     controls.BTN_DIFFLEFT->setOnClick([this]() {
@@ -507,9 +499,6 @@ void OptionsMenu::loadAutoPausePanel() {
     controls.LB_DETAILS = std::static_pointer_cast<ListBox>(find("LB_DETAILS"));
     showCheckBoxes(*_autoPauseGUI);
 
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-
     // Each checkbox describes itself when it gains focus; a click only flips it.
     const bool tsl = _game.isTSL();
     const std::array<std::pair<std::shared_ptr<ToggleButton>, int>, 6> checkboxes {{
@@ -593,11 +582,6 @@ void OptionsMenu::loadGraphicsPanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_GAMMA = std::static_pointer_cast<Slider>(find("SLI_GAMMA"));
     showCheckBoxes(*_graphicsGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-    enableK2ButtonBodyFill(controls.BTN_RESOLUTION);
-    enableK2ButtonBodyFill(controls.BTN_ADVANCED);
 
     // The display's brightness cannot be changed.
     controls.SLI_GAMMA->setDisabled(true);
@@ -704,8 +688,6 @@ void OptionsMenu::loadResolutionPanel() {
     controls.BTN_CANCEL = std::static_pointer_cast<Button>(find("BTN_CANCEL"));
     controls.BTN_OK = std::static_pointer_cast<Button>(find("BTN_OK"));
     controls.LB_RESOLUTIONS = std::static_pointer_cast<ListBox>(find("LB_RESOLUTIONS"));
-    enableK2ButtonBodyFill(controls.BTN_CANCEL);
-    enableK2ButtonBodyFill(controls.BTN_OK);
     useK1ListEntryColors(controls.LB_RESOLUTIONS->protoItem());
     // A click chooses a mode; OK keeps it.
     controls.LB_RESOLUTIONS->setSelectionMode(ListBox::SelectionMode::OnClick);
@@ -851,9 +833,6 @@ void OptionsMenu::loadAdvancedGraphicsPanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     addInterfaceSizeSlider();
     showCheckBoxes(*_advancedGraphicsGUI);
-    for (auto &button : {controls.BTN_BACK, controls.BTN_CANCEL, controls.BTN_DEFAULT}) {
-        enableK2ButtonBodyFill(button);
-    }
 
     const bool tsl = _game.isTSL();
     // Each arrow steps its option one level; the page shows the new level.
@@ -1056,9 +1035,6 @@ void OptionsMenu::loadSoundPanel() {
     controls.SLI_MUSIC = std::static_pointer_cast<Slider>(find("SLI_MUSIC"));
     controls.SLI_VO = std::static_pointer_cast<Slider>(find("SLI_VO"));
 
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-
     // A volume follows its slider as it moves, sounds already playing
     // included, and describes itself when the slider gains focus.
     const std::array<std::tuple<std::shared_ptr<Slider>, AudioType, int>, 4> sliders {{
@@ -1195,9 +1171,6 @@ void OptionsMenu::loadMousePanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_MOUSESEN = std::static_pointer_cast<Slider>(find("SLI_MOUSESEN"));
     showCheckBoxes(*_mouseGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
     // The sensitivity changes at once; the configuration is written when the
     // options close.

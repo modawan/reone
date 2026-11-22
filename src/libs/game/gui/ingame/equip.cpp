@@ -131,9 +131,6 @@ void Equipment::onGUILoaded() {
     if (isTSL()) {
         useK2ShellTitle(_controls.LBL_TITLE);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
-        for (auto &button : {_controls.BTN_BACK, _controls.BTN_EQUIP, _controls.BTN_SWAPWEAPONS}) {
-            enableK2ButtonBodyFill(button);
-        }
     }
     if (_controls.BTN_NEXTNPC)
         _controls.BTN_NEXTNPC->setOnClick([this]() {
@@ -228,7 +225,6 @@ void Equipment::configureItemsListBox() {
     auto &protoItem = _controls.LB_ITEMS->protoItem();
 
     if (isTSL()) {
-        enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);

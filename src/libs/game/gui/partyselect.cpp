@@ -35,7 +35,6 @@
 #include "reone/script/types.h"
 #include "reone/system/logutil.h"
 
-
 using namespace reone::audio;
 
 using namespace reone::graphics;
@@ -95,9 +94,6 @@ void PartySelection::onGUILoaded() {
         // between them. Collapsing them the way the in-game menus do strands
         // the count below the strip, so the bars keep their authored places.
         useK2ShellTitle(_controls.LBL_TITLE);
-        for (auto &button : {_controls.BTN_ACCEPT, _controls.BTN_DONE, _controls.BTN_BACK}) {
-            enableK2ButtonBodyFill(button);
-        }
     }
     _acceptTextColor = _controls.BTN_ACCEPT->text().color;
 

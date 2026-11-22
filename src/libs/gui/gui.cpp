@@ -106,6 +106,9 @@ void GUI::loadControl(const resource::generated::GUI_CONTROLS &gui) {
         return;
     }
     control->load(gui);
+    if (_fillRules.stretchesFill && _fillRules.stretchesFill(*control)) {
+        control->setBorderFillStyle(Control::Border::FillStyle::Stretch);
+    }
     if (_selectedTextColor) {
         control->setSelectedTextColor(*_selectedTextColor);
     }

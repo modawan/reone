@@ -121,6 +121,23 @@ void Control::loadExtent(const resource::generated::GUI_EXTENT &gui) {
     _extent = _authoredExtent;
 }
 
+// A fill style the layout names that is none of the four draws no fill.
+static Control::Border::FillStyle fillStyleOf(int value) {
+    using FillStyle = Control::Border::FillStyle;
+    switch (value) {
+    case static_cast<int>(FillStyle::Tile):
+        return FillStyle::Tile;
+    case static_cast<int>(FillStyle::Center):
+        return FillStyle::Center;
+    case static_cast<int>(FillStyle::Stretch):
+        return FillStyle::Stretch;
+    case static_cast<int>(FillStyle::Extent):
+        return FillStyle::Extent;
+    default:
+        return FillStyle::None;
+    }
+}
+
 std::shared_ptr<Control::Border> Control::createBorder(const resource::generated::GUI_BORDER &gui) const {
     std::string corner(gui.CORNER);
     std::string edge(gui.EDGE);
@@ -128,17 +145,21 @@ std::shared_ptr<Control::Border> Control::createBorder(const resource::generated
 
     auto border = std::make_shared<Border>();
 
+    // A name counts as a piece, whether or not its art is held (namesArt).
     if (namesArt(corner)) {
         border->corner = _resourceSvc.textures.get(corner, TextureUsage::GUI);
+        border->cornerMissing = !border->corner;
     }
     if (namesArt(edge)) {
         border->edge = _resourceSvc.textures.get(edge, TextureUsage::GUI);
+        border->edgeMissing = !border->edge;
     }
     if (namesArt(fill)) {
         border->fill = _resourceSvc.textures.get(fill, TextureUsage::GUI);
+        border->fillMissing = !border->fill;
     }
+    border->fillStyle = fillStyleOf(gui.FILLSTYLE);
 
-    border->fillStyle = static_cast<Border::FillStyle>(gui.FILLSTYLE);
     border->dimension = gui.DIMENSION;
     border->innerOffset = gui.INNEROFFSET;
     border->innerOffsetY = gui.INNEROFFSETY;
@@ -303,6 +324,28 @@ void Control::renderScene(const glm::ivec2 &screenSize,
     });
 }
 
+glm::mat3x4 Control::quarterTurnUV(int quarters) {
+    switch (quarters) {
+    case 1:
+        return glm::mat3x4(
+            glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+    case 2:
+        return glm::mat3x4(
+            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+            glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+            glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
+    case 3:
+        return glm::mat3x4(
+            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+    default:
+        return glm::mat3x4(1.0f);
+    }
+}
+
 glm::mat3x4 Control::upsideDownUV() {
     return glm::mat3x4(
         glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
@@ -317,219 +360,239 @@ glm::mat3x4 Control::leftToRightUV() {
         glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
 }
 
+/**
+ * Visits the cells, as start and length, that tiled art covers along an
+ * axis: the copies that fit whole, each widened by an even share of the rest
+ * and the first ones by a pixel more; one cell over the whole length where
+ * no copy fits.
+ *
+ * @param length the length tiled
+ * @param artLength the art's length, above 0
+ */
+template <typename Visit>
+static void forEachTileCell(int length, int artLength, Visit &&visit) {
+    const int count {length / artLength};
+    if (count == 0) {
+        visit(0, length);
+        return;
+    }
+    const int rest {length - count * artLength};
+    const int share {rest / count};
+    int extra {rest - count * share};
+    int start {0};
+    for (int i = 0; i < count; ++i) {
+        int span {artLength + share};
+        if (extra > 0) {
+            --extra;
+            ++span;
+        }
+        visit(start, span);
+        start += span;
+    }
+}
+
+template <typename Visit>
+void Control::forEachFillRect(const Border &border, const glm::ivec2 &size, Visit &&visit) const {
+    if (!border.hasFill() || size.x <= 0 || size.y <= 0) {
+        return;
+    }
+    const Extent area {frameLayout(border, size).area};
+    const glm::ivec2 art {frameArtSize(border.fill)};
+    auto add = [&visit](const Extent &rect) {
+        if (rect.width > 0 && rect.height > 0) {
+            visit(rect);
+        }
+    };
+    switch (border.fillStyle) {
+    case Border::FillStyle::Tile:
+        if (art.x <= 0 || art.y <= 0) {
+            break;
+        }
+        forEachTileCell(area.width, art.x, [&](int left, int width) {
+            forEachTileCell(area.height, art.y, [&](int top, int height) {
+                add(Extent(area.left + left, area.top + top, width, height));
+            });
+        });
+        break;
+    case Border::FillStyle::Center: {
+        const int width {std::min(art.x, area.width)};
+        const int height {std::min(art.y, area.height)};
+        add(Extent(area.left + (area.width - width) / 2, area.top + (area.height - height) / 2, width, height));
+        break;
+    }
+    case Border::FillStyle::Stretch:
+        add(area);
+        break;
+    case Border::FillStyle::Extent:
+        if (_gui.fillRules().extentFills) {
+            add(Extent(0, 0, size.x, size.y));
+        }
+        break;
+    case Border::FillStyle::None:
+        break;
+    }
+}
+
 void Control::renderBorder(const Border &border,
                            const glm::ivec2 &offset,
                            const glm::ivec2 &size,
                            IRenderPass &pass,
                            BorderRenderPart part,
-                           bool pulsing) {
-    _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(ShaderProgramId::mvpTexture));
-
-    glm::vec3 color(getBorderColor());
+                           bool pulsing,
+                           const std::optional<glm::vec3> &color) {
+    const glm::vec3 borderColor {color.value_or(getBorderColor())};
     const auto frameAlpha = pulsing || border.pulseFrame ? _gui.pulsingAlpha() : border.alpha;
     const auto fillAlpha = pulsing || border.pulseFill ? _gui.pulsingAlpha() : border.alpha;
-    glm::mat4 transform(1.0f);
     glm::mat3x4 uv(1.0f);
-    // Controls thinner than two authored slices - the TSL title bars - split
-    // the constrained axis between the opposing pieces so their translucent
-    // pixels meet rather than accumulating through the center. Controls with
-    // room for both slices keep the full authored dimension on every side.
-    int leftWidth = std::min(border.dimension, std::max(0, (size.x + 1) / 2));
-    int rightWidth = std::min(border.dimension, std::max(0, size.x - leftWidth));
-    int topHeight = std::min(border.dimension, std::max(0, (size.y + 1) / 2));
-    int bottomHeight = std::min(border.dimension, std::max(0, size.y - topHeight));
-    glm::ivec2 fillSize {size.x - leftWidth - rightWidth, size.y - topHeight - bottomHeight};
-    // A border without a frame has nothing to make room for. Where its
-    // dimension would leave the fill no room at all, as on the options pages'
-    // left arrows (32 on buttons 24 to 28 across), the fill covers the control.
-    if (!border.corner && !border.edge && (fillSize.x <= 0 || fillSize.y <= 0)) {
-        leftWidth = rightWidth = topHeight = bottomHeight = 0;
-        fillSize = size;
+    // The frame's pieces are as wide and as high as the area inside it is
+    // inset on their side.
+    const FrameLayout layout {frameLayout(border, size)};
+    const Extent &area {layout.area};
+    const int leftWidth {area.left};
+    const int rightWidth {size.x - area.left - area.width};
+    const int topHeight {area.top};
+    const int bottomHeight {size.y - area.top - area.height};
+
+    // The frame is drawn first and the fill over it. A border that names no
+    // corner art has no frame. A piece whose art is missing is a plain quad
+    // in the frame's colour.
+    if (part != BorderRenderPart::Fill && border.hasCorner()) {
+        const glm::vec4 frameColor {borderColor, frameAlpha};
+        auto drawPiece = [&](const std::shared_ptr<Texture> &art, const glm::ivec2 &position, const glm::ivec2 &pieceSize, const glm::mat3x4 &pieceUV) {
+            if (art) {
+                pass.drawImage(*art, position, pieceSize, frameColor, pieceUV);
+            } else {
+                pass.drawQuad(position, pieceSize, frameColor);
+            }
+        };
+
+        const int left {_extent.left + offset.x};
+        const int top {_extent.top + offset.y};
+        const int right {left + size.x - rightWidth};
+        const int bottom {top + size.y - bottomHeight};
+
+        // The corner art is drawn as the top left corner, and turned, or
+        // mirrored, to the others.
+        const bool mirrored {_gui.fillRules().mirroredCorners};
+        drawPiece(border.corner, {left, top}, {leftWidth, topHeight}, quarterTurnUV(0));
+        drawPiece(border.corner, {left, bottom}, {leftWidth, bottomHeight}, mirrored ? upsideDownUV() : quarterTurnUV(1));
+        drawPiece(border.corner, {right, bottom}, {rightWidth, bottomHeight}, quarterTurnUV(2));
+        drawPiece(border.corner, {right, top}, {rightWidth, topHeight}, mirrored ? leftToRightUV() : quarterTurnUV(3));
+
+        if (border.hasEdge()) {
+            // Each edge is a run of segments, each the whole edge art turned to its
+            // side, laid out along the room as tiles of the axis's step are.
+            auto segments = [](int count, int room, int step, auto &&draw) {
+                if (count == 0) {
+                    return;
+                }
+                if (step <= 0) {
+                    draw(0, room);
+                    return;
+                }
+                forEachTileCell(room, step, draw);
+            };
+            segments(layout.segments.x, area.width, layout.step, [&](int start, int length) {
+                drawPiece(border.edge, {left + leftWidth + start, top}, {length, topHeight}, quarterTurnUV(0));
+                drawPiece(border.edge, {left + leftWidth + start, bottom}, {length, bottomHeight}, quarterTurnUV(2));
+            });
+            segments(layout.segments.y, area.height, layout.step, [&](int start, int length) {
+                drawPiece(border.edge, {left, top + topHeight + start}, {leftWidth, length}, quarterTurnUV(1));
+                drawPiece(border.edge, {right, top + topHeight + start}, {rightWidth, length}, quarterTurnUV(3));
+            });
+        }
     }
 
-    if (part != BorderRenderPart::Frame && border.fill && fillSize.x > 0 && fillSize.y > 0) {
-        switch (border.fillTransform) {
-        case Border::FillTransform::Rotate90:
-            uv = glm::mat3x4(
-                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
-                glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
-                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
-            break;
-        case Border::FillTransform::Rotate180:
-            uv = glm::mat3x4(
-                glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
-                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-                glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
-            break;
-        case Border::FillTransform::Rotate270:
-            uv = glm::mat3x4(
-                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-            break;
-        default:
-            break;
+    if (part != BorderRenderPart::Frame) {
+        const glm::vec4 fillColor {borderColor, fillAlpha};
+        // The fill turns as authored; quarterTurnUV counts its turns
+        // anticlockwise.
+        if (border.fill) {
+            switch (border.fillTransform) {
+            case Border::FillTransform::Rotate90:
+                uv = quarterTurnUV(3);
+                break;
+            case Border::FillTransform::Rotate180:
+                uv = quarterTurnUV(2);
+                break;
+            case Border::FillTransform::Rotate270:
+                uv = quarterTurnUV(1);
+                break;
+            default:
+                break;
+            }
         }
-        auto blending = border.fill->features().blending == Texture::Blending::Additive
-                            ? BlendMode::Additive
-                            : BlendMode::Normal;
-        glm::ivec2 fillPosition {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y};
-        int frame = getCycleFrame(*border.fill, _gui.textureTime());
-        auto drawFill = [&](const glm::ivec2 &position, const glm::ivec2 &drawSize) {
-            pass.drawImage(
-                *border.fill,
-                position,
-                drawSize,
-                glm::vec4(color, fillAlpha),
-                uv,
-                _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default,
-                frame);
-        };
-        // Tiles and a centred image are as big as the image is authored,
-        // grown with the layout - and never less than a pixel, so that
-        // there is always a whole number of them.
-        glm::ivec2 imageSize = glm::max(
-            glm::ivec2(1),
-            glm::ivec2(glm::vec2(getImageSize(*border.fill)) * _frameLayoutScale));
-        _graphicsSvc.context.withBlendMode(blending, [&]() {
-            switch (border.fillStyle) {
-            case Border::FillStyle::Tile: {
-                // As many whole images as fit along each axis, or one where
-                // none does, with what is left over shared out a pixel each
-                // from the first.
-                glm::ivec2 count = glm::max(glm::ivec2(1), fillSize / imageSize);
-                glm::ivec2 tileSize = fillSize / count;
-                glm::ivec2 widened = fillSize - tileSize * count;
-                int x = fillPosition.x;
-                for (int column = 0; column < count.x; ++column) {
-                    int width = tileSize.x + (column < widened.x ? 1 : 0);
-                    int y = fillPosition.y;
-                    for (int row = 0; row < count.y; ++row) {
-                        int height = tileSize.y + (row < widened.y ? 1 : 0);
-                        drawFill({x, y}, {width, height});
-                        y += height;
-                    }
-                    x += width;
+        // A fill that cycles through frames shows the one the GUIs' clock is at.
+        const int frame {border.fill ? getCycleFrame(*border.fill, _gui.textureTime()) : 0};
+        // The whole fill is drawn in one blending.
+        const bool additive {border.fill && border.fill->features().blending == Texture::Blending::Additive};
+        _graphicsSvc.context.withBlendMode(additive ? BlendMode::Additive : BlendMode::Normal, [&]() {
+            forEachFillRect(border, size, [&](const Extent &rect) {
+                const glm::ivec2 position {_extent.left + rect.left + offset.x, _extent.top + rect.top + offset.y};
+                if (!border.fill) {
+                    pass.drawQuad(position, {rect.width, rect.height}, fillColor);
+                    return;
                 }
-                break;
-            }
-            case Border::FillStyle::Center: {
-                glm::ivec2 drawSize = glm::min(imageSize, fillSize);
-                drawFill(fillPosition + (fillSize - drawSize) / 2, drawSize);
-                break;
-            }
-            case Border::FillStyle::Stretch:
-                drawFill(fillPosition, fillSize);
-                break;
-            }
+                pass.drawImage(
+                    *border.fill,
+                    position,
+                    {rect.width, rect.height},
+                    fillColor,
+                    uv,
+                    _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default,
+                    frame);
+            });
         });
     }
+}
 
-    if (part != BorderRenderPart::Fill && border.edge) {
-        int width = fillSize.x;
-        int height = fillSize.y;
-
-        if (height > 0.0f) {
-            int x = _extent.left + offset.x;
-            int y = _extent.top + topHeight + offset.y;
-
-            // Left edge
-            uv = glm::mat3x4(
-                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-            pass.drawImage(
-                *border.edge,
-                {x, y},
-                {leftWidth, height},
-                glm::vec4(color, frameAlpha),
-                uv);
-
-            // Right edge
-            uv = glm::mat3x4(
-                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
-                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-                glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
-            pass.drawImage(
-                *border.edge,
-                {x + size.x - rightWidth, y},
-                {rightWidth, height},
-                glm::vec4(color, frameAlpha),
-                uv);
-        }
-
-        if (width > 0.0f) {
-            int x = _extent.left + leftWidth + offset.x;
-            int y = _extent.top + offset.y;
-
-            // Top edge
-            pass.drawImage(
-                *border.edge,
-                {x, y},
-                {width, topHeight},
-                glm::vec4(color, frameAlpha));
-
-            // Bottom edge
-            uv = glm::mat3x4(
-                glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-                glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-            pass.drawImage(
-                *border.edge,
-                {x, y + size.y - bottomHeight},
-                {width, bottomHeight},
-                glm::vec4(color, frameAlpha),
-                uv);
-        }
+Control::FrameLayout Control::frameLayout(const Border &border, const glm::ivec2 &size) const {
+    FrameLayout layout;
+    if (!border.hasCorner()) {
+        layout.area = Extent(0, 0, size.x, size.y);
+        return layout;
     }
+    const FrameMeasure measure = frameMeasure(border);
+    const glm::ivec2 &corner {measure.corner};
+    layout.step = measure.step;
+    // Along an axis the room between the corners holds a segment for each
+    // step across that fits whole, or one where it holds half of one or
+    // there is no step. With a segment the frame takes the corner's length
+    // on both sides; otherwise it takes the whole axis, the far side the
+    // larger half.
+    auto place = [](int length, int cornerLength, int step, int &count, int &start, int &innerLength) {
+        const int room {length - 2 * cornerLength};
+        if (room <= 0) {
+            count = 0;
+        } else if (step == 0 || room / step == 0) {
+            count = room < step / 2 ? 0 : 1;
+        } else {
+            count = room / step;
+        }
+        if (count != 0) {
+            start = cornerLength;
+            innerLength = room;
+        } else {
+            start = length / 2;
+            innerLength = 0;
+        }
+    };
+    place(size.x, corner.x, layout.step, layout.segments.x, layout.area.left, layout.area.width);
+    place(size.y, corner.y, layout.step, layout.segments.y, layout.area.top, layout.area.height);
+    return layout;
+}
 
-    if (part != BorderRenderPart::Fill && border.corner) {
-        int x = _extent.left + offset.x;
-        int y = _extent.top + offset.y;
-
-        // Top left corner
-        pass.drawImage(
-            *border.corner,
-            {x, y},
-            {leftWidth, topHeight},
-            glm::vec4(color, frameAlpha));
-
-        // Bottom left corner
-        uv = glm::mat3x4(
-            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-        pass.drawImage(
-            *border.corner,
-            {x, y + size.y - bottomHeight},
-            {leftWidth, bottomHeight},
-            glm::vec4(color, frameAlpha),
-            uv);
-
-        // Top right corner
-        uv = glm::mat3x4(
-            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
-            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
-        pass.drawImage(
-            *border.corner,
-            {x + size.x - rightWidth, y},
-            {rightWidth, topHeight},
-            glm::vec4(color, frameAlpha),
-            uv);
-
-        // Bottom right corner
-        uv = glm::mat3x4(
-            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-            glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
-        pass.drawImage(
-            *border.corner,
-            {x + size.x - rightWidth, y + size.y - bottomHeight},
-            {rightWidth, bottomHeight},
-            glm::vec4(color, frameAlpha),
-            uv);
+glm::ivec2 Control::frameArtSize(const std::shared_ptr<Texture> &art) const {
+    if (!art) {
+        return glm::ivec2(0);
     }
+    const glm::ivec2 image {getImageSize(*art)};
+    return {static_cast<int>(std::lround(image.x * _frameLayoutScale)), static_cast<int>(std::lround(image.y * _frameLayoutScale))};
+}
+
+int Control::scaledFrameSize(int authored) const {
+    const int scaled = static_cast<int>(std::lround(authored * _frameLayoutScale));
+    return authored > 0 ? std::max(scaled, 1) : scaled;
 }
 
 const glm::vec3 &Control::getBorderColor() const {
@@ -659,34 +722,61 @@ Control::Extent Control::innerExtentWithHilight(const Extent &area) const {
 }
 
 int Control::borderDimension() const {
-    return _border ? _border->dimension : 0;
+    return _border ? innerMeasure(*_border).corner.y : 0;
 }
 
-// The area inside a frame is inset by its dimension on each axis, as the
-// frame is drawn, or, with less room than half the dimension, collapses onto
+Control::FrameMeasure Control::frameMeasure(const Border &border) const {
+    FrameMeasure measure;
+    if (border.dimension != 0 || !border.hasCorner()) {
+        measure.corner = glm::ivec2(border.dimension);
+        measure.step = border.dimension;
+        return measure;
+    }
+    const glm::ivec2 cornerArt {frameArtSize(border.corner)};
+    if (border.hasEdge() && cornerArt.y != 0) {
+        measure.corner = glm::ivec2(cornerArt.y);
+        measure.step = cornerArt.y;
+    } else {
+        measure.corner = cornerArt;
+        measure.step = border.hasEdge() ? frameArtSize(border.edge).x : cornerArt.x;
+    }
+    return measure;
+}
+
+Control::FrameMeasure Control::innerMeasure(const Border &border) const {
+    // Without a dimension, corner art measures the area inside the frame
+    // only alongside edge art.
+    if (border.dimension == 0 && !border.hasEdge()) {
+        return FrameMeasure {};
+    }
+    return frameMeasure(border);
+}
+
+// The area inside a frame is inset by the frame's corners on each axis, as
+// the frame is drawn, or, with less room than half the step, collapses onto
 // its centre; the inner offsets then widen it, across at most by the
-// dimension and up and down by all of the vertical one.
+// corner's length and up and down by all of the vertical one.
 Control::Extent Control::borderInnerExtent(const Border &border, const Extent &area) const {
-    const int dimension = border.dimension;
-    // A border without frame art whose dimension leaves no room is drawn
-    // over the whole control, and so leaves the whole of it.
-    if (!border.corner && !border.edge && (area.width <= 2 * dimension || area.height <= 2 * dimension)) {
+    const FrameMeasure measure = innerMeasure(border);
+    // A border without frame art whose measure leaves no room is drawn over
+    // the whole control, and so leaves the whole of it.
+    if (!border.hasCorner() && (area.width <= 2 * measure.corner.x || area.height <= 2 * measure.corner.y)) {
         return area;
     }
-    auto inset = [dimension](int start, int length, int &innerStart, int &innerLength) {
-        const int room = length - 2 * dimension;
-        if (room <= 0 || dimension / 2 > room) {
+    auto inset = [](int start, int length, int by, int step, int &innerStart, int &innerLength) {
+        const int room = length - 2 * by;
+        if (room <= 0 || step / 2 > room) {
             innerStart = start + length / 2;
             innerLength = 0;
         } else {
-            innerStart = start + dimension;
+            innerStart = start + by;
             innerLength = room;
         }
     };
     Extent inner;
-    inset(area.left, area.width, inner.left, inner.width);
-    inset(area.top, area.height, inner.top, inner.height);
-    const int offsetX = std::min(border.innerOffset, dimension);
+    inset(area.left, area.width, measure.corner.x, measure.step, inner.left, inner.width);
+    inset(area.top, area.height, measure.corner.y, measure.step, inner.top, inner.height);
+    const int offsetX = std::min(border.innerOffset, measure.corner.x);
     const int offsetY = border.innerOffsetY != 0 ? border.innerOffsetY : border.innerOffset;
     inner.left -= offsetX;
     inner.width += 2 * offsetX;
@@ -701,13 +791,6 @@ Control::Extent Control::intersection(const Extent &a, const Extent &b) {
     const int right = std::min(a.left + a.width, b.left + b.width);
     const int bottom = std::min(a.top + a.height, b.top + b.height);
     return {left, top, std::max(0, right - left), std::max(0, bottom - top)};
-}
-
-glm::ivec2 Control::frameArtSize(const std::shared_ptr<Texture> &art) const {
-    if (!art) {
-        return glm::ivec2(0);
-    }
-    return {static_cast<int>(std::lround(art->width() * _frameLayoutScale)), static_cast<int>(std::lround(art->height() * _frameLayoutScale))};
 }
 
 void Control::stretch(float x, float y, int mask) {
@@ -737,20 +820,14 @@ void Control::setPresentationScale(float frameLayoutScale, float textLayoutScale
     // this separate lets compound controls give their contents an independent
     // density while retaining the parent's layout rectangle.
     _scale = textLayoutScale * _gui.textScale();
-    _frameLayoutScale = frameLayoutScale * _gui.borderScale();
-    // An authored frame size is never scaled down to 0, which would take the
-    // art's own size.
-    auto frameSize = [this](int authored) {
-        const int scaled = static_cast<int>(std::lround(authored * _frameLayoutScale));
-        return authored > 0 ? std::max(scaled, 1) : scaled;
-    };
+    _frameLayoutScale = (_gui.fillRules().unscaledArt ? 1.0f : frameLayoutScale) * _gui.borderScale();
     if (_border) {
-        _border->dimension = frameSize(_authoredBorderDimension);
+        _border->dimension = scaledFrameSize(_authoredBorderDimension);
         _border->innerOffset = static_cast<int>(std::lround(_authoredInnerOffset * _frameLayoutScale));
         _border->innerOffsetY = static_cast<int>(std::lround(_authoredInnerOffsetY * _frameLayoutScale));
     }
     if (_hilight) {
-        _hilight->dimension = frameSize(_authoredHilightDimension);
+        _hilight->dimension = scaledFrameSize(_authoredHilightDimension);
         _hilight->innerOffset = static_cast<int>(std::lround(_authoredHilightInnerOffset * _frameLayoutScale));
         _hilight->innerOffsetY = static_cast<int>(std::lround(_authoredHilightInnerOffsetY * _frameLayoutScale));
     }
@@ -817,12 +894,13 @@ void Control::setBorder(Border border) {
     _authoredInnerOffsetY = _border->innerOffsetY;
 }
 
-// Gives \p border the fill \p texture, making the border when there is
-// none; without a texture, the border loses its fill.
-static void giveFill(std::shared_ptr<Control::Border> &border, std::shared_ptr<Texture> texture) {
-    if (!texture) {
+// Gives \p border the fill \p texture, or a fill whose art is missing when
+// \p missing, making the border when there is none; with neither, the border
+// loses its fill.
+static void giveFill(std::shared_ptr<Control::Border> &border, std::shared_ptr<Texture> texture, bool missing) {
+    if (!texture && !missing) {
         if (border) {
-            border->fill.reset();
+            border->clearFill();
         }
         return;
     }
@@ -830,6 +908,7 @@ static void giveFill(std::shared_ptr<Control::Border> &border, std::shared_ptr<T
         border = std::make_shared<Control::Border>();
     }
     border->fill = std::move(texture);
+    border->fillMissing = !border->fill;
 }
 
 void Control::setBorderFill(std::string resRef) {
@@ -841,13 +920,14 @@ void Control::setBorderFill(std::string resRef) {
     if (!resRef.empty()) {
         texture = _resourceSvc.textures.get(resRef, TextureUsage::GUI);
     }
-    giveFill(_border, std::move(texture));
+    // A name whose art is missing still makes a fill.
+    giveFill(_border, std::move(texture), !resRef.empty());
     _borderFillResRef = std::move(resRef);
 }
 
 void Control::setBorderFill(std::shared_ptr<Texture> texture) {
     _borderFillResRef.clear();
-    giveFill(_border, std::move(texture));
+    giveFill(_border, std::move(texture), false);
 }
 
 void Control::setBorderFillStyle(Border::FillStyle style) {
@@ -924,13 +1004,14 @@ void Control::setHilightFill(std::string resRef) {
     if (!resRef.empty()) {
         texture = _resourceSvc.textures.get(resRef, TextureUsage::GUI);
     }
-    giveFill(_hilight, std::move(texture));
+    // A name whose art is missing still makes a fill.
+    giveFill(_hilight, std::move(texture), !resRef.empty());
     _hilightFillResRef = std::move(resRef);
 }
 
 void Control::setHilightFill(std::shared_ptr<Texture> texture) {
     _hilightFillResRef.clear();
-    giveFill(_hilight, std::move(texture));
+    giveFill(_hilight, std::move(texture), false);
 }
 
 void Control::setHilightFillTransform(Border::FillTransform transform) {

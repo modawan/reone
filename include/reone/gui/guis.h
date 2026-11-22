@@ -34,6 +34,8 @@ public:
     virtual ~IGUIs() = default;
 
     virtual void clear() = 0;
+    /** Sets how the controls of every GUI loaded afterwards draw their border fills (IGUI::fillRules); set before any GUI loads. */
+    virtual void setFillRules(FillRules rules) = 0;
 
     virtual std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
 
@@ -63,6 +65,10 @@ public:
         _guis.clear();
     }
 
+    void setFillRules(FillRules rules) override {
+        _fillRules = std::move(rules);
+    }
+
     std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload) override {
         auto maybeGUI = _guis.find(resRef);
         if (maybeGUI != _guis.end()) {
@@ -89,6 +95,8 @@ private:
     /** The clock every GUI shares; declared before the GUIs that hold it, so it outlives them. */
     GUIClock _clock;
     std::unordered_map<std::string, std::shared_ptr<IGUI>> _guis;
+    /** How the controls of the GUIs draw their borders and fills. */
+    FillRules _fillRules {};
 
     std::shared_ptr<IGUI> doGet(std::string resRef, std::function<void(IGUI &)> preload);
 };

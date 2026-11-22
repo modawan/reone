@@ -38,19 +38,51 @@ public:
             resourceSvc) {
     }
 
+    /**
+     * Takes the maximum and current values from the layout, as the setters
+     * do, and a wide bar's start edge from STARTFROMLEFT: the left edge
+     * unless the layout sets it to 0.
+     */
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
+    /**
+     * Draws the control's border, then the progress border, frame and fill,
+     * over the inner extent cut along the bar's long axis to the current
+     * value's share of the maximum, truncated to whole pixels, or over all
+     * of it with no maximum; the art fits the cut by its fill style. The
+     * share starts at the top or left edge, or with STARTFROMLEFT 0 at the
+     * bottom or right edge. An empty share draws nothing.
+     */
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
 
-    void setValue(int value);
+    /**
+     * The share of a bar's length that a value fills.
+     *
+     * @param curValue the value shown, taken between 0 and the maximum
+     * @param maxValue the value a full bar shows
+     * @return the value's share of a positive maximum; the whole bar with none
+     */
+    static float fillFraction(int curValue, int maxValue);
+
+    /** The value a full bar shows; a negative one is ignored. */
+    void setMaxValue(int value);
+    /** The value the bar shows, kept between 0 and the maximum. */
+    void setCurValue(int value);
+
+protected:
+    /** The progress border's dimension takes the frame's scale, as the border's does. */
+    void scaleOwnFrames() override;
 
 private:
     /**
-     * The bar drawn over the border up to the value. Its colour multiplies the
-     * fill: TSL authors greyscale bars and colours them here. Its fill pulses
+     * The border drawn over the filled share. Its colour multiplies all of
+     * it; TSL authors greyscale bars and colours them here. Its fill pulses
      * as authored.
      */
-    std::shared_ptr<Border> _progress;
-    int _value {0};
+    Border _progress {};
+    /** The progress border's dimension as authored. */
+    int _authoredProgressDimension {0};
+    int _maxValue {0};
+    int _curValue {0};
     bool _startFromLeft {true};
 };
 
