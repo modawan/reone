@@ -276,6 +276,8 @@ void InGameMenu::changeCharacter(int member) {
 
 InGameMenuFooter InGameMenu::footer() const {
     InGameMenuFooter view;
+    view.newItems = _game.party().hasNewItems();
+    view.newJournalEntries = _game.journal().hasNewEntries();
     for (int i = 0; i < 3; ++i) {
         auto member = _game.party().getMember(i);
         if (member)

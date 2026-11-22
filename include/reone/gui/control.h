@@ -329,6 +329,8 @@ public:
     void setTextPulsing(bool pulsing) { _text.pulsing = pulsing; }
     /** The hilight's frame and fill pulse, as chosen; a control without a hilight is left alone. */
     void setHilightPulsing(bool frame, bool fill);
+    /** The border's frame and fill pulse, as chosen; a control without a border is left alone. */
+    void setBorderPulsing(bool frame, bool fill);
     /** Sets the alpha the text is drawn with. */
     void setTextOpacity(float opacity) { _text.opacity = opacity; }
     void setTextMessage(std::string text);

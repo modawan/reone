@@ -79,6 +79,8 @@ void JournalMenu::onGUILoaded() {
     updateListControls();
 
     useK1ListEntryColors(_controls.LB_ITEMS->protoItem());
+    // A quest's row pulses its hilight frame.
+    _controls.LB_ITEMS->protoItem().setHilightPulsing(true, false);
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &plotId) {
         refreshEntryText(plotId);

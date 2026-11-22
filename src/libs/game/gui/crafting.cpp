@@ -1359,6 +1359,8 @@ void ItemUpgradePanel::onGUILoaded() {
     for (const auto &suffix : suffixes) {
         const auto tag = "BTN_UPGRADE" + suffix;
         auto button = findControl<Button>(tag);
+        // A slot's button pulses its hilight's fill.
+        button->setHilightPulsing(false, true);
         _controls.slots[tag] = {button, findControl<Label>("LBL_UPGRADE" + suffix)};
         button->setOnClick([this, tag]() {
             if (const auto slot = slotOfButton(tag)) {

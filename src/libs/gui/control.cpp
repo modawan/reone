@@ -911,6 +911,14 @@ void Control::setHilightPulsing(bool frame, bool fill) {
     _hilight->pulseFill = fill;
 }
 
+void Control::setBorderPulsing(bool frame, bool fill) {
+    if (!_border) {
+        return;
+    }
+    _border->pulseFrame = frame;
+    _border->pulseFill = fill;
+}
+
 void Control::setHilightFill(std::string resRef) {
     std::shared_ptr<Texture> texture;
     if (!resRef.empty()) {
