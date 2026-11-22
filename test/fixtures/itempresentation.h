@@ -135,9 +135,9 @@ public:
                     TestGraphicsModule &graphics, TestResourceModule &resources) :
         options(options), scene(scene), graphics(graphics), resources(resources) {}
     void clear() override { screens.clear(); }
-    void updatePulsingAlpha(float) override {}
+    void updateClock(float) override {}
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
-        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), pulsingAlpha);
+        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), clock);
         gui->name = name;
         gui->absent = absent;
         if (preload)
@@ -151,7 +151,7 @@ public:
     std::shared_ptr<IGUI> load(const std::string &name, std::function<void(IGUI &)> preload) override {
         return get(name, std::move(preload));
     }
-    PulsingAlpha pulsingAlpha;
+    GUIClock clock;
     std::unordered_map<std::string, std::shared_ptr<RecordingGUI>> screens;
     // Tags the screens built here do not define.
     std::set<std::string> absent;

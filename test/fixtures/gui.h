@@ -61,6 +61,7 @@ public:
     float listScale() const override { return 1.0f; }
     MOCK_METHOD(bool, imageButtonTextPulses, (), (const override));
     MOCK_METHOD(float, pulsingAlpha, (), (const override));
+    double textureTime() const override { return 0.0; }
     bool sceneRenderEnabled() const override { return true; }
 
     MOCK_METHOD(void, setEventListener, (IGUIEventListener & listener), (override));
@@ -89,7 +90,7 @@ public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, load, (const std::string &, std::function<void(IGUI &)>), (override));
-    MOCK_METHOD(void, updatePulsingAlpha, (float), (override));
+    MOCK_METHOD(void, updateClock, (float), (override));
 };
 
 class TestGUIModule : boost::noncopyable {

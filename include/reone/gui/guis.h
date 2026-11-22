@@ -43,8 +43,8 @@ public:
      */
     virtual std::shared_ptr<IGUI> load(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
 
-    /** Advances the pulse every GUI shares, once a frame, by dt seconds. */
-    virtual void updatePulsingAlpha(float dt) = 0;
+    /** Advances the clock every GUI shares (GUIClock), once a frame, by dt seconds. */
+    virtual void updateClock(float dt) = 0;
 };
 
 class GUIs : public IGUIs, boost::noncopyable {
@@ -76,8 +76,8 @@ public:
         return doGet(resRef, preload);
     }
 
-    void updatePulsingAlpha(float dt) override {
-        _pulsingAlpha.update(dt);
+    void updateClock(float dt) override {
+        _clock.update(dt);
     }
 
 private:
@@ -86,8 +86,8 @@ private:
     graphics::GraphicsServices &_graphicsSvc;
     resource::ResourceServices &_resourceSvc;
 
-    /** The pulse every GUI shares; declared before the GUIs that hold it, so it outlives them. */
-    PulsingAlpha _pulsingAlpha;
+    /** The clock every GUI shares; declared before the GUIs that hold it, so it outlives them. */
+    GUIClock _clock;
     std::unordered_map<std::string, std::shared_ptr<IGUI>> _guis;
 
     std::shared_ptr<IGUI> doGet(std::string resRef, std::function<void(IGUI &)> preload);

@@ -50,11 +50,11 @@ static GUI_BORDER parseGUI_BORDER(const Gff &gff) {
 
 static GUI_TEXT parseGUI_TEXT(const Gff &gff) {
     GUI_TEXT strct;
-    strct.ALIGNMENT = gff.getInt("ALIGNMENT");
+    strct.ALIGNMENT = gff.getInt("ALIGNMENT", 9);
     strct.COLOR = gff.getVector("COLOR", glm::vec3(1.0f));
-    strct.FONT = gff.getString("FONT");
+    strct.FONT = gff.getString("FONT", "dialogfont16x16");
     strct.PULSING = gff.getUint("PULSING");
-    strct.STRREF = gff.getUint("STRREF");
+    strct.STRREF = gff.getUint("STRREF", 0xffffffff);
     strct.TEXT = gff.getString("TEXT");
     return strct;
 }
@@ -134,10 +134,10 @@ static GUI_CONTROLS_PROTOITEM parseGUI_CONTROLS_PROTOITEM(const Gff &gff) {
 
 static GUI_CONTROLS_MOVETO parseGUI_CONTROLS_MOVETO(const Gff &gff) {
     GUI_CONTROLS_MOVETO strct;
-    strct.DOWN = gff.getInt("DOWN");
-    strct.LEFT = gff.getInt("LEFT");
-    strct.RIGHT = gff.getInt("RIGHT");
-    strct.UP = gff.getInt("UP");
+    strct.DOWN = gff.getInt("DOWN", -1);
+    strct.LEFT = gff.getInt("LEFT", -1);
+    strct.RIGHT = gff.getInt("RIGHT", -1);
+    strct.UP = gff.getInt("UP", -1);
     return strct;
 }
 
@@ -167,8 +167,8 @@ static GUI_CONTROLS parseGUI_CONTROLS(const Gff &gff) {
     if (SELECTED) {
         strct.SELECTED = parseGUI_BORDER(*SELECTED);
     }
-    strct.ID = gff.getInt("ID");
-    strct.LEFTSCROLLBAR = gff.getUint("LEFTSCROLLBAR");
+    strct.ID = gff.getInt("ID", -1);
+    strct.LEFTSCROLLBAR = gff.getUint("LEFTSCROLLBAR", 1);
     strct.LOOPING = gff.getUint("LOOPING");
     strct.MAXVALUE = gff.getInt("MAXVALUE");
     auto MOVETO = gff.findStruct("MOVETO");
@@ -191,7 +191,7 @@ static GUI_CONTROLS parseGUI_CONTROLS(const Gff &gff) {
     if (SCROLLBAR) {
         strct.SCROLLBAR = parseGUI_CONTROLS_SCROLLBAR(*SCROLLBAR);
     }
-    strct.STARTFROMLEFT = gff.getUint("STARTFROMLEFT");
+    strct.STARTFROMLEFT = gff.getUint("STARTFROMLEFT", 1);
     strct.TAG = gff.getString("TAG");
     auto TEXT = gff.findStruct("TEXT");
     if (TEXT) {

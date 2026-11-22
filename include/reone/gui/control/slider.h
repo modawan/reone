@@ -47,7 +47,7 @@ public:
             graphicsSvc,
             resourceSvc) {
 
-        _navigable = true;
+        _takesKeyboardOnHover = true;
         _selectable = true;
     }
 
@@ -57,7 +57,9 @@ public:
     bool handleKeyDown(input::KeyCode key) override;
     bool handleClick(int x, int y, int clicks = 1) override;
     bool handleMouseDown(int x, int y) override;
-    void handleMouseDrag(int x, int y) override;
+    bool handleMouseDrag(int x, int y) override;
+    /** Letting the thumb go is no click; a release on the track over the slider is. */
+    bool handleMouseUp(int x, int y, bool over, int clicks) override;
 
     int value() const { return _value; }
 
@@ -71,6 +73,8 @@ private:
     std::shared_ptr<graphics::Texture> _thumb;
     int _value {0};
     int _maxValue {0};
+    /** The left button was pressed on the thumb, and is not yet released. */
+    bool _holdsThumb {false};
     std::function<void(int)> _onValueChanged;
 
     Extent thumbExtent() const;

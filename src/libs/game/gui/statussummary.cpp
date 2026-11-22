@@ -247,10 +247,9 @@ static int idealTextWidth(const Label &description) {
     return static_cast<int>(std::ceil(widest));
 }
 
+/** The height of a description's lines measured as one block. */
 static int textHeight(const Label &description) {
-    const auto &text = description.text();
-    const int lineHeight = text.font ? static_cast<int>(text.font->height() * description.scale()) : 0;
-    return static_cast<int>(description.textLines().size()) * lineHeight;
+    return description.textBlockHeight(static_cast<int>(description.textLines().size()));
 }
 
 void StatusSummary::layoutDisplayedBatch() {

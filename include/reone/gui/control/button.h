@@ -38,6 +38,9 @@ public:
             resourceSvc) {
     }
 
+    /** The part the inner extents of its border and its hilight share. */
+    Extent innerExtent(const Extent &area) const override { return innerExtentWithHilight(area); }
+
 protected:
     Button(
         IGUI &gui,
@@ -53,7 +56,7 @@ protected:
             resourceSvc) {
 
         _selectable = true;
-        _navigable = true;
+        _takesKeyboardOnHover = true;
     }
 };
 

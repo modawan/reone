@@ -49,7 +49,7 @@ protected:
         _options.height = 600;
 
         _gui = std::make_unique<GUI>(
-            _options, _sceneModule.graphs(), _graphicsModule.services(), _resourceModule.services(), _pulsingAlpha);
+            _options, _sceneModule.graphs(), _graphicsModule.services(), _resourceModule.services(), _clock);
         _gui->setResolution(800, 600);
         auto extent = Gff::Builder()
                           .field(Gff::Field::newInt("WIDTH", 800))
@@ -89,7 +89,7 @@ protected:
     TestResourceModule _resourceModule;
     TestSceneModule _sceneModule;
     GraphicsOptions _options;
-    PulsingAlpha _pulsingAlpha;
+    GUIClock _clock;
     std::unique_ptr<GUI> _gui;
     std::shared_ptr<Button> _button;
     std::shared_ptr<Label> _label;

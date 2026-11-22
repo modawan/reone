@@ -19,6 +19,8 @@
 
 #include "../control.h"
 
+#include <unordered_map>
+
 namespace reone {
 
 namespace gui {
@@ -101,7 +103,6 @@ public:
     bool handleMouseWheel(int x, int y) override;
     bool handleClick(int x, int y, int clicks = 1) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
-    void setSelected(bool selected) override;
 
     void setColumnCount(int count);
     void setCellSize(int size);
@@ -122,6 +123,8 @@ public:
 
 private:
     std::vector<Item> _items;
+    /** Each item's index in _items by its tag; of two with one tag, the first. */
+    std::unordered_map<std::string, size_t> _itemIndexByTag;
     std::vector<Link> _links;
     int _columnCount {0};
     int _cellSize {0};
@@ -131,6 +134,7 @@ private:
     std::vector<int> _rowOffsets;
     std::shared_ptr<Control> _scrollBar;
     CellStyle _cellStyle;
+
     int _rowOffset {0};
     int _focusedItemIndex {-1};
 
@@ -151,6 +155,8 @@ private:
     int getVisibleRowCount() const;
     int getMaxRow() const;
     int getItemIndex(int x, int y) const;
+    /** The index of the item tagged \p tag, the first of two with one tag; -1 for none. */
+    int findItemIndex(const std::string &tag) const;
     const Item *findItem(const std::string &tag) const;
     void clearFocusedItem();
     Extent getItemExtent(const Item &item) const;

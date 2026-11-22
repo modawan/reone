@@ -116,13 +116,16 @@ void convertGridTextureToArray(Texture &texture, int numX, int numY) {
         std::move(frameLayers));
 }
 
-int getCycleFrame(const Texture &texture, float time) {
+int getCycleFrame(const Texture &texture, double time) {
     const Texture::Features &features = texture.features();
     if (features.procedureType != Texture::ProcedureType::Cycle) {
         return 0;
     }
-    int frameCount = features.numX * features.numY;
-    return static_cast<int>(std::fmod(time * features.fps, static_cast<float>(frameCount)));
+    const int frameCount = features.numX * features.numY;
+    if (frameCount <= 0 || !(features.fps > 0.0f) || !(time >= 0.0)) {
+        return 0;
+    }
+    return static_cast<int>(std::fmod(time * features.fps, static_cast<double>(frameCount)));
 }
 
 glm::ivec2 getImageSize(const Texture &texture) {

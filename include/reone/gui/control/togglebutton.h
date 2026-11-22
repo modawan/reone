@@ -50,6 +50,11 @@ public:
     void setPresentationScale(float frameLayoutScale, float textLayoutScale) override;
 
     const glm::vec3 &getBorderColor() const override;
+    /**
+     * The part the inner extents of its border, hilight and on frames share;
+     * a checkbox's text, beside its box, takes the whole area.
+     */
+    Extent innerExtent(const Extent &area) const override;
 
     void toggle();
     /** Turns the button on or off. */
@@ -82,8 +87,8 @@ private:
     std::shared_ptr<Border> _onBorder;  /**< drawn while on, in place of the border */
     std::shared_ptr<Border> _onHilight; /**< drawn while on, in place of the hilight */
 
-    /** Gives the on frames the presentation scale of the frames they replace. */
-    void scaleOnFrames();
+    /** Gives the on frames the presentation scale, and the inner offsets, of the frames they replace. */
+    void scaleOwnFrames() override;
 };
 
 } // namespace gui
