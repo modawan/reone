@@ -320,6 +320,44 @@ struct MouseWheelEvent {
         y(y),
         direction(direction) {
     }
+
+    /**
+     * The notches the wheel itself turned up, or down when negative, with
+     * the system's reversed ("natural") scrolling undone; may be a fraction.
+     * For what the wheel moves physically, as a camera's zoom; content that
+     * scrolls takes y as it is, the system's setting included.
+     */
+    float physicalNotchesY() const { return direction == MouseWheelDirection::Flipped ? -y : y; }
+};
+
+/**
+ * Gathers a wheel's scrolling, which precise wheels and touch pads send in
+ * fractions, into whole steps for content that scrolls: x and y as the
+ * system reports them, so its reversed ("natural") scrolling applies as in
+ * other applications. SDL accumulates whole ticks itself only from 3.2.12.
+ */
+class WheelSteps {
+public:
+    struct Steps {
+        int x {0}; /**< steps right, or left when negative */
+        int y {0}; /**< steps up, or down when negative */
+    };
+
+    /** Adds the event's scrolling and takes the whole steps gathered, keeping the rest for later events. */
+    Steps take(const MouseWheelEvent &event) {
+        _restX += event.x;
+        _restY += event.y;
+        Steps steps;
+        steps.x = static_cast<int>(_restX);
+        steps.y = static_cast<int>(_restY);
+        _restX -= static_cast<float>(steps.x);
+        _restY -= static_cast<float>(steps.y);
+        return steps;
+    }
+
+private:
+    float _restX {0.0f};
+    float _restY {0.0f};
 };
 
 enum class EventType {

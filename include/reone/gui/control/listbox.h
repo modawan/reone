@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../control.h"
+#include "scrollbar.h"
 
 #include <optional>
 
@@ -29,7 +30,7 @@ class ImageButton;
 
 constexpr int kDefaultSlotCount = 6;
 
-class ListBox : public Control {
+class ListBox : public Control, private ScrollBar::IScrollable {
 public:
     enum class SelectionMode {
         /** The row under the pointer is selected and stays so when the pointer leaves the rows. */
@@ -115,15 +116,22 @@ public:
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     /**
-     * A press on a drawn row keeps the mouse with the list until the
-     * release; a press elsewhere does nothing. In a list that selects on
-     * click, a press on another row than the selected one selects it and
-     * chooses it.
+     * A press on a drawn row or on the enabled scroll bar, shown whether or
+     * not the rows fit, keeps the mouse with the list until the release; a
+     * press elsewhere does nothing. In a list that selects on click, a press
+     * on another row than the selected one selects it and chooses it. On the
+     * scroll bar, an arrow scrolls a row as
+     * the wheel does, the track before or after the thumb a page back or on
+     * (scrollPage), and the thumb drags (ScrollBar::press).
      *
      * @return whether the list keeps the mouse
      */
     bool handleMouseDown(int x, int y) override;
-    /** While the list keeps the mouse it takes every move, so the pointer moves onto nothing else. */
+    /**
+     * While the list keeps the mouse it takes every move, so the pointer
+     * moves onto nothing else; a dragged thumb scrolls the list to the
+     * position it is dragged to.
+     */
     bool handleMouseDrag(int x, int y) override;
     /**
      * The release after a press on a row, over the list, clicks the list
@@ -137,6 +145,8 @@ public:
      * item-click handler, and a double click the item-double-click handler.
      */
     bool handleClick(int x, int y, int clicks = 1) override;
+    /** While the list is shown, an arrow or the track of the scroll bar held pressed acts again (ScrollBar::hold). */
+    void update(float dt) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
     void stretch(float x, float y, int mask) override;
 
@@ -197,7 +207,14 @@ public:
     bool takeSelectionEntered();
     /** Whether a row the pointer can select, a line of text excepted, is drawn at the point. Control-space. */
     bool hasSelectableItemAt(int x, int y) const;
+    /** Whether the rows take the pointer and keys; turning them on also ends scroll-only. */
     void setItemsInteractive(bool interactive);
+    /**
+     * Whether the rows only scroll: none takes the pointer or keys, and the
+     * scroll bar steps one row at a time, its arrows showing while rows
+     * remain before or after those drawn.
+     */
+    void setScrollOnly(bool scrollOnly);
     void setScrollBarEnabled(bool enabled);
     /**
      * Whether each row is as high as its text, and the rows are as wide as
@@ -307,6 +324,7 @@ private:
     /** The list sounds at every move of an arrow key (setOwnSound). */
     bool _ownSound {false};
     bool _itemsInteractive {true};
+    bool _scrollOnly {false}; /**< the rows only scroll (see setScrollOnly) */
     bool _scrollBarEnabled {true};
     bool _leftScrollBar {false};     /**< authored side for the scroll bar */
     bool _looping {false};           /**< the selection wraps round past either end */
@@ -365,7 +383,27 @@ private:
      * The positions the list scrolls through: the rows beyond those shown,
      * and one; for a block of text, its positions, at least one.
      */
-    int getScrollPositions() const;
+    int getScrollPositions() const override;
+    /**
+     * The values the scroll bar shows. Rows: the positions, the first row
+     * shown and the rows shown. A block of text taller than the list: in
+     * pixels, the height it overruns the room by and one, the share of that
+     * it is scrolled by (all of it at the last position), and the room's
+     * height.
+     */
+    ScrollBar::ScrollState getScrollState() const override;
+    /** The position the list is scrolled to: the first row shown, or the line units a block of text is scrolled by. */
+    int getScrollPosition() const override { return _itemOffset; }
+    /** Shows the rows, or the block of text, from the position on. */
+    void scrollToPosition(int position) override;
+    /** The scroll bar shows the list as it is scrolled now. */
+    void updateScrollBarState();
+    /**
+     * Scrolls a page back or on. A block of text pages by the lines shown,
+     * other lists by the scroll bar's visible value, not past the last
+     * position.
+     */
+    void scrollPage(bool next) override;
     bool shouldRenderItemIconsForButtonProto() const;
     void renderItemWithButtonProtoIcon(
         const glm::ivec2 &screenSize,

@@ -63,6 +63,7 @@ public:
     float listScale() const override { return 1.0f; }
     MOCK_METHOD(bool, imageButtonTextPulses, (), (const override));
     MOCK_METHOD(float, pulsingAlpha, (), (const override));
+    float arrowPulsingAlpha() const override { return 1.0f; }
     double textureTime() const override { return 0.0; }
     const FillRules &fillRules() const override {
         static const FillRules rules;

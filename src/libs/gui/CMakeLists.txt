@@ -27,6 +27,7 @@ set(GUI_HEADERS
     ${GUI_INCLUDE_DIR}/control/progressbar.h
     ${GUI_INCLUDE_DIR}/control/scrollbar.h
     ${GUI_INCLUDE_DIR}/control/slider.h
+    ${GUI_INCLUDE_DIR}/control/track.h
     ${GUI_INCLUDE_DIR}/control/togglebutton.h
     ${GUI_INCLUDE_DIR}/di/module.h
     ${GUI_INCLUDE_DIR}/di/services.h

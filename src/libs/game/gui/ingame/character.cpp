@@ -320,7 +320,8 @@ static std::string describeAbilityModifier(int value) {
 void CharacterMenu::refreshControls() {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     CreatureAttributes &attributes = partyLeader->attributes();
-    _controls.SLD_ALIGN->setValue(partyLeader->goodEvil());
+    // The meter's value grows downwards, so the light side sits at the top.
+    _controls.SLD_ALIGN->setValue(kMaxGoodEvil - partyLeader->goodEvil());
 
     if (!_game.isTSL()) {
         _controls.LBL_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));

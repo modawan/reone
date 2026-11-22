@@ -304,8 +304,21 @@ bool GUI::handle(const input::Event &event) {
 
     case input::EventType::MouseWheel:
         _tooltip.turnWheel(_selection && _selection->get().type() == ControlType::ListBox);
-        if (_selection && _selection->get().handleMouseWheel(event.wheel.x, event.wheel.y))
+        if (_selection) {
+            // The control under the pointer takes the wheel, a whole step at
+            // a time; a fraction of one waits for the next turn.
+            auto &control = _selection->get();
+            const auto steps = _wheelSteps.take(event.wheel);
+            if ((steps.x != 0 || steps.y != 0) && control.handleMouseWheel(steps.x, steps.y) &&
+                control.type() == ControlType::ListBox) {
+                // A list scrolled under the pointer selects as the pointer
+                // moving onto it would.
+                auto ctrlCoords = controlCoordinates(control, _pointerPosition.x, _pointerPosition.y);
+                control.handleMouseMotion(ctrlCoords.x, ctrlCoords.y);
+                enterList(control, ctrlCoords);
+            }
             return true;
+        }
         break;
 
     case input::EventType::TextInput:
@@ -484,6 +497,8 @@ bool GUI::isHovered(const std::optional<std::reference_wrapper<Control>> &contro
 void GUI::setHovered(const std::optional<std::reference_wrapper<Control>> &control) {
     _selection = control;
     _listEntered = false;
+    // The wheel's turns gather for one control at a time.
+    _wheelSteps = input::WheelSteps();
 }
 
 void GUI::enterHovered(Control &control) {
@@ -766,8 +781,15 @@ void GUI::renderBackground(IRenderPass &pass) {
 }
 
 void GUI::clearSelection() {
-    // A GUI put away mid-press gives the press up with its selection.
-    _mouseCapture.reset();
+    // A GUI put away mid-press gives the press up with its selection: the
+    // pressed control is released away from itself, so it clicks nothing and
+    // a scroll bar held on it lets go.
+    if (_mouseCapture) {
+        auto &pressed = _mouseCapture->get();
+        _mouseCapture.reset();
+        auto ctrlCoords = controlCoordinates(pressed, _pointerPosition.x, _pointerPosition.y);
+        pressed.handleMouseUp(ctrlCoords.x, ctrlCoords.y, false, 1);
+    }
     if (_selection) {
         unhilight(_selection->get());
     }
@@ -800,9 +822,14 @@ std::unique_ptr<Control> GUI::newControl(
     case ControlType::ToggleButton:
         control = std::make_unique<ToggleButton>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
         break;
-    case ControlType::Slider:
-        control = std::make_unique<Slider>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
+    case ControlType::Slider: {
+        // A slider's step sounds as entering a control does.
+        auto slider = std::make_unique<Slider>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
+        Slider &stepped = *slider;
+        slider->setOnStep([this, &stepped]() { onEntered(stepped.tag()); });
+        control = std::move(slider);
         break;
+    }
     case ControlType::ScrollBar:
         control = std::make_unique<ScrollBar>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
         break;
