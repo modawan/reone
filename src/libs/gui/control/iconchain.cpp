@@ -19,6 +19,7 @@
 
 #include "reone/gui/control/scrollbar.h"
 
+#include "reone/input/event.h"
 #include "reone/scene/render/pass.h"
 
 using namespace reone::scene;
@@ -86,6 +87,59 @@ const IconChain::Item *IconChain::focusedItem() const {
 
 bool IconChain::handleMouseMotion(int x, int y) {
     return false;
+}
+
+bool IconChain::handleKeyDown(input::KeyCode key) {
+    const Item *focused = focusedItem();
+    if (!focused) {
+        return false;
+    }
+    switch (key) {
+    case input::KeyCode::Up:
+    case input::KeyCode::Down: {
+        const int rows = getMaxRow() + 1;
+        const int row = (focused->row + (key == input::KeyCode::Down ? 1 : rows - 1)) % rows;
+        for (int column = focused->column; column >= 0; --column) {
+            const int index = getItemIndexAt(row, column);
+            if (index != -1) {
+                stepFocus(index);
+                break;
+            }
+        }
+        return true;
+    }
+    case input::KeyCode::Left:
+    case input::KeyCode::Right: {
+        const int index = getItemIndexAt(focused->row, focused->column + (key == input::KeyCode::Right ? 1 : -1));
+        if (index != -1) {
+            stepFocus(index);
+        }
+        return true;
+    }
+    case input::KeyCode::Return:
+    case input::KeyCode::KeypadEnter:
+        // Return chooses the focused icon, as a double click does.
+        if (_onItemDoubleClick) {
+            _onItemDoubleClick(focused->tag);
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+void IconChain::stepFocus(int index) {
+    const int row = _items[index].row;
+    const int visibleRows = getVisibleRowCount();
+    if (row < _rowOffset) {
+        _rowOffset = row;
+    } else if (row >= _rowOffset + visibleRows) {
+        _rowOffset = row - visibleRows + 1;
+    }
+    _focusedItemIndex = index;
+    if (_onItemFocus) {
+        _onItemFocus(_items[index].tag);
+    }
 }
 
 bool IconChain::handleMouseWheel(int x, int y) {
@@ -291,6 +345,15 @@ int IconChain::getItemIndex(int x, int y) const {
 
         Extent itemExtent(getItemExtent(item));
         if (isItemVisible(itemExtent) && itemExtent.contains(x, y)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int IconChain::getItemIndexAt(int row, int column) const {
+    for (size_t i = 0; i < _items.size(); ++i) {
+        if (_items[i].row == row && _items[i].column == column) {
             return static_cast<int>(i);
         }
     }

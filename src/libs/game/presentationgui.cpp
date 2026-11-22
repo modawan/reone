@@ -84,6 +84,8 @@ void PresentationGUI::preload(IGUI &gui) {
         // KotOR draws a selected control's text in its hilight colour,
         // whatever colour the control's own hilight is authored in.
         gui.setSelectedTextColor(kGUIColorHilight);
+        // Its arrow keys pass over a hidden control, as over a disabled one.
+        gui.setArrowWalkVisibleOnly(true);
     }
 }
 
@@ -378,6 +380,12 @@ void PresentationGUI::turnK1PartyArrowRight() {
 
 std::string PresentationGUI::guiResRef(const std::string &base) const {
     return isTSL() ? base + "_p" : base;
+}
+
+void PresentationGUI::hoverOnOpening(glm::ivec2 pointer) {
+    if (_gui) {
+        _gui->hoverOnOpening(pointer);
+    }
 }
 
 void PresentationGUI::clickControl(const std::string &tag) {

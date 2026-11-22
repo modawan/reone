@@ -144,6 +144,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/gui/gui.cpp
     ${TESTS_SOURCE_DIR}/gui/guiinput.cpp
+    ${TESTS_SOURCE_DIR}/gui/keys.cpp
     ${TESTS_SOURCE_DIR}/gui/textinput.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp

@@ -71,10 +71,8 @@ void Slider::render(const glm::ivec2 &screenSize,
         {thumb.width, thumb.height});
 }
 
+// The GUI gives the arrow keys only to the control holding the keyboard.
 bool Slider::handleKeyDown(input::KeyCode key) {
-    if (!_selected) {
-        return false;
-    }
     switch (key) {
     case input::KeyCode::Left:
         changeValue(_value - 1);

@@ -63,6 +63,11 @@ void NameEntry::onGUILoaded() {
     _controls.BTN_BACK->setOnClick([this]() {
         _charGen.openSteps();
     });
+    // The name box keeps the keyboard: the panel's buttons do not take it
+    // as the pointer comes onto them, so the arrow keys never land on them.
+    for (const auto &button : {_controls.BTN_BACK, _controls.BTN_RANDOM, _controls.END_BTN}) {
+        button->setTakesKeyboardOnHover(false);
+    }
 }
 
 void NameEntry::reset() {

@@ -105,6 +105,10 @@ void ConfirmPopup::onGUILoaded() {
     if (_datapad) {
         _gui->rootControl().setBorderFill(kDatapadBackground);
     }
+    // A button the pointer comes onto takes the keys and keeps its hilight
+    // after the pointer leaves it.
+    _gui->setHilightFollowsKeyboard(true);
+    _controls.LB_MESSAGE->setOwnSound(true);
     _controls.LB_MESSAGE->setItemsInteractive(false);
 
     // The box as authored, centred in the authored canvas so the Scaled
@@ -175,6 +179,9 @@ void ConfirmPopup::open(const std::string &message, const std::string &iconResRe
     layoutMessage();
 
     _visible = true;
+    hoverOnOpening(_game.pointerPosition());
+    _gui->clearActiveControl();
+    _gui->selectActiveControl(*_controls.BTN_OK);
 }
 
 int ConfirmPopup::buttonWidth(const Button &button) const {

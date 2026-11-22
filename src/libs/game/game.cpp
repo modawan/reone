@@ -10005,6 +10005,9 @@ void Game::changeScreen(Screen screen) {
         finishTutorialWindow(false);
     }
     _screen = screen;
+    if (auto opened = getScreenGUI()) {
+        opened->hoverOnOpening(pointerPosition());
+    }
 }
 
 GameGUI *Game::getScreenGUI() const {

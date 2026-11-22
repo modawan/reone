@@ -154,7 +154,8 @@ private:
     void applyColors(const PopupColors &colors);
 
     /**
-     * Shows a message, with OK and, when asked for, Cancel.
+     * Shows a message, with OK and, when asked for, Cancel. The box hovers
+     * what is under the pointer, then OK takes the keyboard.
      *
      * @param message the message; its tokens are resolved
      * @param iconResRef the icon shown above the message, if any; blank when its texture is missing
