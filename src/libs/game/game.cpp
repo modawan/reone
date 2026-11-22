@@ -3316,10 +3316,9 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         return nullptr;
     }
 
-    // A creature made from its roster record is a new creature: it runs its
-    // creation script again, whatever the record says of the one it was made
-    // from.
-    removeSaveField(*record, "CreatnScrptFird");
+    // A creature made from its roster record takes the record's word on
+    // whether its creation script has run: a companion that has been in the
+    // game does not run it, or the heartbeat that follows it, a second time.
     const auto context =
         SerializedIdentityContext::detachedRecord(name + ".utc");
     auto creature = newCreature(*record, context);
