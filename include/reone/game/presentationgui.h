@@ -84,6 +84,9 @@ public:
      */
     void clickControl(const std::string &tag);
 
+    /** The screen comes up with the pointer at \p pointer: its GUI hovers what is under it, as IGUI::hoverOnOpening does. */
+    virtual void hoverOnOpening(glm::ivec2 pointer);
+
     std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
 
     /** Whether the screen now covers the whole in-game menu, whose navigation is then not drawn. */

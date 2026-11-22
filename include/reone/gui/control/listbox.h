@@ -112,7 +112,6 @@ public:
     void clearSelection();
 
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
-    bool handleKeyDown(input::KeyCode key) override;
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     /**
@@ -159,12 +158,38 @@ public:
      */
     bool selectAdjacentItem(bool next, bool repeat);
     /**
-     * The list takes the keyboard. With no row selected, its first row is
-     * selected silently and scrolled into view; in a list that selects on
-     * click, the row is then chosen as a click on it chooses it. A list whose
-     * rows take no pointer input selects no row.
+     * Moves the selection as selectAdjacentItem does, for an arrow key; in a
+     * list that selects on click, the row it moves to is then chosen as a
+     * click on it chooses it. A list whose rows are not interactive scrolls a
+     * row instead, as the wheel does.
+     *
+     * @return whether a row was selected, or the rows scrolled
+     */
+    bool stepSelection(bool next, bool repeat);
+    /**
+     * Acts on the selected row as the click that activates it does: a list
+     * that selects on hover calls the item-click handler, one that selects on
+     * click the item-double-click handler.
+     *
+     * @return whether a row is selected
+     */
+    bool activateSelectedItem();
+    /**
+     * The list takes the keyboard, and its selected row is hilighted again.
+     * With no row selected, its first row is selected silently and scrolled
+     * into view, unless the rows are not interactive; in a list that selects
+     * on click, the row is then chosen as a click on it chooses it.
      */
     void takeKeyboard();
+    /** The list loses the keyboard: its selected row is drawn without its hilight until a row is selected again or the list takes the keyboard. */
+    void loseKeyboard();
+    /**
+     * Whether the list sounds at every move of an arrow key: Up with no row
+     * selected sounds as Down does, and so does a scroll of rows that are
+     * not interactive. Off unless set.
+     */
+    void setOwnSound(bool own) { _ownSound = own; }
+    bool hasOwnSound() const { return _ownSound; }
     /**
      * Whether the pointer has moved the selection to another row since the
      * last call, a line of text excepted; the call clears it.
@@ -189,7 +214,6 @@ public:
      * is above the visible rows, or down until it is the last visible row.
      */
     void scrollToItem(int index);
-    void scrollToSelectedItem();
     /** A button prototype's icon frame takes the GUI's pulsing alpha while its row is hilighted. */
     void setIconFrameHilightPulsing(bool pulsing) { _iconFrameHilightPulsing = pulsing; }
 
@@ -243,8 +267,6 @@ public:
     const Item &getItemAt(int index) const;
     int getItemOffset() const { return _itemOffset; }
     void setItemOffset(int offset);
-    void selectNextItem();
-    void selectPreviousItem();
 
     Control &protoItem() const { return *_protoItem; }
     Control *protoItemOrNull() const { return _protoItem.get(); }
@@ -280,6 +302,10 @@ private:
     int _pressedItemIndex {-1};
     /** The left button was pressed on a drawn row, and is not yet released. */
     bool _holdsRow {false};
+    /** The selected row is drawn without its hilight, the list having lost the keyboard. */
+    bool _selectionUnhilighted {false};
+    /** The list sounds at every move of an arrow key (setOwnSound). */
+    bool _ownSound {false};
     bool _itemsInteractive {true};
     bool _scrollBarEnabled {true};
     bool _leftScrollBar {false};     /**< authored side for the scroll bar */

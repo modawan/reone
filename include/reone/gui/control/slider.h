@@ -26,8 +26,8 @@ namespace gui {
 /**
  * A horizontal track with a thumb that sits at the value's share of the
  * track. The player drags the thumb, clicks the track either side of it to
- * step the value by one, or steps it with Left and Right while the slider has
- * the focus.
+ * step the value by one, or steps it with Left and Right while the slider
+ * holds the keyboard.
  *
  * A track taller than it is wide stands upright, its thumb higher as the
  * value grows. The games' one such track, the alignment meter, only shows

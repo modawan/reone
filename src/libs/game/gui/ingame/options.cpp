@@ -971,6 +971,20 @@ void OptionsMenu::addInterfaceSizeSlider() {
     const auto &lastRow = _advancedGraphicsControls.CB_VSYNC->authoredExtent();
     const int sliderOffset = slider.EXTENT.TOP - label.EXTENT.TOP;
 
+    // The row is the gamma row's layout under the last row of this page, with
+    // an ID of this page's own and links among this page's controls: the
+    // label takes no keys, and the slider sits between V-Sync and what
+    // V-Sync led down to.
+    const int sliderId {_advancedGraphicsGUI->unusedControlId()};
+    auto &vsync = *_advancedGraphicsControls.CB_VSYNC;
+    const int belowId {vsync.moveTo(Control::MoveDirection::Down)};
+    label.ID = -1;
+    label.MOVETO = resource::generated::GUI_CONTROLS_MOVETO();
+    slider.ID = sliderId;
+    slider.MOVETO = resource::generated::GUI_CONTROLS_MOVETO();
+    slider.MOVETO.UP = vsync.id();
+    slider.MOVETO.DOWN = belowId;
+
     label.TAG = "LBL_GUISCALE";
     label.EXTENT.TOP = lastRow.top + lastRow.height + kGUIScaleRowGap;
     label.TEXT->STRREF = static_cast<uint32_t>(-1);
@@ -988,6 +1002,18 @@ void OptionsMenu::addInterfaceSizeSlider() {
     _advancedGraphicsGUI->addControlToFront(sliderControl, IGUI::ControlCoordinates::Authored);
     _advancedGraphicsControls.LBL_GUISCALE = std::static_pointer_cast<Label>(labelControl);
     _advancedGraphicsControls.SLI_GUISCALE = std::static_pointer_cast<Slider>(sliderControl);
+
+    vsync.setMoveTo(Control::MoveDirection::Down, sliderId);
+    // Without a link down from V-Sync, or an ID of its own, nothing below
+    // leads up to it.
+    if (belowId < 0 || vsync.id() < 0) {
+        return;
+    }
+    // What V-Sync led down to leads up to the slider in its place.
+    const auto below = _advancedGraphicsGUI->findControlById(belowId);
+    if (below && below->get().moveTo(Control::MoveDirection::Up) == vsync.id()) {
+        below->get().setMoveTo(Control::MoveDirection::Up, sliderId);
+    }
 }
 
 void OptionsMenu::openAdvancedGraphicsPanel() {

@@ -857,12 +857,16 @@ bool HUD::handle(const input::Event &event) {
     }
     // The HUD's controls come before the target menu floating over the world.
     switch (event.type) {
-    case input::EventType::MouseMotion:
+    case input::EventType::MouseMotion: {
         if (holdsPointer(event.motion.x, event.motion.y)) {
             _select.clearHover();
             return _gui->handle(event);
         }
-        break;
+        // Off the HUD's controls the HUD leaves the control it hovered, then
+        // the target menu takes the move.
+        const bool taken {_gui->handle(event)};
+        return _select.handle(event) || taken;
+    }
     case input::EventType::MouseButtonDown:
         if (holdsPointer(event.button.x, event.button.y)) {
             return _gui->handle(event);

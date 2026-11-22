@@ -124,28 +124,6 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
     _looping = (controlStruct.LOOPING & 1) != 0;
 }
 
-bool ListBox::handleKeyDown(input::KeyCode key) {
-    if (!_itemsInteractive)
-        return false;
-    if (_selectionMode == SelectionMode::OnHover)
-        return false;
-
-    if (key == input::KeyCode::Up) {
-        selectPreviousItem();
-        return true;
-    }
-    if (key == input::KeyCode::Down) {
-        selectNextItem();
-        return true;
-    }
-    if (key == input::KeyCode::Return) {
-        _onItemDoubleClick(_items[_selectedItemIndex].tag);
-        return true;
-    }
-
-    return false;
-}
-
 bool ListBox::handleMouseMotion(int x, int y) {
     if (!_itemsInteractive) {
         return false;
@@ -168,6 +146,7 @@ void ListBox::selectByPointer(int index) {
 
 void ListBox::selectItem(int index) {
     _selectedItemIndex = index;
+    _selectionUnhilighted = false;
 }
 
 bool ListBox::takeSelectionEntered() {
@@ -457,7 +436,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
         if (_protoMatchContent) {
             _protoItem->setExtentHeight(getItemHeight(item));
         }
-        _protoItem->setSelected(_selectedItemIndex == itemIdx);
+        _protoItem->setSelected(_selectedItemIndex == itemIdx && !_selectionUnhilighted);
 
         {
             const RowLook look(*_protoItem, item);
@@ -592,7 +571,31 @@ bool ListBox::selectAdjacentItem(bool next, bool repeat) {
     return true;
 }
 
+bool ListBox::stepSelection(bool next, bool repeat) {
+    if (!_itemsInteractive) {
+        const int offset = std::clamp(_itemOffset + (next ? 1 : -1), 0, std::max(getScrollPositions() - 1, 0));
+        if (offset == _itemOffset) {
+            return false;
+        }
+        _itemOffset = offset;
+        updateItemSlots();
+        return true;
+    }
+    if (!selectAdjacentItem(next, repeat)) {
+        return false;
+    }
+    if (_selectionMode == SelectionMode::OnClick && _onItemClick) {
+        _onItemClick(_items[_selectedItemIndex].tag);
+    }
+    return true;
+}
+
+bool ListBox::activateSelectedItem() {
+    return handleClick(0, 0, _selectionMode == SelectionMode::OnClick ? 2 : 1);
+}
+
 void ListBox::takeKeyboard() {
+    _selectionUnhilighted = false;
     if (!_itemsInteractive || _selectedItemIndex >= 0 || _items.empty()) {
         return;
     }
@@ -601,6 +604,10 @@ void ListBox::takeKeyboard() {
     if (_selectionMode == SelectionMode::OnClick && _onItemClick) {
         _onItemClick(_items.front().tag);
     }
+}
+
+void ListBox::loseKeyboard() {
+    _selectionUnhilighted = true;
 }
 
 void ListBox::setItemsInteractive(bool interactive) {
@@ -694,26 +701,6 @@ void ListBox::setItemOffset(int offset) {
     }
 }
 
-void ListBox::selectNextItem() {
-    if (_items.empty()) {
-        return;
-    }
-
-    _selectedItemIndex = (_selectedItemIndex == getItemCount() - 1) ? 0 : (_selectedItemIndex + 1);
-    _onItemClick(_items[_selectedItemIndex].tag);
-    scrollToSelectedItem();
-}
-
-void ListBox::selectPreviousItem() {
-    if (_items.empty()) {
-        return;
-    }
-
-    _selectedItemIndex = (_selectedItemIndex == 0) ? (getItemCount() - 1) : (_selectedItemIndex - 1);
-    _onItemClick(_items[_selectedItemIndex].tag);
-    scrollToSelectedItem();
-}
-
 void ListBox::scrollToItem(int index) {
     if (index < _itemOffset) {
         _itemOffset = index;
@@ -748,10 +735,6 @@ void ListBox::scrollToBottom() {
 
     _itemOffset = static_cast<int>(offset);
     updateItemSlots();
-}
-
-void ListBox::scrollToSelectedItem() {
-    scrollToItem(_selectedItemIndex);
 }
 
 void ListBox::updateItemsLayout() {

@@ -102,6 +102,16 @@ public:
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     bool handleClick(int x, int y, int clicks = 1) override;
+    /**
+     * The arrow keys step the focus, which the chart scrolls to show: Up and
+     * Down to the row above or below, the last row above the first and the
+     * first below the last, onto that row's nearest item at or before the
+     * focused column; Left and Right to the item beside the focused one in
+     * its row, when there is one.
+     *
+     * @return whether the key is an arrow key, with an item focused
+     */
+    bool handleKeyDown(input::KeyCode key) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
 
     void setColumnCount(int count);
@@ -155,6 +165,10 @@ private:
     int getVisibleRowCount() const;
     int getMaxRow() const;
     int getItemIndex(int x, int y) const;
+    /** The index of the item at \p column of \p row; -1 when there is none. */
+    int getItemIndexAt(int row, int column) const;
+    /** Focuses the item of \p index, scrolling its row into view. */
+    void stepFocus(int index);
     /** The index of the item tagged \p tag, the first of two with one tag; -1 for none. */
     int findItemIndex(const std::string &tag) const;
     const Item *findItem(const std::string &tag) const;

@@ -166,6 +166,11 @@ public:
      */
     virtual void setHilightFollowsKeyboard(bool follows) = 0;
     /**
+     * Whether the arrow keys walk as KotOR's do, passing over a hidden control
+     * as well as a disabled one (moveTarget's visibleOnly). Off, as in TSL.
+     */
+    virtual void setArrowWalkVisibleOnly(bool visibleOnly) = 0;
+    /**
      * Whether a held arrow key wrapped one of the GUI's lists round: the
      * key's repeats then move none of its lists until a key is pressed again
      * (ListBox::selectAdjacentItem).
@@ -185,6 +190,17 @@ public:
      *        and shown. TSL's passes over a disabled control only.
      */
     virtual std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const = 0;
+    /**
+     * The GUI comes up with the pointer at \p pointer, in screen coordinates.
+     * The control hovered before loses its hilight, unless it holds the
+     * keyboard on a GUI whose hilight follows it. The control under the
+     * pointer is hovered: it is hilighted, sounding as it is entered unless it
+     * was, but takes no keyboard; one that takes the keyboard on hover on such a GUI takes the
+     * hilight from the control holding the keyboard, which keeps it (a list
+     * draws its selected row without its hilight). The tooltip is left as it
+     * is: the pointer comes onto a control for it only by moving.
+     */
+    virtual void hoverOnOpening(glm::ivec2 pointer) = 0;
 
     virtual Control &rootControl() = 0;
 
@@ -246,6 +262,10 @@ public:
 
     /** Whether a visible, enabled control that takes clicks lies under the screen point. */
     virtual bool hasSelectableControlAt(int x, int y) const = 0;
+    /** An ID no control of the GUI has, for a control the GUI's layout lacks: one above the highest. */
+    virtual int unusedControlId() const = 0;
+    /** The control of the layout ID, none for a negative ID or one no control has; of two with one ID, the first loaded. */
+    virtual std::optional<std::reference_wrapper<Control>> findControlById(int id) const = 0;
 };
 
 class GUI : public IGUI, boost::noncopyable {
@@ -292,11 +312,14 @@ public:
     void setHilightFollowsKeyboard(bool follows) override {
         _hilightFollowsKeyboard = follows;
     }
+    void setArrowWalkVisibleOnly(bool visibleOnly) override { _arrowWalkVisibleOnly = visibleOnly; }
 
     bool keyRepeatStopped() const override { return _keyRepeatStopped; }
     void setKeyRepeatStopped(bool stopped) override { _keyRepeatStopped = stopped; }
 
     std::optional<std::reference_wrapper<Control>> moveTarget(const Control &control, Control::MoveDirection direction, bool visibleOnly = false) const override;
+
+    void hoverOnOpening(glm::ivec2 pointer) override;
 
     Control &rootControl() override {
         return *_rootControl;
@@ -398,6 +421,8 @@ public:
     void addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) override;
 
     std::shared_ptr<Control> findControl(const std::string &tag) const override;
+    int unusedControlId() const override;
+    std::optional<std::reference_wrapper<Control>> findControlById(int id) const override;
 
     bool hasSelectableControlAt(int x, int y) const override;
 
@@ -437,6 +462,8 @@ private:
     bool _hilightFollowsKeyboard {false};
     /** Whether a held arrow key wrapped one of the lists round (keyRepeatStopped). */
     bool _keyRepeatStopped {false};
+    /** Whether the arrow keys pass over a hidden control too (setArrowWalkVisibleOnly). */
+    bool _arrowWalkVisibleOnly {false};
     /** The control the left button was pressed on, which keeps the mouse until the release. */
     std::optional<std::reference_wrapper<Control>> _mouseCapture;
 
@@ -515,9 +542,16 @@ private:
     void unhilight(Control &control);
     /**
      * No control holds the keyboard; the one holding it loses its hilight
-     * on a GUI whose hilight follows the keyboard, unless it is a list.
+     * on a GUI whose hilight follows the keyboard, unless it is a list, which
+     * draws its selected row without its hilight.
      */
     void releaseKeyboard();
+    /**
+     * The keyboard moves along \p control's link of \p direction: the
+     * control reached sounds as it is entered, takes the keyboard and is
+     * selected. Nothing changes where the links lead to no control.
+     */
+    void moveKeyboard(const Control &control, Control::MoveDirection direction);
     /** A list the pointer acted on is entered when the pointer moved its selection to another row. */
     void enterListSelection(Control &control);
     /**
@@ -529,8 +563,6 @@ private:
     void enterList(Control &control, const glm::ivec2 &coords);
     /** Whether \p control holds the keyboard. */
     bool holdsKeyboard(const Control &control) const;
-    /** The control of the layout ID, none for a negative ID or one no control has. */
-    std::optional<std::reference_wrapper<Control>> findControlById(int id) const;
 
     void renderBackground(scene::IRenderPass &pass);
 
@@ -542,7 +574,20 @@ private:
     virtual bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
     virtual bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
     virtual bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
-    virtual bool handleKeyDown(input::KeyCode key);
+    /**
+     * A key goes to the control holding the keyboard. A list moves its
+     * selection a row on Up and Down, sounding as it moves unless Up selects
+     * its first row from none, and acts on its selected row on Return or
+     * keypad Enter as the click that activates the row does, with its sound.
+     * A button takes Return or keypad Enter as a click, with the click's
+     * sound, and a chart as the choice of its focused icon; a slider steps
+     * on the arrows along it; a chart moves its focus on the arrows,
+     * sounding as it steps to the side; and an arrow the control does not
+     * take moves the keyboard along the control's link of its direction.
+     *
+     * @return whether the key was one of these and a control holds the keyboard
+     */
+    virtual bool handleKeyDown(const input::KeyEvent &key);
     virtual bool handleKeyUp(input::KeyCode key);
 
     // END User input

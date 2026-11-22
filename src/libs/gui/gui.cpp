@@ -235,7 +235,7 @@ void GUI::setBackground(std::shared_ptr<graphics::Texture> texture) {
 bool GUI::handle(const input::Event &event) {
     switch (event.type) {
     case input::EventType::KeyDown:
-        return handleKeyDown(event.key.code);
+        return handleKeyDown(event.key);
 
     case input::EventType::KeyUp:
         return handleKeyUp(event.key.code);
@@ -316,24 +316,97 @@ bool GUI::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
     return false;
 }
 
-bool GUI::handleKeyDown(input::KeyCode key) {
-    std::stack<std::reference_wrapper<Control>> controls;
-    controls.push(*_rootControl);
-    while (!controls.empty()) {
-        auto &control = controls.top().get();
-        controls.pop();
-        bool handled = false;
-        if (control.isVisible() && !control.isDisabled()) {
-            handled = control.handleKeyDown(key);
-        }
-        if (handled) {
+// The direction an arrow key moves the keyboard in; none for another key.
+static std::optional<Control::MoveDirection> moveDirectionOf(input::KeyCode code) {
+    switch (code) {
+    case input::KeyCode::Up:
+        return Control::MoveDirection::Up;
+    case input::KeyCode::Left:
+        return Control::MoveDirection::Left;
+    case input::KeyCode::Down:
+        return Control::MoveDirection::Down;
+    case input::KeyCode::Right:
+        return Control::MoveDirection::Right;
+    default:
+        return std::nullopt;
+    }
+}
+
+static bool isButton(const Control &control) {
+    switch (control.type()) {
+    case ControlType::Button:
+    case ControlType::ToggleButton:
+    case ControlType::ImageButton:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool GUI::handleKeyDown(const input::KeyEvent &key) {
+    if (!_activeControl) {
+        return false;
+    }
+    auto &control = _activeControl->get();
+    const bool enter = key.code == input::KeyCode::Return || key.code == input::KeyCode::KeypadEnter;
+    if (control.type() == ControlType::ListBox) {
+        auto &list = static_cast<ListBox &>(control);
+        if (key.code == input::KeyCode::Up || key.code == input::KeyCode::Down) {
+            const bool down = key.code == input::KeyCode::Down;
+            const bool fromRow = list.selectedItemIndex() >= 0;
+            if (list.stepSelection(down, key.repeat)) {
+                // A list with its own sound sounds at every move. Another
+                // sounds as its selection moves, but not as Up selects its
+                // first row from none, nor as its rows scroll.
+                const bool rowMoved = list.selectedItemIndex() >= 0 && (down || fromRow);
+                if (list.hasOwnSound() || rowMoved) {
+                    onEntered(list.tag());
+                }
+            }
             return true;
         }
-        for (auto &child : control.children()) {
-            controls.push(child);
+        if (enter) {
+            if (!key.repeat && list.selectedItemIndex() >= 0) {
+                onClick(list.tag());
+                list.activateSelectedItem();
+            }
+            return true;
         }
+        // The other keys go to the selected row, whose links lead nowhere.
+        return false;
     }
-    return false;
+    if (enter) {
+        // A control that takes Return itself, as an icon chain choosing its
+        // focused icon, is not clicked; of the others only a button is.
+        if (!key.repeat && !control.handleKeyDown(key.code) && isButton(control)) {
+            onClick(control.tag());
+            control.handleClick(0, 0);
+        }
+        return true;
+    }
+    const auto direction = moveDirectionOf(key.code);
+    if (!direction) {
+        return false;
+    }
+    // An arrow the control takes, as a slider's along it, moves the
+    // keyboard nowhere. A chart's focus stepping to the side sounds as it
+    // lands; its steps up and down are silent.
+    const IconChain *chart {control.type() == ControlType::IconChain ? static_cast<const IconChain *>(&control) : nullptr};
+    const IconChain::Item *chartFocus {chart ? chart->focusedItem() : nullptr};
+    if (!control.handleKeyDown(key.code)) {
+        moveKeyboard(control, *direction);
+    } else if (chart && (*direction == Control::MoveDirection::Left || *direction == Control::MoveDirection::Right) &&
+               chart->focusedItem() != chartFocus) {
+        onEntered(chart->tag());
+    }
+    return true;
+}
+
+void GUI::moveKeyboard(const Control &control, Control::MoveDirection direction) {
+    if (const auto target = moveTarget(control, direction, _arrowWalkVisibleOnly)) {
+        onEntered(target->get().tag());
+        selectActiveControl(target->get());
+    }
 }
 
 bool GUI::handleKeyUp(input::KeyCode key) {
@@ -416,6 +489,33 @@ bool GUI::hilightFollowsKeyboard(const Control &control) const {
     return _hilightFollowsKeyboard && control.takesKeyboardOnHover() && control.type() != ControlType::ListBox;
 }
 
+void GUI::hoverOnOpening(glm::ivec2 pointer) {
+    _pointerPosition = pointer;
+    auto control = findControlAt(
+        pointer.x, pointer.y,
+        [](const auto &control) { return control.isSelectable() && control.isSelectedOnHover(); });
+    if (_selection && !isHovered(control)) {
+        auto &left = _selection->get();
+        if (!holdsKeyboard(left) || !hilightFollowsKeyboard(left)) {
+            unhilight(left);
+        }
+    }
+    setHovered(control);
+    if (!control) {
+        return;
+    }
+    auto &target = control->get();
+    enterHovered(target);
+    if (_hilightFollowsKeyboard && target.takesKeyboardOnHover() && _activeControl && &_activeControl->get() != &target) {
+        auto &active = _activeControl->get();
+        if (active.type() == ControlType::ListBox) {
+            static_cast<ListBox &>(active).loseKeyboard();
+        } else {
+            unhilight(active);
+        }
+    }
+}
+
 void GUI::hilight(Control &control) {
     control.setSelected(true);
     onSelectionChanged(control.tag(), true);
@@ -429,8 +529,13 @@ void GUI::unhilight(Control &control) {
 }
 
 void GUI::releaseKeyboard() {
-    if (_activeControl && _hilightFollowsKeyboard && _activeControl->get().type() != ControlType::ListBox) {
-        unhilight(_activeControl->get());
+    if (_activeControl) {
+        auto &control = _activeControl->get();
+        if (control.type() == ControlType::ListBox) {
+            static_cast<ListBox &>(control).loseKeyboard();
+        } else if (_hilightFollowsKeyboard) {
+            unhilight(control);
+        }
     }
     _activeControl.reset();
 }
@@ -485,6 +590,14 @@ bool GUI::holdsKeyboard(const Control &control) const {
     return _activeControl && &_activeControl->get() == &control;
 }
 
+int GUI::unusedControlId() const {
+    int id {0};
+    for (const auto &control : _controls) {
+        id = std::max(id, control->id() + 1);
+    }
+    return id;
+}
+
 std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) const {
     if (id < 0) {
         return std::nullopt;
@@ -499,13 +612,15 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) cons
 
 // A disabled control is passed over along the same direction; links that only
 // lead round disabled controls lead nowhere.
-// The keys move through buttons, lists and sliders.
-static bool isNavigable(const Control &control) {
+// The arrow keys stop on buttons of every kind, lists, charts and sliders.
+static bool isArrowStop(const Control &control) {
     switch (control.type()) {
     case ControlType::Button:
     case ControlType::ToggleButton:
+    case ControlType::ImageButton:
     case ControlType::Slider:
     case ControlType::ListBox:
+    case ControlType::IconChain:
         return true;
     default:
         return false;
@@ -522,7 +637,7 @@ std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &co
         if (!next || &next->get() == &control) {
             return std::nullopt;
         }
-        if (!isNavigable(next->get())) {
+        if (!isArrowStop(next->get())) {
             if (visibleOnly && !takes(next->get())) {
                 return std::nullopt;
             }

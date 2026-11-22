@@ -128,6 +128,7 @@ void GalaxyMap::bindPlanetControls() {
             continue;
         }
         _planetControls.emplace(row, control);
+        control->setTakesKeyboardOnHover(false);
         control->setOnClick([this, row]() { select(row); });
     }
 }
