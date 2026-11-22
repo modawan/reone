@@ -39,6 +39,8 @@ class ISceneGraphs;
 
 namespace gui {
 
+class Tooltip;
+
 constexpr int kDefaultResolutionX = 640;
 constexpr int kDefaultResolutionY = 480;
 
@@ -128,6 +130,7 @@ public:
     /** Runs \p block in normal blending with the render pass the GUI's controls draw with. */
     virtual void withRenderPass(const std::function<void(scene::IRenderPass &)> &block) = 0;
 
+    /** The GUI stops being shown: the control under the pointer is left, and a tooltip shown goes. */
     virtual void clearSelection() = 0;
 
     /**
@@ -274,18 +277,24 @@ public:
 
 class GUI : public IGUI, boost::noncopyable {
 public:
+    /** @param tooltip the interface's tooltip, which the pointer and the mouse buttons on this GUI drive */
     GUI(
         graphics::GraphicsOptions &options,
         scene::ISceneGraphs &sceneGraphs,
         graphics::GraphicsServices &graphicsSvc,
         resource::ResourceServices &resourceSvc,
-        const GUIClock &clock) :
+        const GUIClock &clock,
+        Tooltip &tooltip) :
         _options(options),
         _sceneGraphs(sceneGraphs),
         _graphicsSvc(graphicsSvc),
         _resourceSvc(resourceSvc),
-        _clock(clock) {
+        _clock(clock),
+        _tooltip(tooltip) {
     }
+
+    /** The tooltip forgets the GUI's controls. */
+    ~GUI() override;
 
     /** Derived from the current resolution, which can change at runtime. */
     glm::ivec2 screenCenter() const {
@@ -489,6 +498,7 @@ private:
     graphics::GraphicsServices &_graphicsSvc;
     resource::ResourceServices &_resourceSvc;
     const GUIClock &_clock;
+    Tooltip &_tooltip;
 
     // END Services
 

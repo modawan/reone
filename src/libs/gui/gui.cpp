@@ -33,6 +33,7 @@
 #include "reone/gui/control/scrollbar.h"
 #include "reone/gui/control/slider.h"
 #include "reone/gui/control/togglebutton.h"
+#include "reone/gui/tooltip.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/parser/gff/gui.h"
@@ -235,6 +236,10 @@ void GUI::setBackground(std::shared_ptr<graphics::Texture> texture) {
     _background = std::move(texture);
 }
 
+GUI::~GUI() {
+    _tooltip.forget(*this);
+}
+
 bool GUI::handle(const input::Event &event) {
     switch (event.type) {
     case input::EventType::KeyDown:
@@ -245,6 +250,7 @@ bool GUI::handle(const input::Event &event) {
 
     case input::EventType::MouseMotion: {
         _pointerPosition = {event.motion.x, event.motion.y};
+        _tooltip.setPointer(_pointerPosition);
         if (_mouseCapture) {
             auto ctrlCoords = controlCoordinates(_mouseCapture->get(), event.motion.x, event.motion.y);
             if (_mouseCapture->get().handleMouseDrag(ctrlCoords.x, ctrlCoords.y)) {
@@ -260,6 +266,7 @@ bool GUI::handle(const input::Event &event) {
         break;
     }
     case input::EventType::MouseButtonDown:
+        _tooltip.press();
         if (event.button.button == input::MouseButton::Left) {
             auto control = findControlAt(
                 event.button.x, event.button.y,
@@ -296,6 +303,7 @@ bool GUI::handle(const input::Event &event) {
         break;
 
     case input::EventType::MouseWheel:
+        _tooltip.turnWheel(_selection && _selection->get().type() == ControlType::ListBox);
         if (_selection && _selection->get().handleMouseWheel(event.wheel.x, event.wheel.y))
             return true;
         break;
@@ -420,6 +428,7 @@ void GUI::updateSelection(int screenX, int screenY) {
     auto control = findControlAt(
         screenX, screenY,
         [](const auto &control) { return control.isSelectable() && control.isSelectedOnHover(); });
+    _tooltip.hover(*this, control);
     if (_hilightFollowsKeyboard) {
         followPointer(control);
         return;
@@ -763,6 +772,7 @@ void GUI::clearSelection() {
         unhilight(_selection->get());
     }
     setHovered(std::nullopt);
+    _tooltip.closePanel(*this);
 }
 
 std::shared_ptr<Control> GUI::findControl(const std::string &tag) const {

@@ -326,6 +326,8 @@ public:
      */
     float textLineAdvance() const;
     const std::string &sceneName() const { return _sceneName; }
+    /** The text the tooltip shows while the pointer rests on the control; empty for none. */
+    const std::string &tooltip() const { return _tooltip; }
 
     void setId(int id) { _id = id; }
     void setTag(std::string tag) { _tag = std::move(tag); }
@@ -368,6 +370,8 @@ public:
     void setHilightOverBorder(bool enabled) { _hilightOverBorder = enabled; }
     void setPadding(int padding);
     void setSceneName(std::string name);
+    /** Sets the text the tooltip shows while the pointer rests on the control; empty for none. */
+    void setTooltip(std::string text) { _tooltip = std::move(text); }
     void setText(Text text);
     void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
@@ -482,6 +486,8 @@ protected:
     std::shared_ptr<Border> _hilight;
     Text _text;
     std::string _sceneName;
+    /** The text the tooltip shows for the control; empty for none. */
+    std::string _tooltip;
     int _padding {0};
     glm::mat4 _transform {1.0f};
     bool _visible {true};

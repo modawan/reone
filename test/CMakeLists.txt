@@ -146,6 +146,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/gui/guiinput.cpp
     ${TESTS_SOURCE_DIR}/gui/keys.cpp
     ${TESTS_SOURCE_DIR}/gui/textinput.cpp
+    ${TESTS_SOURCE_DIR}/gui/tooltip.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/gameprobe.cpp

@@ -11,6 +11,7 @@
 
 #include "../fixtures/engine.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/tooltip.h"
 #include "reone/resource/gff.h"
 
 using namespace reone;
@@ -56,7 +57,7 @@ protected:
         engine.init();
         options.width = 200;
         options.height = 200;
-        gui = std::make_unique<GUI>(options, engine.sceneModule().graphs(), engine.graphicsModule().services(), engine.resourceModule().services(), clock);
+        gui = std::make_unique<GUI>(options, engine.sceneModule().graphs(), engine.graphicsModule().services(), engine.resourceModule().services(), clock, tooltip);
         gui->setResolution(200, 200);
         auto root = Gff::Builder()
                         .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(ControlType::Panel)))
@@ -80,6 +81,7 @@ protected:
     TestEngine engine;
     graphics::GraphicsOptions options;
     GUIClock clock;
+    Tooltip tooltip {options};
     std::unique_ptr<GUI> gui;
     KeyListener listener;
 };

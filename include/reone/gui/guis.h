@@ -18,6 +18,7 @@
 #pragma once
 
 #include "gui.h"
+#include "tooltip.h"
 
 namespace reone {
 
@@ -47,6 +48,8 @@ public:
 
     /** Advances the clock every GUI shares (GUIClock), once a frame, by dt seconds. */
     virtual void updateClock(float dt) = 0;
+    /** The interface's one tooltip, which every GUI made here drives. */
+    virtual Tooltip &tooltip() = 0;
 };
 
 class GUIs : public IGUIs, boost::noncopyable {
@@ -58,7 +61,8 @@ public:
         _graphicsOpt(graphicsOpt),
         _sceneGraphs(sceneGraphs),
         _graphicsSvc(graphicsSvc),
-        _resourceSvc(resourceSvc) {
+        _resourceSvc(resourceSvc),
+        _tooltip(graphicsOpt) {
     }
 
     void clear() override {
@@ -67,6 +71,10 @@ public:
 
     void setFillRules(FillRules rules) override {
         _fillRules = std::move(rules);
+    }
+
+    Tooltip &tooltip() override {
+        return _tooltip;
     }
 
     std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload) override {
@@ -94,6 +102,8 @@ private:
 
     /** The clock every GUI shares; declared before the GUIs that hold it, so it outlives them. */
     GUIClock _clock;
+    /** Made before the GUIs and gone after them, which tell it as they go. */
+    Tooltip _tooltip;
     std::unordered_map<std::string, std::shared_ptr<IGUI>> _guis;
     /** How the controls of the GUIs draw their borders and fills. */
     FillRules _fillRules {};
