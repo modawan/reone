@@ -34,6 +34,7 @@ set(GUI_HEADERS
     ${GUI_INCLUDE_DIR}/guis.h
     ${GUI_INCLUDE_DIR}/sceneinitializer.h
     ${GUI_INCLUDE_DIR}/textinput.h
+    ${GUI_INCLUDE_DIR}/tooltip.h
     ${GUI_INCLUDE_DIR}/types.h)
 
 set(GUI_SOURCES
@@ -49,7 +50,8 @@ set(GUI_SOURCES
     ${GUI_SOURCE_DIR}/gui.cpp
     ${GUI_SOURCE_DIR}/guis.cpp
     ${GUI_SOURCE_DIR}/sceneinitializer.cpp
-    ${GUI_SOURCE_DIR}/textinput.cpp)
+    ${GUI_SOURCE_DIR}/textinput.cpp
+    ${GUI_SOURCE_DIR}/tooltip.cpp)
 
 add_library(gui STATIC ${GUI_HEADERS} ${GUI_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(gui PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)

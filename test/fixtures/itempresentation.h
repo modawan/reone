@@ -133,12 +133,12 @@ class ScreenResources : public IGUIs {
 public:
     ScreenResources(GraphicsOptions &options, scene::TestSceneModule &scene,
                     TestGraphicsModule &graphics, TestResourceModule &resources) :
-        options(options), scene(scene), graphics(graphics), resources(resources) {}
+        tooltipState(options), options(options), scene(scene), graphics(graphics), resources(resources) {}
     void clear() override { screens.clear(); }
     void updateClock(float) override {}
     void setFillRules(FillRules) override {}
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
-        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), clock);
+        auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), clock, tooltipState);
         gui->name = name;
         gui->absent = absent;
         if (preload)
@@ -153,6 +153,8 @@ public:
         return get(name, std::move(preload));
     }
     GUIClock clock;
+    Tooltip &tooltip() override { return tooltipState; }
+    Tooltip tooltipState;
     std::unordered_map<std::string, std::shared_ptr<RecordingGUI>> screens;
     // Tags the screens built here do not define.
     std::set<std::string> absent;

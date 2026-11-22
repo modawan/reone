@@ -11,6 +11,7 @@
 
 #include "../fixtures/engine.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/tooltip.h"
 #include "reone/resource/gff.h"
 
 using namespace reone;
@@ -55,7 +56,8 @@ TEST(GUI, a_child_drawn_over_its_parent_takes_the_pointer) {
     options.width = 200;
     options.height = 200;
     GUIClock clock;
-    GUI gui(options, engine.sceneModule().graphs(), engine.graphicsModule().services(), engine.resourceModule().services(), clock);
+    Tooltip tooltip(options);
+    GUI gui(options, engine.sceneModule().graphs(), engine.graphicsModule().services(), engine.resourceModule().services(), clock, tooltip);
     gui.setResolution(200, 200);
     auto root = Gff::Builder()
                     .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(ControlType::Panel)))
@@ -63,9 +65,9 @@ TEST(GUI, a_child_drawn_over_its_parent_takes_the_pointer) {
                     .field(Gff::Field::newStruct("EXTENT", extent(0, 0, 200, 200)))
                     .field(Gff::Field::newStruct("BORDER", Gff::Builder().build()))
                     .field(Gff::Field::newList("CONTROLS", {
-                                                                     button("row", "root", 0, 0, 100, 100, 1),
-                                                                     button("arrow", "row", 10, 10, 20, 20, 2),
-                                                                 }))
+                                                               button("row", "root", 0, 0, 100, 100, 1),
+                                                               button("arrow", "row", 10, 10, 20, 20, 2),
+                                                           }))
                     .build();
     gui.load(*root);
     ClickListener listener;
@@ -106,7 +108,8 @@ TEST(GUI, the_arrow_keys_pass_over_a_disabled_control_but_stop_on_a_hidden_one) 
     options.width = 200;
     options.height = 200;
     GUIClock clock;
-    GUI gui(options, engine.sceneModule().graphs(), engine.graphicsModule().services(), engine.resourceModule().services(), clock);
+    Tooltip tooltip(options);
+    GUI gui(options, engine.sceneModule().graphs(), engine.graphicsModule().services(), engine.resourceModule().services(), clock, tooltip);
     gui.setResolution(200, 200);
     auto root = Gff::Builder()
                     .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(ControlType::Panel)))

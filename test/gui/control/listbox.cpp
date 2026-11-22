@@ -20,6 +20,7 @@
 #include "reone/graphics/shaderprogram.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/tooltip.h"
 #include "reone/resource/parser/gff/gui.h"
 #include "reone/scene/render/pass.h"
 
@@ -45,7 +46,8 @@ struct FontlessListBox {
     LocalGraphics localGraphics;
     graphics::GraphicsOptions options;
     GUIClock clock;
-    GUI gui {options, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource, clock};
+    Tooltip tooltip {options};
+    GUI gui {options, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource, clock, tooltip};
     ListBox listBox {gui, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource};
 
     FontlessListBox() {

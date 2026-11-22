@@ -899,6 +899,7 @@ void Game::init() {
         };
     }
     _services.gui.guis.setFillRules(std::move(fillRules));
+    _services.gui.guis.tooltip().setEnabled(_options.game.feedback.tooltips);
     _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
     // The configuration names one of the levels the player can pick: any row
     // of the difficulty table but the last.
@@ -912,6 +913,7 @@ void Game::init() {
     _options.game.gameCompleted = loadGameCompleted(_options.game.configurationPath, _options.game.gameCompleted);
     initConsole();
     initTables();
+    loadTooltipPanel();
     resetGalaxyMap();
     initLocalServices();
     setSceneSurfaces();
@@ -1262,7 +1264,20 @@ bool Game::isCoolingDown(const input::Event &event) {
     return leftButton || returnKey;
 }
 
+// The pointer is on the control the screens shown find under it, or on
+// none; a move no screen follows starts the tooltip's wait again.
 bool Game::handle(const input::Event &event) {
+    if (event.type == input::EventType::MouseMotion) {
+        auto &tooltip = _services.gui.guis.tooltip();
+        tooltip.beginPointerMove();
+        const bool taken {handleInput(event)};
+        tooltip.endPointerMove();
+        return taken;
+    }
+    return handleInput(event);
+}
+
+bool Game::handleInput(const input::Event &event) {
     // Either Shift is the alternate actions key: pressing one holds it and
     // releasing one lets it go. While a menu, the credits or a popup holds
     // the input, a Shift is taken only when its keymap row lets menus take
@@ -1672,6 +1687,10 @@ void Game::updateFrame(float frameTime) {
     }
     if (_tutorialPopup && _tutorialPopup->isVisible()) {
         _tutorialPopup->update(dt);
+    }
+    // The tooltip waits in real time, and not at all in free-look.
+    if (!_freeLook) {
+        _services.gui.guis.tooltip().update(frameTime);
     }
     // The credits run in real time and hold still while the game is paused.
     if (_credits) {
@@ -5347,6 +5366,10 @@ void Game::renderGUI() {
         renderPopup(_confirmPopup, _messageBoxUnderStation);
     }
     renderPopup(_datapadBox, _datapadUnderStation);
+    // The tooltip shows over the screens, but not in free-look.
+    if (!_freeLook) {
+        _services.gui.guis.tooltip().render();
+    }
     // The credits cover everything, the fade included, and hide the pointer.
     // The pointer also hides while the mouse turns the camera.
     if (_credits) {
@@ -7063,6 +7086,56 @@ void Game::updateDeferredAutoPause(float frameTime) {
 
 void Game::setAutoPauseOptions(const AutoPauseOptions &options) {
     _options.game.autoPause = options;
+}
+
+void Game::setFeedbackOptions(const FeedbackOptions &options) {
+    _options.game.feedback = options;
+    _services.gui.guis.tooltip().setEnabled(options.tooltips);
+}
+
+// The tooltips' panel. KotOR has one for each screen height, scaled by the
+// screen's height over three quarters of the width the panel was made for.
+// TSL has one for all, scaled from 800x600 keeping its shape.
+void Game::loadTooltipPanel() {
+    const int width = _options.graphics.width;
+    const int height = _options.graphics.height;
+    std::string resRef {"tooltip8X6_p"};
+    int layoutWidth {800};
+    int layoutHeight {600};
+    if (!isTSL()) {
+        struct Panel {
+            int minHeight;
+            const char *resRef;
+            int madeWidth;
+        };
+        static constexpr std::array<Panel, 5> kPanels {{{1200, "tooltip16X12", 1600},
+                                                        {1024, "tooltip12x10", 1280},
+                                                        {960, "tooltip12X9", 1280},
+                                                        {768, "tooltip10X8", 1024},
+                                                        {0, "tooltip8X6", 800}}};
+        const auto found = std::find_if(kPanels.begin(), kPanels.end(), [height](const Panel &candidate) {
+            return height >= candidate.minHeight;
+        });
+        const Panel &chosen = found != kPanels.end() ? *found : kPanels.back();
+        resRef = chosen.resRef;
+        // The width keeps the screen's shape, so the height alone sets the
+        // scale.
+        layoutHeight = chosen.madeWidth * 3 / 4;
+        layoutWidth = height > 0
+                          ? static_cast<int>(std::lround(static_cast<float>(width) * static_cast<float>(layoutHeight) / static_cast<float>(height)))
+                          : chosen.madeWidth;
+    }
+    auto panel = _services.gui.guis.get(resRef, [](gui::IGUI &gui) {
+        gui.setScaling(gui::IGUI::ScalingMode::PositionRelativeToCenter);
+    });
+    // Without its panel the game runs without tooltips.
+    if (!panel) {
+        warn("Game: tooltip panel not found: " + resRef);
+        return;
+    }
+    panel->setResolution(layoutWidth, layoutHeight);
+    panel->refreshLayout();
+    _services.gui.guis.tooltip().setPanel(std::move(panel));
 }
 
 void Game::saveAutoPauseOptions() const {

@@ -31,7 +31,7 @@ std::shared_ptr<IGUI> GUIs::doGet(std::string resRef, std::function<void(IGUI &)
     if (!gff) {
         return nullptr;
     }
-    auto gui = std::make_shared<GUI>(_graphicsOpt, _sceneGraphs, _graphicsSvc, _resourceSvc, _clock);
+    auto gui = std::make_shared<GUI>(_graphicsOpt, _sceneGraphs, _graphicsSvc, _resourceSvc, _clock, _tooltip);
     gui->setFillRules(_fillRules);
     if (preload) {
         preload(*gui);

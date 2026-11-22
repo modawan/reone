@@ -101,6 +101,12 @@ public:
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, load, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(void, updateClock, (float), (override));
+
+    Tooltip &tooltip() override { return _tooltip; }
+
+private:
+    graphics::GraphicsOptions _graphicsOptions;
+    Tooltip _tooltip {_graphicsOptions};
 };
 
 class TestGUIModule : boost::noncopyable {

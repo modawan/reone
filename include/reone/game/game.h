@@ -1110,9 +1110,12 @@ public:
         _options.game.feedback.tutorialPopups = enabled;
     }
     const FeedbackOptions &feedbackOptions() const { return _options.game.feedback; }
-    void setFeedbackOptions(const FeedbackOptions &options) { _options.game.feedback = options; }
+    /** The tooltips follow their switch. */
+    void setFeedbackOptions(const FeedbackOptions &options);
     /** Write the feedback options to the configuration. */
     void saveFeedbackOptions() const;
+    /** Loads the tooltips' panel for the screen's size. */
+    void loadTooltipPanel();
     /** The difficulty level the player chose: a difficultyopt.2da row. */
     int difficultyLevel() const { return _options.game.clientDifficulty; }
     void setDifficultyLevel(int level) { _options.game.clientDifficulty = level; }
@@ -2907,6 +2910,8 @@ private:
 
     void renderScene();
     void renderGUI();
+    /** Handle an event; true when it was taken. */
+    bool handleInput(const input::Event &event);
     void renderGlobalFade();
     void settleFadeArrival();
     void renderDeveloperOverlay();
