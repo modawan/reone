@@ -216,6 +216,8 @@ public:
      * speed, and slows only with the world under TSL's gameover panel.
      */
     virtual double textureTime() const = 0;
+    /** How the GUI's controls draw their border fills. */
+    virtual const FillRules &fillRules() const = 0;
 
     /** Whether scene-backed controls may render their 3D content. */
     virtual bool sceneRenderEnabled() const = 0;
@@ -226,6 +228,8 @@ public:
     virtual void setTextScale(float scale) = 0;
     /** Sets whether the image buttons loaded afterwards pulse their text while selected. */
     virtual void setImageButtonTextPulses(bool pulses) = 0;
+    /** Sets how the GUI's controls draw their border fills; set before the GUI loads. */
+    virtual void setFillRules(FillRules rules) = 0;
     virtual void setControlScaling(const std::string &tag, ScalingMode scaling) = 0;
     /** Every control loaded afterwards draws its text in \p color while selected. */
     virtual void setSelectedTextColor(glm::vec3 color) = 0;
@@ -343,6 +347,10 @@ public:
         _imageButtonTextPulses = pulses;
     }
 
+    void setFillRules(FillRules rules) override {
+        _fillRules = rules;
+    }
+
     float textScale() const override {
         return _textScale.value_or(_options.guiTextScale);
     }
@@ -372,6 +380,10 @@ public:
 
     double textureTime() const override {
         return _clock.textureTime();
+    }
+
+    const FillRules &fillRules() const override {
+        return _fillRules;
     }
 
     bool sceneRenderEnabled() const override {
@@ -411,6 +423,8 @@ private:
     ScalingMode _scaling {ScalingMode::Center};
     std::optional<float> _textScale;
     bool _imageButtonTextPulses {false};
+    /** How the controls draw their borders and fills. */
+    FillRules _fillRules {};
     glm::ivec2 _rootOffset {0};
     glm::ivec2 _controlOffset {0};
     std::shared_ptr<graphics::Texture> _background;

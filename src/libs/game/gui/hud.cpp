@@ -1006,15 +1006,17 @@ void HUD::update(float dt) {
             }
             int maxHitPoints = member->maxHitPoints();
             vitalityBars[i]->setVisible(true);
-            vitalityBars[i]->setValue(maxHitPoints > 0
-                ? std::clamp(100 * member->currentHitPoints() / maxHitPoints, 0, 100)
-                : 0);
+            vitalityBars[i]->setMaxValue(100);
+            vitalityBars[i]->setCurValue(maxHitPoints > 0
+                                             ? std::clamp(100 * member->currentHitPoints() / maxHitPoints, 0, 100)
+                                             : 0);
 
             int forcePoints = member->maxForcePoints();
             forceBars[i]->setVisible(forcePoints > 0);
-            forceBars[i]->setValue(forcePoints > 0
-                ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
-                : 0);
+            forceBars[i]->setMaxValue(100);
+            forceBars[i]->setCurValue(forcePoints > 0
+                                          ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
+                                          : 0);
         } else {
             LBL_CHAR.setVisible(false);
             LBL_BACK.setVisible(false);
@@ -1069,11 +1071,14 @@ void HUD::update(float dt) {
         _controls.LBL_CHAR1->setVisible(true);
         _controls.LBL_BACK1->setVisible(true);
         _controls.PB_HEALTH->setVisible(true);
-        _controls.PB_HEALTH->setValue(65);
+        _controls.PB_HEALTH->setMaxValue(100);
+        _controls.PB_HEALTH->setCurValue(65);
         _controls.PB_VIT1->setVisible(true);
-        _controls.PB_VIT1->setValue(65);
+        _controls.PB_VIT1->setMaxValue(100);
+        _controls.PB_VIT1->setCurValue(65);
         _controls.PB_FORCE1->setVisible(true);
-        _controls.PB_FORCE1->setValue(45);
+        _controls.PB_FORCE1->setMaxValue(100);
+        _controls.PB_FORCE1->setCurValue(45);
         if (_captureCombatPresentation) {
             toggleCombat(true);
             for (auto &queue : {_controls.LBL_QUEUE0, _controls.LBL_QUEUE1,

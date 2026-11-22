@@ -499,11 +499,11 @@ void IconChain::renderItemBorder(
     _extent = extent;
     setBorderColorOverride(getItemBorderColor(item, focused));
     setUseBorderColorOverride(true);
-    if (_cellStyle.drawItemBorderFill || !border->fill) {
+    if (_cellStyle.drawItemBorderFill || !border->hasFill()) {
         renderBorder(*border, offset, {extent.width, extent.height}, pass);
     } else {
         Border borderWithoutFill(*border);
-        borderWithoutFill.fill.reset();
+        borderWithoutFill.clearFill();
         renderBorder(borderWithoutFill, offset, {extent.width, extent.height}, pass);
     }
     setUseBorderColorOverride(false);

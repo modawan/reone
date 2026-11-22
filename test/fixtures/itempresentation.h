@@ -136,6 +136,7 @@ public:
         options(options), scene(scene), graphics(graphics), resources(resources) {}
     void clear() override { screens.clear(); }
     void updateClock(float) override {}
+    void setFillRules(FillRules) override {}
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
         auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), clock);
         gui->name = name;

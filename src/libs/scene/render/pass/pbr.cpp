@@ -375,6 +375,19 @@ void PBRRenderPass::drawImage(Texture &texture,
     _meshRegistry.get(MeshName::quad).draw(_statistic);
 }
 
+void PBRRenderPass::drawQuad(const glm::ivec2 &position, const glm::ivec2 &scale, glm::vec4 color) {
+    _uniforms.setLocals([&position, &scale, &color](auto &locals) {
+        locals.reset();
+        locals.model = glm::translate(glm::vec3(position.x, position.y, 0.0f));
+        locals.model *= glm::scale(glm::vec3(scale.x, scale.y, 1.0f));
+        locals.color = std::move(color);
+    });
+    _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpColor));
+    _context.withBlendMode(BlendMode::Normal, [this]() {
+        _meshRegistry.get(MeshName::quad).draw(_statistic);
+    });
+}
+
 } // namespace scene
 
 } // namespace reone

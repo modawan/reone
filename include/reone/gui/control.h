@@ -128,15 +128,40 @@ public:
             /** The image at its own size in the middle, squeezed only along an axis it overflows. */
             Center,
             /** The image stretched over the whole area. */
-            Stretch
+            Stretch,
+            /**
+             * The art stretched over the control's whole extent, frame
+             * included, in a GUI that draws this style (FillRules::extentFills);
+             * nothing in one that does not.
+             */
+            Extent,
+            /** A style the layout names that is none of the others: the fill is not drawn. */
+            None
         };
 
-        /** The corners' art; none when no art is named or the named art is missing. */
+        /** The corners' art; none when no art is named or the named art is missing (cornerMissing). */
         std::shared_ptr<graphics::Texture> corner;
-        /** The edges' art; none when no art is named or the named art is missing. */
+        /**
+         * The corners name art the resources do not hold. Such a corner has
+         * no size of its own and is drawn as a plain quad in the border's
+         * colour.
+         */
+        bool cornerMissing {false};
+        /** The edges' art; none when no art is named or the named art is missing (edgeMissing). */
         std::shared_ptr<graphics::Texture> edge;
-        /** The fill's art; none when no art is named or the named art is missing. */
+        /**
+         * The edges name art the resources do not hold. Such an edge has no
+         * size of its own and is drawn as a plain quad in the border's colour.
+         */
+        bool edgeMissing {false};
+        /** The fill's art; none when no art is named or the named art is missing (fillMissing). */
         std::shared_ptr<graphics::Texture> fill;
+        /**
+         * The fill names art the resources do not hold. Such a fill has no
+         * size, so only the stretched styles draw it, as a plain quad in the
+         * fill's colour.
+         */
+        bool fillMissing {false};
         glm::vec3 color {1.0f};
         /** The opacity every piece of the border is drawn with. */
         float alpha {1.0f};
@@ -151,6 +176,18 @@ public:
         bool pulseFrame {false};
         /** While set, the fill is drawn at the GUI's pulsing alpha instead of alpha. */
         bool pulseFill {false};
+
+        /** Whether the corners name art, held or missing; a border without has no frame. */
+        bool hasCorner() const { return corner || cornerMissing; }
+        /** Whether the edges name art, held or missing. */
+        bool hasEdge() const { return edge || edgeMissing; }
+        /** Whether the fill names art, held or missing. */
+        bool hasFill() const { return fill || fillMissing; }
+        /** Takes the fill away: no art is named. */
+        void clearFill() {
+            fill.reset();
+            fillMissing = false;
+        }
     };
 
     struct Text {
@@ -220,7 +257,12 @@ public:
     }
     /** Applies text and frame scale without changing the control's rectangle. */
     void setPresentationScale(float layoutScale);
-    /** Applies independent frame and text layout scales without changing the control's rectangle. */
+    /**
+     * Applies independent frame and text layout scales without changing the
+     * control's rectangle. A GUI whose frames keep their own size
+     * (FillRules::unscaledArt) draws them at the border scale whatever
+     * \p frameLayoutScale is.
+     */
     virtual void setPresentationScale(float frameLayoutScale, float textLayoutScale);
     const Extent &extent() const { return _extent; }
     /** The area the borders are drawn over: the whole extent, unless the control lays them out apart from its text. */
@@ -235,14 +277,23 @@ public:
      */
     virtual Extent innerExtent(const Extent &area) const;
     /**
-     * The area inside \p border over \p area: both axes are inset by the
-     * border's dimension, and an axis that leaves less room than half of it
-     * collapses onto its centre. The area then reaches out by the inner
-     * offset across, at most the dimension, and by all of the vertical inner
-     * offset, or with none the inner offset, up and down.
+     * The area inside \p border over \p area. The border's measure is its
+     * dimension or, with none, the height of its corner art when it names
+     * corner and edge art. With a measure, both axes are inset by it and it is
+     * the step; without one, a border naming corner and edge art is inset by
+     * its corner art's width across and height down, the edge art's width
+     * being the step, and any other border is not inset. Missing art measures
+     * 0. An axis that leaves less room than half the step collapses onto its
+     * centre. The area then reaches out by the inner offset across, at most
+     * the measure, and by all of the vertical inner offset, or with none the
+     * inner offset, up and down.
      */
     Extent borderInnerExtent(const Border &border, const Extent &area) const;
-    /** The dimension of the control's border (see borderInnerExtent); 0 for a control without a border. */
+    /**
+     * The measure of the control's border down (see borderInnerExtent): its
+     * dimension or, with none, the height its corners inset the area inside
+     * it by; 0 for a control without a border.
+     */
     int borderDimension() const;
     /** The part two areas share; an empty area where they do not meet. */
     static Extent intersection(const Extent &a, const Extent &b);
@@ -279,7 +330,7 @@ public:
     void setId(int id) { _id = id; }
     void setTag(std::string tag) { _tag = std::move(tag); }
     void setBorder(Border border);
-    /** Sets the border's fill to the art named \p resRef; an empty name, or missing art, takes the fill away. */
+    /** Sets the border's fill to the art named \p resRef, a fill even when that art is missing; an empty name takes the fill away. */
     void setBorderFill(std::string resRef);
     /** Sets the border's fill to \p texture; none takes the fill away. */
     void setBorderFill(std::shared_ptr<graphics::Texture> texture);
@@ -309,7 +360,7 @@ public:
     void setHilight(Border hilight);
     /** The hilight and the text take \p color while the control is selected. */
     void setHilightColor(glm::vec3 color);
-    /** Sets the hilight's fill to the art named \p resRef; an empty name, or missing art, takes the fill away. */
+    /** Sets the hilight's fill to the art named \p resRef, a fill even when that art is missing; an empty name takes the fill away. */
     void setHilightFill(std::string resRef);
     /** Sets the hilight's fill to \p texture; none takes the fill away. */
     void setHilightFill(std::shared_ptr<graphics::Texture> texture);
@@ -485,20 +536,34 @@ protected:
     }
 
     /**
-     * Draws a border over the given size.
+     * Draws \p border over the control's extent moved by \p offset, \p size
+     * across: the corners and the edges, each edge in its segments and the
+     * art of each piece turned to its side, then the fill over them.
      *
      * @param part the parts of the border drawn
      * @param pulsing whether the whole border is drawn at the GUI's pulsing
      *                alpha, whatever the border's own pulse
+     * @param color the colour every piece, fill included, is drawn in; with
+     *        none, the control's border colour
      */
     void renderBorder(const Border &border,
                       const glm::ivec2 &offset,
                       const glm::ivec2 &size,
                       scene::IRenderPass &pass,
                       BorderRenderPart part = BorderRenderPart::All,
-                      bool pulsing = false);
-    /** The size of frame art at the frame's scale; 0 for missing art. */
+                      bool pulsing = false,
+                      const std::optional<glm::vec3> &color = std::nullopt);
+
+    /**
+     * The size of frame or fill art at the frame's scale: the whole image,
+     * however many frames it is cut into; 0 for missing art.
+     */
     glm::ivec2 frameArtSize(const std::shared_ptr<graphics::Texture> &art) const;
+    /**
+     * An authored frame size at the frame's scale, rounded; one above 0 is
+     * never scaled down to 0, which would take the art's own size.
+     */
+    int scaledFrameSize(int authored) const;
     /** The part the inner extents of the border and the hilight share over \p area. */
     Extent innerExtentWithHilight(const Extent &area) const;
     /**
@@ -525,6 +590,8 @@ protected:
 
     /** Creates a border from its GUI resource fields. */
     std::shared_ptr<Border> createBorder(const resource::generated::GUI_BORDER &gui) const;
+    /** The texture coordinates that turn art drawn over a rect by \p quarters quarter turns anticlockwise. */
+    static glm::mat3x4 quarterTurnUV(int quarters);
     /** The texture coordinates that draw art upside down over a rect. */
     static glm::mat3x4 upsideDownUV();
     /** The texture coordinates that draw art left to right reversed over a rect. */
@@ -538,10 +605,72 @@ protected:
     }
 
 private:
+    /**
+     * Visits the rects, relative to the corner of a control \p size across,
+     * that \p border's fill covers, by its fill style, with \p visit. Art is
+     * measured at the frame's scale, which by the GUI's fill rules may be
+     * the border scale alone; missing art has no size. Private, since it is
+     * defined in control.cpp alone.
+     */
+    template <typename Visit>
+    void forEachFillRect(const Border &border, const glm::ivec2 &size, Visit &&visit) const;
+
     void loadExtent(const resource::generated::GUI_EXTENT &gui);
     void loadBorder(const resource::generated::GUI_BORDER &gui);
     void loadText(const resource::generated::GUI_TEXT &gui);
     void loadHilight(const resource::generated::GUI_BORDER &gui);
+
+    /** How a border's frame lies over a control of some size. */
+    struct FrameLayout {
+        /** The area inside the frame, relative to the control's corner. */
+        Extent area;
+        /**
+         * How many edge segments run along the top and bottom (x) and along
+         * the left and right (y); 0 where the frame takes the whole axis.
+         */
+        glm::ivec2 segments {0};
+        /** The step on both axes, which the segment counts and lengths are measured by. */
+        int step {0};
+    };
+
+    /**
+     * How \p border's frame lies over a control \p size across. A border that
+     * names no corner art has no frame. Otherwise the corner and the step are
+     * the dimension; with no dimension, the corner art's height when edge art
+     * is named and that height is not 0, else the corner is the corner art's
+     * size and the step the edge art's width, or without edge art the corner
+     * art's width. Along each axis the room between the corners holds as
+     * many segments as whole steps across, or one where it holds half a step
+     * or there is no step; with a segment the frame takes the corner's length
+     * on both sides, without it takes the whole axis, half on either side,
+     * the far side the larger.
+     */
+    FrameLayout frameLayout(const Border &border, const glm::ivec2 &size) const;
+
+    /** How a border's frame is measured on each axis. */
+    struct FrameMeasure {
+        /** The length the corners take. */
+        glm::ivec2 corner {0};
+        /**
+         * The step the edges are laid out in on both axes: an edge is its art
+         * turned to its side, so it runs the art's own length on either.
+         */
+        int step {0};
+    };
+
+    /**
+     * The measure of \p border's frame, as it is drawn (frameLayout): the
+     * dimension on both axes when the border has one or names no corner art;
+     * otherwise the corner art's height with edge art when that height is not
+     * 0, else the corner art's size, the step being the edge art's width, or
+     * without edge art the corner art's.
+     */
+    FrameMeasure frameMeasure(const Border &border) const;
+    /**
+     * The measure of the area inside \p border's frame (borderInnerExtent):
+     * the frame's, but none for a border with no dimension and no edge art.
+     */
+    FrameMeasure innerMeasure(const Border &border) const;
 
     /** Places \p lineCount lines of the text in \p area, the area inside the border. */
     void getTextPosition(glm::ivec2 &position, int lineCount, const Extent &area, graphics::TextGravity &gravity) const;

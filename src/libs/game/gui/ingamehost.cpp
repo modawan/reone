@@ -196,7 +196,10 @@ void InGameMenuHost::updateK2SectionTitle() {
     auto border = _controls.LBL_SECTITLE->border();
     border.edge = _presentation.textures.get("uibit_brdr_16bet", TextureUsage::GUI);
     border.corner = _presentation.textures.get("uibit_brdr_16bct", TextureUsage::GUI);
-    border.fill.reset();
+    // The frame names its art, held or missing; the fill goes.
+    border.edgeMissing = !border.edge;
+    border.cornerMissing = !border.corner;
+    border.clearFill();
     _controls.LBL_SECTITLE->setBorder(std::move(border));
 
     auto activeTab = getActiveTabGUI();
@@ -311,7 +314,8 @@ void InGameMenuHost::refreshK2Footer(const InGameMenuFooter &footer) {
     _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(footer.levels[1]);
 
     _controls.PB_VIT1->setVisible(true);
-    _controls.PB_VIT1->setValue(footer.vitalityPercent);
+    _controls.PB_VIT1->setMaxValue(100);
+    _controls.PB_VIT1->setCurValue(footer.vitalityPercent);
 
     _controls.LBL_DEBILATATED1->setVisible(footer.subjectDebilitated);
 }

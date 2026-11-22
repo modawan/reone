@@ -315,33 +315,6 @@ std::shared_ptr<Texture> PresentationGUI::itemFrameTexture(int stackSize) const 
     return _presentation.textures.get(resRef, TextureUsage::GUI);
 }
 
-void PresentationGUI::enableK2ButtonBodyFill(Control &control) {
-    if (!isTSL()) {
-        return;
-    }
-
-    auto edge = _presentation.textures.get("uibit_brdr_16wet", TextureUsage::GUI);
-    auto corner = _presentation.textures.get("uibit_brdr_16wct", TextureUsage::GUI);
-
-    auto border = control.border();
-    border.edge = edge;
-    border.corner = corner;
-    control.setBorder(std::move(border));
-
-    auto hilight = control.hilight();
-    hilight.edge = std::move(edge);
-    hilight.corner = std::move(corner);
-    control.setHilight(std::move(hilight));
-}
-
-void PresentationGUI::enableK2ButtonBodyFill(const std::shared_ptr<Control> &control) {
-    if (!control) {
-        return;
-    }
-
-    enableK2ButtonBodyFill(*control);
-}
-
 void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar, const std::shared_ptr<Control> &bottomBar) {
     static constexpr int kLineThickness = 2;
 

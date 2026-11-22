@@ -80,7 +80,6 @@ void MessagesMenu::onGUILoaded() {
     }
 
     useK2ShellTitle(_controls.LBL_MESSAGES);
-    enableK2ButtonBodyFill(_controls.BTN_EXIT);
 
     _controls.BTN_DIALOG->setOnClick([this]() {
         setFilter(Filter::Dialog);

@@ -793,6 +793,19 @@ void Game::init() {
     }
     _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
     _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
+    // TSL stretches a border fill of the whole-extent style over its
+    // control, keeps frames and fill art at their own size, stretches the
+    // fills of its bar labels and mirrors its frames' side corners.
+    gui::FillRules fillRules;
+    fillRules.extentFills = isTSL();
+    fillRules.unscaledArt = isTSL();
+    fillRules.mirroredCorners = isTSL();
+    if (isTSL()) {
+        fillRules.stretchesFill = [](const gui::Control &control) {
+            return control.type() == gui::ControlType::Label && control.tag().find("LBL_BAR") != std::string::npos;
+        };
+    }
+    _services.gui.guis.setFillRules(std::move(fillRules));
     _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
     // The configuration names one of the levels the player can pick: any row
     // of the difficulty table but the last.

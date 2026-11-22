@@ -105,6 +105,8 @@ public:
                    ImageAlphaMode alphaMode,
                    int frame) override;
 
+    void drawQuad(const glm::ivec2 &position, const glm::ivec2 &scale, glm::vec4 color) override;
+
 private:
     graphics::GraphicsOptions &_options;
     graphics::IContext &_context;

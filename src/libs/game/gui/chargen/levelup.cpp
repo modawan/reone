@@ -48,18 +48,6 @@ void LevelUpMenu::onGUILoaded() {
     bindControls();
     showOnlyNamedControls(kPanelControls, _game.isTSL() ? kNoTitleControls : kK1PanelControls);
 
-    if (_game.isTSL()) {
-        for (auto &button : {
-                 _controls.BTN_BACK,
-                 _controls.BTN_STEPNAME1,
-                 _controls.BTN_STEPNAME2,
-                 _controls.BTN_STEPNAME3,
-                 _controls.BTN_STEPNAME4,
-                 _controls.BTN_STEPNAME5}) {
-            enableK2ButtonBodyFill(button);
-        }
-    }
-
     doSetStep(0);
 
     _controls.BTN_BACK->setOnClick([this]() {

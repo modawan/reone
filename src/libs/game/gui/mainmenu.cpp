@@ -396,7 +396,6 @@ void MainMenu::loadMoviesPage() {
         controls.LBL_BAR2 = std::static_pointer_cast<Label>(find("LBL_BAR2"));
         controls.LBL_UNLOCKED_VALUE = std::static_pointer_cast<Label>(find("LBL_UNLOCKED_VALUE"));
         fillK2SectionStrip(controls.LBL_BAR1, controls.LBL_BAR2);
-        enableK2ButtonBodyFill(controls.BTN_BACK);
     }
     useK1ListEntryColors(controls.LB_MOVIES->protoItem());
 
@@ -472,9 +471,6 @@ void MainMenu::loadMusicPage() {
     controls.LB_MUSIC = std::static_pointer_cast<ListBox>(find("LB_MUSIC"));
     controls.SLI_VOLUME = std::static_pointer_cast<Slider>(find("SLI_VOLUME"));
     fillK2SectionStrip(controls.LBL_BAR1, controls.LBL_BAR2);
-    for (auto &button : {controls.BTN_BACK, controls.BTN_LOOP, controls.BTN_NEXT, controls.BTN_PLAY, controls.BTN_STOP}) {
-        enableK2ButtonBodyFill(button);
-    }
     // A click chooses a song; Play plays it.
     controls.LB_MUSIC->setSelectionMode(ListBox::SelectionMode::OnClick);
 

@@ -14,7 +14,6 @@
 #include "../../fixtures/gui.h"
 #include "../../fixtures/resource.h"
 #include "../../fixtures/scene.h"
-#include "reone/graphics/shaderprogram.h"
 #include "reone/graphics/texture.h"
 #include "reone/gui/control/label.h"
 #include "reone/scene/render/pass.h"
@@ -43,6 +42,7 @@ public:
         positions.push_back(position);
         sizes.push_back(size);
     }
+    void drawQuad(const glm::ivec2 &, const glm::ivec2 &, glm::vec4) override {}
 
     std::vector<glm::ivec2> positions;
     std::vector<glm::ivec2> sizes;
@@ -56,9 +56,6 @@ TEST(ControlBorder, an_oversized_fill_only_border_fills_the_whole_control) {
     graphics.init();
     resources.init();
     scene.init();
-    ShaderProgram shader(std::vector<std::shared_ptr<Shader>> {});
-    EXPECT_CALL(graphics.shaderRegistry(), get(ShaderProgramId::mvpTexture)).WillOnce(ReturnRef(shader));
-    EXPECT_CALL(graphics.context(), useProgram(Ref(shader)));
     EXPECT_CALL(graphics.context(), withBlendMode(_, _)).WillOnce(Invoke([](BlendMode, const std::function<void()> &block) { block(); }));
 
     auto fill = std::make_shared<Texture>("fill", TextureType::TwoDim, Texture::Properties {});
@@ -76,6 +73,22 @@ TEST(ControlBorder, an_oversized_fill_only_border_fills_the_whole_control) {
     ASSERT_EQ(1u, pass.positions.size());
     EXPECT_EQ(glm::ivec2(13, 24), pass.positions.front());
     EXPECT_EQ(glm::ivec2(24, 28), pass.sizes.front());
+}
+
+TEST(ControlBorder, art_named_but_missing_still_counts_and_clearing_the_fill_drops_it) {
+    Control::Border border;
+    EXPECT_FALSE(border.hasCorner());
+    EXPECT_FALSE(border.hasFill());
+    border.cornerMissing = true;
+    border.edgeMissing = true;
+    border.fillMissing = true;
+    EXPECT_TRUE(border.hasCorner());
+    EXPECT_TRUE(border.hasEdge());
+    EXPECT_TRUE(border.hasFill());
+
+    border.clearFill();
+    EXPECT_FALSE(border.hasFill());
+    EXPECT_TRUE(border.hasCorner());
 }
 
 } // namespace

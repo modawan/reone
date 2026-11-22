@@ -79,6 +79,7 @@ public:
     void drawAABB(const std::vector<glm::vec4> &) override {}
     void drawImage(graphics::Texture &, const glm::ivec2 &, const glm::ivec2 &, glm::vec4, glm::mat3x4,
                    scene::ImageAlphaMode, int) override {}
+    void drawQuad(const glm::ivec2 &, const glm::ivec2 &, glm::vec4) override {}
 };
 
 } // namespace

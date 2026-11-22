@@ -135,6 +135,9 @@ public:
                            ImageAlphaMode alphaMode = ImageAlphaMode::Default,
                            int frame = 0) = 0;
 
+    /** A plain quad in \p color, at \p position, \p scale across. */
+    virtual void drawQuad(const glm::ivec2 &position, const glm::ivec2 &scale, glm::vec4 color) = 0;
+
     void drawIcon(graphics::Texture &texture,
                   const glm::ivec2 &position,
                   const glm::ivec2 &scale,
