@@ -15,6 +15,8 @@
 #include "../../fixtures/scene.h"
 #include "reone/graphics/texture.h"
 #include "reone/gui/control/slider.h"
+#include "reone/gui/control/track.h"
+#include "reone/input/event.h"
 
 using namespace reone;
 using namespace reone::graphics;
@@ -58,10 +60,12 @@ protected:
     std::vector<int> changes;
 };
 
-TEST_F(SliderTest, clicks_and_arrow_keys_step_one_value_at_a_time) {
-    EXPECT_TRUE(slider->handleClick(0, 5));
+TEST_F(SliderTest, track_presses_and_arrow_keys_step_one_value_at_a_time) {
+    EXPECT_TRUE(slider->handleMouseDown(1, 5));
+    slider->handleMouseUp(1, 5, true, 1);
     EXPECT_EQ(4, slider->value());
-    EXPECT_TRUE(slider->handleClick(109, 5));
+    EXPECT_TRUE(slider->handleMouseDown(108, 5));
+    slider->handleMouseUp(108, 5, true, 1);
     EXPECT_EQ(5, slider->value());
 
     slider->setSelected(true);
@@ -72,17 +76,52 @@ TEST_F(SliderTest, clicks_and_arrow_keys_step_one_value_at_a_time) {
     EXPECT_EQ((std::vector<int> {4, 5, 6, 5}), changes);
 }
 
-TEST_F(SliderTest, only_the_thumb_starts_a_drag_and_dragging_covers_the_range) {
-    EXPECT_FALSE(slider->handleMouseDown(5, 5));
-    EXPECT_FALSE(slider->handleMouseDrag(110, 5));
-    EXPECT_EQ(5, slider->value());
-
+TEST_F(SliderTest, the_thumb_drags_across_the_range_and_the_release_reports_it) {
     EXPECT_TRUE(slider->handleMouseDown(55, 5));
-    EXPECT_TRUE(slider->handleMouseDrag(110, 5));
+    slider->handleMouseDrag(110, 5);
     EXPECT_EQ(10, slider->value());
-    EXPECT_TRUE(slider->handleMouseDrag(-10, 5));
+    slider->handleMouseDrag(-10, 5);
     EXPECT_EQ(0, slider->value());
-    EXPECT_EQ((std::vector<int> {10, 0}), changes);
+    EXPECT_TRUE(changes.empty());
+
+    slider->handleMouseUp(-10, 5, false, 1);
+    EXPECT_EQ((std::vector<int> {0}), changes);
+}
+
+TEST_F(SliderTest, steps_announce_only_a_value_that_moves) {
+    int steps = 0;
+    slider->setOnStep([&steps]() { ++steps; });
+    slider->step(1);
+    EXPECT_EQ(6, slider->value());
+    slider->setValue(10);
+    slider->step(1);
+    EXPECT_EQ(10, slider->value());
+
+    EXPECT_EQ(1, steps);
+    EXPECT_EQ((std::vector<int> {6}), changes);
+}
+
+TEST(TrackDrag, a_dragged_thumb_keeps_its_grip_and_its_range) {
+    // Pressed at 50 with the value 5 of 10, over a travel of 100.
+    EXPECT_EQ(6, draggedValue(5, 50, 60, 100, 10));
+    EXPECT_EQ(4, draggedValue(5, 50, 41, 100, 10));
+    EXPECT_EQ(10, draggedValue(5, 50, 1000, 100, 10));
+    EXPECT_EQ(0, draggedValue(5, 50, -1000, 100, 10));
+    // A thumb with no travel keeps the value it was pressed at.
+    EXPECT_EQ(5, draggedValue(5, 50, 90, 0, 10));
+}
+
+TEST(WheelSteps, fractions_of_a_turn_gather_into_whole_steps) {
+    input::WheelSteps wheel;
+    auto turn = [&wheel](float y) {
+        return wheel.take(input::MouseWheelEvent(0.0f, y, input::MouseWheelDirection::Normal)).y;
+    };
+    EXPECT_EQ(0, turn(0.4f));
+    EXPECT_EQ(0, turn(0.4f));
+    EXPECT_EQ(1, turn(0.4f));
+    EXPECT_EQ(-1, turn(-1.5f));
+    EXPECT_EQ(0, turn(0.3f));
+    EXPECT_EQ(2, turn(2.0f));
 }
 
 } // namespace

@@ -126,6 +126,10 @@ private:
      */
     std::map<SelectionGroup, std::array<std::optional<EntryIdentity>, kNumActionSlots>> _selections;
     ActionMenuFeedback _feedback;
+    /** The wheel's turns over a slot, gathered into whole steps. */
+    input::WheelSteps _wheelSteps;
+    /** The slot the wheel's turns were gathered over. */
+    int _wheelSlot {-1};
 
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);

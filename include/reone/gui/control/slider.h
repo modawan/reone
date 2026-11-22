@@ -24,14 +24,18 @@ namespace reone {
 namespace gui {
 
 /**
- * A horizontal track with a thumb that sits at the value's share of the
- * track. The player drags the thumb, clicks the track either side of it to
- * step the value by one, or steps it with Left and Right while the slider
- * holds the keyboard.
+ * A value from 0 to the authored maximum, shown by a thumb along a track.
  *
- * A track taller than it is wide stands upright, its thumb higher as the
- * value grows. The games' one such track, the alignment meter, only shows
- * its value.
+ * A wide slider runs left to right, a tall one top to bottom. Dragging the
+ * thumb moves the value with the pointer, the point pressed staying under it;
+ * a press on the track either side of the thumb moves it by one toward the
+ * press; the arrow keys along the track step it by one while the slider
+ * holds the keyboard; the wheel steps it by its notches, turned up moving
+ * the thumb up or right. Every step announces itself (setOnStep), which the
+ * GUI sounds.
+ * A key or wheel step reports the value at once; what a press and a drag
+ * leave is reported on the release, when they moved it or the release is
+ * over the slider.
  */
 class Slider : public Control {
 public:
@@ -51,34 +55,64 @@ public:
         _selectable = true;
     }
 
-    void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
+    void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem = false) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
 
-    bool handleKeyDown(input::KeyCode key) override;
-    bool handleClick(int x, int y, int clicks = 1) override;
     bool handleMouseDown(int x, int y) override;
+    /** The slider takes every move while it keeps the mouse. */
     bool handleMouseDrag(int x, int y) override;
-    /** Letting the thumb go is no click; a release on the track over the slider is. */
+    /**
+     * The release ends a drag and reports the value when the press moved it,
+     * or over the slider when it did not; it never clicks the slider.
+     */
     bool handleMouseUp(int x, int y, bool over, int clicks) override;
+    bool handleKeyDown(input::KeyCode key) override;
+    /** The wheel steps the value by its notches, turned up moving the thumb up or right. */
+    bool handleMouseWheel(int x, int y) override;
 
+    /** The value, from 0 to maxValue. */
     int value() const { return _value; }
+    /** The authored maximum value, the slider's length in steps. */
+    int maxValue() const { return _maxValue; }
 
-    /** Show a value, held within the slider's range, without reporting it as a change. */
+    /** Clamps the value to the range without reporting it. */
     void setValue(int value);
+    /**
+     * Steps the value on by \p steps, or back for a negative count, within
+     * its range; announces the step and reports the value when it changed.
+     */
+    void step(int steps);
 
-    /** Called with the new value each time the player moves the slider. */
+    /** Called with the value when a key or wheel step moves it, and on a release (handleMouseUp). */
     void setOnValueChanged(std::function<void(int)> fn) { _onValueChanged = std::move(fn); }
+    /** Called on each step of the value, by a key, the wheel or a track press; a drag is no step. */
+    void setOnStep(std::function<void()> fn) { _onStep = std::move(fn); }
 
 private:
-    std::shared_ptr<graphics::Texture> _thumb;
-    int _value {0};
-    int _maxValue {0};
-    /** The left button was pressed on the thumb, and is not yet released. */
-    bool _holdsThumb {false};
-    std::function<void(int)> _onValueChanged;
+    enum class Press {
+        None,
+        Thumb,
+        TrackBefore,
+        TrackAfter
+    };
 
+    int _maxValue {0};
+    int _value {0};
+    std::shared_ptr<graphics::Texture> _thumb;
+    bool _dragging {false};
+    /** The value when the left button was pressed. */
+    int _pressValue {0};
+    /** Where along the track the thumb was pressed. */
+    int _thumbPressAlong {0};
+
+    std::function<void(int)> _onValueChanged;
+    std::function<void()> _onStep;
+
+    bool isVertical() const { return _extent.height > _extent.width; }
+    /** Moves the value by \p steps within its range, announcing the move; whether it moved. */
+    bool moveThumb(int steps);
     Extent thumbExtent() const;
-    void changeValue(int value);
+    Press pressAt(int x, int y) const;
 };
 
 } // namespace gui

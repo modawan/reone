@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../control.h"
+#include "scrollbar.h"
 
 #include <unordered_map>
 
@@ -25,7 +26,7 @@ namespace reone {
 
 namespace gui {
 
-class IconChain : public Control {
+class IconChain : public Control, private ScrollBar::IScrollable {
 public:
     enum class State {
         Owned,
@@ -112,6 +113,22 @@ public:
      * @return whether the key is an arrow key, with an item focused
      */
     bool handleKeyDown(input::KeyCode key) override;
+    /**
+     * A press on the scroll bar, shown whether or not every row fits, keeps
+     * the mouse until the release: an arrow scrolls a row as the wheel does,
+     * the track before or after the thumb a page of the rows shown back or
+     * on, and the thumb drags (ScrollBar::press). A press elsewhere is left
+     * to the click.
+     *
+     * @return whether the press was on the scroll bar
+     */
+    bool handleMouseDown(int x, int y) override;
+    /** While a press on the scroll bar keeps the mouse it takes every move; a dragged thumb scrolls the rows. */
+    bool handleMouseDrag(int x, int y) override;
+    /** The release after a press on the scroll bar clicks nothing. */
+    bool handleMouseUp(int x, int y, bool over, int clicks) override;
+    /** While the chart is shown, an arrow or the track of the scroll bar held pressed acts again (ScrollBar::hold). */
+    void update(float dt) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
 
     void setColumnCount(int count);
@@ -164,6 +181,16 @@ private:
     int getCellStepY() const;
     int getVisibleRowCount() const;
     int getMaxRow() const;
+    /** The positions the rows scroll through: the rows beyond those shown, and one. */
+    int getScrollPositions() const override;
+    /** The values the scroll bar shows: the positions, the first row shown and the rows shown. */
+    ScrollBar::ScrollState getScrollState() const override;
+    /** The first row shown. */
+    int getScrollPosition() const override { return _rowOffset; }
+    /** Shows the rows from \p rowOffset on; scrolling drops the focus. */
+    void scrollToPosition(int rowOffset) override;
+    /** Scrolls a page of the rows shown back or on, not past the last position. */
+    void scrollPage(bool next) override;
     int getItemIndex(int x, int y) const;
     /** The index of the item at \p column of \p row; -1 when there is none. */
     int getItemIndexAt(int row, int column) const;

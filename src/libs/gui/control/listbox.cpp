@@ -119,6 +119,10 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
     if (controlStruct.SCROLLBAR) {
         _scrollBar = _gui.newControl(getType(*controlStruct.SCROLLBAR), getTag(*controlStruct.SCROLLBAR));
         _scrollBar->load(*controlStruct.SCROLLBAR);
+        // A list's scroll arrows pulse.
+        if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+            scrollBar->setArrowsPulsing(true);
+        }
     }
     _leftScrollBar = controlStruct.LEFTSCROLLBAR != 0;
     _looping = (controlStruct.LOOPING & 1) != 0;
@@ -186,22 +190,14 @@ int ListBox::getDrawnItemIndex(int x, int y) const {
     return -1;
 }
 
+// The wheel scrolls a position a step, as the scroll bar's arrows do, up
+// scrolling back; a list takes it at either end too.
 bool ListBox::handleMouseWheel(int x, int y) {
-    if (y < 0) {
-        if (_itemOffset < getScrollPositions() - 1) {
-            _itemOffset++;
-            updateItemSlots();
-        }
-        return true;
-    } else if (y > 0) {
-        if (_itemOffset > 0) {
-            _itemOffset--;
-            updateItemSlots();
-        }
-        return true;
+    if (y == 0) {
+        return false;
     }
-
-    return false;
+    scrollBy(-y);
+    return true;
 }
 
 void ListBox::updateItemSlots() {
@@ -218,7 +214,7 @@ void ListBox::updateItemSlots() {
         _slotCount = _overflowing ? static_cast<int>(getTextBlockLinesShown()) : static_cast<int>(_items.size());
         _itemOffset = std::min(_itemOffset, getScrollPositions() - 1);
         if (_scrollBar) {
-            _scrollBar->setVisible(_scrollBarEnabled && _overflowing);
+            _scrollBar->setVisible(_scrollBarEnabled);
         }
         return;
     }
@@ -239,7 +235,7 @@ void ListBox::updateItemSlots() {
     _overflowing = _items.size() > _slotCount;
 
     if (_scrollBar) {
-        _scrollBar->setVisible(_scrollBarEnabled && _overflowing);
+        _scrollBar->setVisible(_scrollBarEnabled);
     }
 }
 
@@ -253,17 +249,28 @@ int ListBox::getPressableItemIndex(int x, int y) const {
 
 bool ListBox::handleMouseDown(int x, int y) {
     _pressedItemIndex = getPressableItemIndex(x, y);
-    _holdsRow = getDrawnItemIndex(x, y) != -1;
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    if (scrollBar && scrollBar->pressIfOn(x, y, *this)) {
+        return true;
+    }
+    // The press stays taken even when choosing the row puts the GUI away,
+    // which releases the list.
+    const bool holdsRow = getDrawnItemIndex(x, y) != -1;
+    _holdsRow = holdsRow;
     if (_pressedItemIndex != -1 && _selectionMode == SelectionMode::OnClick && _pressedItemIndex != _selectedItemIndex) {
         selectByPointer(_pressedItemIndex);
         if (_onItemClick) {
             _onItemClick(_items[_pressedItemIndex].tag);
         }
     }
-    return _holdsRow;
+    return holdsRow;
 }
 
 bool ListBox::handleMouseDrag(int x, int y) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    if (scrollBar && scrollBar->dragIfHeld(x, y, *this)) {
+        return true;
+    }
     return _holdsRow;
 }
 
@@ -271,6 +278,9 @@ bool ListBox::handleMouseUp(int x, int y, bool over, int clicks) {
     const int pressedItemIdx = _pressedItemIndex;
     _pressedItemIndex = -1;
     _holdsRow = false;
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->release();
+    }
     if (pressedItemIdx == -1 || !over) {
         return false;
     }
@@ -294,6 +304,32 @@ bool ListBox::handleClick(int x, int y, int clicks) {
         _onItemDoubleClick(tag);
     }
     return true;
+}
+
+void ListBox::update(float dt) {
+    Control::update(dt);
+    if (!_visible) {
+        return;
+    }
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->hold(*this);
+    }
+}
+
+void ListBox::scrollToPosition(int position) {
+    _itemOffset = position;
+    updateItemSlots();
+}
+
+void ListBox::scrollPage(bool next) {
+    const int lastPosition = getScrollPositions() - 1;
+    const int page = isTextBlock() ? _slotCount : getScrollState().visibleValue;
+    if (!next) {
+        _itemOffset = std::max(_itemOffset - page, 0);
+    } else if (_itemOffset < lastPosition) {
+        _itemOffset = std::min(_itemOffset + page, lastPosition);
+    }
+    updateItemSlots();
 }
 
 bool ListBox::isTextBlock() const {
@@ -330,6 +366,32 @@ int ListBox::getTextBlockPositions() const {
     }
     // The block's lines, less the whole ones the room shows, and one.
     return getTextBlockLineCount() - static_cast<int>(getTextBlockLinesShown()) + 1;
+}
+
+ScrollBar::ScrollState ListBox::getScrollState() const {
+    ScrollBar::ScrollState state;
+    const int positions = getScrollPositions();
+    if (isTextBlock() && _overflowing) {
+        const int overrun = getTextBlockHeight() - getInnerHeight();
+        state.maxValue = overrun + 1;
+        state.visibleValue = getInnerHeight();
+        state.curValue = _itemOffset >= positions - 1
+                             ? state.maxValue
+                             : static_cast<int>(static_cast<float>(overrun) * (static_cast<float>(_itemOffset) / static_cast<float>(positions - 1)));
+        state.extendedRange = _scrollOnly;
+        return state;
+    }
+    state.maxValue = positions;
+    state.curValue = _itemOffset;
+    state.visibleValue = _scrollOnly ? 1 : std::min(_slotCount, getItemCount());
+    state.extendedRange = _scrollOnly;
+    return state;
+}
+
+void ListBox::updateScrollBarState() {
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->setScrollState(getScrollState());
+    }
 }
 
 // The prototype is every row's: a row's own colours, opacities and state
@@ -459,11 +521,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
 
 void ListBox::renderScrollBar(const glm::ivec2 &screenSize, const glm::ivec2 &offset, IRenderPass &pass) {
     if (_scrollBar && _scrollBarEnabled) {
-        ScrollBar::ScrollState state;
-        state.count = getScrollPositions() - 1 + _slotCount;
-        state.numVisible = _slotCount;
-        state.offset = _itemOffset;
-        static_cast<ScrollBar &>(*_scrollBar).setScrollState(std::move(state));
+        updateScrollBarState();
         _scrollBar->render(screenSize, offset, pass);
     }
 }
@@ -612,9 +670,16 @@ void ListBox::loseKeyboard() {
 
 void ListBox::setItemsInteractive(bool interactive) {
     _itemsInteractive = interactive;
-    if (!interactive) {
+    if (interactive) {
+        _scrollOnly = false;
+    } else {
         clearSelection();
     }
+}
+
+void ListBox::setScrollOnly(bool scrollOnly) {
+    setItemsInteractive(!scrollOnly);
+    _scrollOnly = scrollOnly;
 }
 
 void ListBox::setScrollBarEnabled(bool enabled) {

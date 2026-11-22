@@ -142,19 +142,14 @@ void IconChain::stepFocus(int index) {
     }
 }
 
+// The wheel scrolls a row a step, as the scroll bar's arrows do; a chart
+// takes it at either end too, as a list does.
 bool IconChain::handleMouseWheel(int x, int y) {
-    int maxRowOffset = std::max(0, getMaxRow() - getVisibleRowCount() + 1);
-    if (y < 0 && _rowOffset < maxRowOffset) {
-        ++_rowOffset;
-        clearFocusedItem();
-        return true;
+    if (y == 0) {
+        return false;
     }
-    if (y > 0 && _rowOffset > 0) {
-        --_rowOffset;
-        clearFocusedItem();
-        return true;
-    }
-    return false;
+    scrollBy(-y);
+    return true;
 }
 
 bool IconChain::handleClick(int x, int y, int clicks) {
@@ -173,6 +168,63 @@ bool IconChain::handleClick(int x, int y, int clicks) {
     return true;
 }
 
+bool IconChain::handleMouseDown(int x, int y) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    return scrollBar && scrollBar->pressIfOn(x, y, *this);
+}
+
+bool IconChain::handleMouseDrag(int x, int y) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    return scrollBar && scrollBar->dragIfHeld(x, y, *this);
+}
+
+// A release that lets the scroll bar go clicks nothing.
+bool IconChain::handleMouseUp(int x, int y, bool over, int clicks) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    return !(scrollBar && scrollBar->release()) && over;
+}
+
+void IconChain::update(float dt) {
+    Control::update(dt);
+    if (!_visible) {
+        return;
+    }
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->hold(*this);
+    }
+}
+
+// A page is the rows shown; paging on stops at the last position.
+void IconChain::scrollPage(bool next) {
+    const int last = getScrollPositions() - 1;
+    const int page = getScrollState().visibleValue;
+    if (!next) {
+        scrollToPosition(std::max(_rowOffset - page, 0));
+    } else if (_rowOffset < last) {
+        scrollToPosition(std::min(_rowOffset + page, last));
+    }
+}
+
+void IconChain::scrollToPosition(int rowOffset) {
+    if (rowOffset == _rowOffset) {
+        return;
+    }
+    _rowOffset = rowOffset;
+    clearFocusedItem();
+}
+
+int IconChain::getScrollPositions() const {
+    return std::max(getMaxRow() + 1 - getVisibleRowCount(), 0) + 1;
+}
+
+ScrollBar::ScrollState IconChain::getScrollState() const {
+    ScrollBar::ScrollState state;
+    state.maxValue = getScrollPositions();
+    state.curValue = _rowOffset;
+    state.visibleValue = std::min(getVisibleRowCount(), getMaxRow() + 1);
+    return state;
+}
+
 void IconChain::render(const glm::ivec2 &screenSize,
                        const glm::ivec2 &offset,
                        IRenderPass &pass) {
@@ -180,6 +232,14 @@ void IconChain::render(const glm::ivec2 &screenSize,
         return;
     }
 
+    // As a list's, the scroll bar is drawn first, whether or not every row
+    // shows, then the chart's border, then its cells.
+    if (_scrollBar) {
+        if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+            scrollBar->setScrollState(getScrollState());
+        }
+        _scrollBar->render(screenSize, offset, pass);
+    }
     Control::render(screenSize, offset, pass);
 
     for (auto &item : _items) {
@@ -235,24 +295,14 @@ void IconChain::render(const glm::ivec2 &screenSize,
             renderFocusedBorder(item, focused, itemExtent, offset, pass);
         }
     }
-
-    if (_scrollBar) {
-        int rowCount = getMaxRow() + 1;
-        int visibleRows = getVisibleRowCount();
-        if (rowCount > visibleRows) {
-            ScrollBar::ScrollState state;
-            state.count = rowCount;
-            state.numVisible = visibleRows;
-            state.offset = _rowOffset;
-            auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
-            scrollBar.setScrollState(std::move(state));
-            scrollBar.render(screenSize, offset, pass);
-        }
-    }
 }
 
+// The chart's scroll arrows pulse, as a list's do.
 void IconChain::setScrollBar(std::shared_ptr<Control> scrollBar) {
     _scrollBar = std::move(scrollBar);
+    if (auto typed = ScrollBar::of(_scrollBar)) {
+        typed->setArrowsPulsing(true);
+    }
 }
 
 void IconChain::setColumnCount(int count) {

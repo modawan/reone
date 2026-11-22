@@ -215,13 +215,13 @@ void ContainerGUI::closeTakingAll() {
     close(true);
 }
 
-// Taking, the list only shows the container's items: no entry is selected,
-// and the pointer neither selects nor clicks one. Giving, the pointer selects
-// the list's entries and a click gives one.
+// Taking, the list only scrolls the container's items, a row at a time: no
+// entry is selected, and the pointer neither selects nor clicks one.
+// Giving, the pointer selects the list's entries and a click gives one.
 void ContainerGUI::showMode(Mode mode) {
     _mode = mode;
     const bool giving = mode == Mode::PlayerToContainer;
-    _controls.LB_ITEMS->setItemsInteractive(giving);
+    _controls.LB_ITEMS->setScrollOnly(!giving);
     _controls.BTN_GIVEITEMS->setTextMessage(giving ? _getItemsMsg : _giveItemMsg);
     const std::string okText = _services.resource.strings.getText(giving ? kGiveItemResRef : kGetItemsResRef);
     _controls.BTN_OK->setTextMessage(okText);

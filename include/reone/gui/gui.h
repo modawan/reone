@@ -60,45 +60,60 @@ public:
 
 /**
  * The time every GUI is drawn by: the art that cycles through frames, and
- * the opacity of the hilight pulse, which pulsing borders, images and texts
- * are drawn with: it falls from 1 to 0.4 over 0.75 s, rises back over the
- * next 0.75 s, and repeats. Controls outside a GUI's tree, as a list's rows
- * and scroll bars, keep the same time.
+ * the opacities of the pulses. The hilight pulse, which pulsing borders,
+ * images and texts are drawn with, falls from 1 to 0.4 over 0.75 s, rises
+ * back over the next 0.75 s, and repeats; the scroll-arrow pulse, which every
+ * list's scroll arrows are drawn with, does the same down to 0.2. Controls
+ * outside a GUI's tree, as a list's rows and scroll bars, keep the same time.
  */
 class GUIClock {
 public:
-    /** Advances the clock by dt seconds: the art's time, then the pulse. */
+    /** Advances the clock by dt seconds: the art's time, then both pulses, the arrows' first. */
     void update(float dt) {
         _textureTime += dt;
-        // A long frame may turn the pulse more than once.
-        _timeLeft -= dt;
-        while (_timeLeft <= 0.0f) {
-            _rising = !_rising;
-            _timeLeft += kHalfPeriod;
-        }
-        const float progress = (kHalfPeriod - _timeLeft) / kHalfPeriod;
-        _value = _rising ? kLow + (1.0f - kLow) * progress : 1.0f - (1.0f - kLow) * progress;
+        _arrows.update(dt);
+        _hilights.update(dt);
     }
 
-    /** The seconds the clock has run for: the frame cycling art shows (graphics::getCycleFrame). */
+    /**
+     * The seconds the clock has run for: the frame cycling art shows
+     * (graphics::getCycleFrame), and the time held presses repeat by.
+     */
     double textureTime() const { return _textureTime; }
 
     /** The hilight pulse's opacity now, 0.4 to 1. */
-    float value() const { return _value; }
+    float value() const { return _hilights.value; }
+    /** The scroll-arrow pulse's opacity now, 0.2 to 1. */
+    float arrowValue() const { return _arrows.value; }
 
 private:
-    /** Seconds the pulse takes to fall, or to rise. */
+    /** Seconds a pulse takes to fall, or to rise. */
     static constexpr float kHalfPeriod = 0.75f;
-    /** The opacity at the bottom of the pulse. */
-    static constexpr float kLow = 0.4f;
+
+    struct Pulse {
+        /** The opacity at the bottom of the pulse. */
+        float low;
+        /** The opacity now. */
+        float value {1.0f};
+        /** Seconds left before the pulse turns. */
+        float timeLeft {kHalfPeriod};
+        /** Whether the opacity is rising; it starts falling from 1. */
+        bool rising {false};
+
+        void update(float dt) {
+            timeLeft -= dt;
+            while (timeLeft <= 0.0f) {
+                rising = !rising;
+                timeLeft += kHalfPeriod;
+            }
+            const float progress = (kHalfPeriod - timeLeft) / kHalfPeriod;
+            value = rising ? low + (1.0f - low) * progress : 1.0f - (1.0f - low) * progress;
+        }
+    };
 
     double _textureTime {0.0};
-    /** The opacity now. */
-    float _value {1.0f};
-    /** Seconds left before the pulse turns. */
-    float _timeLeft {kHalfPeriod};
-    /** Whether the opacity is rising; it starts falling from 1. */
-    bool _rising {false};
+    Pulse _hilights {0.4f};
+    Pulse _arrows {0.2f};
 };
 
 class IGUI {
@@ -229,10 +244,13 @@ public:
     virtual bool imageButtonTextPulses() const = 0;
     /** The opacity pulsing borders and texts are drawn with now. */
     virtual float pulsingAlpha() const = 0;
+    /** The opacity a list's scroll arrows are drawn with now. */
+    virtual float arrowPulsingAlpha() const = 0;
     /**
      * The seconds the GUIs' clock has run for, the same for every control:
-     * the frame cycling art shows. It runs through pauses and at any game
-     * speed, and slows only with the world under TSL's gameover panel.
+     * the frame cycling art shows, and the time held presses repeat by. It
+     * runs through pauses and at any game speed, and slows only with the
+     * world under TSL's gameover panel.
      */
     virtual double textureTime() const = 0;
     /** How the GUI's controls draw their border fills. */
@@ -410,6 +428,10 @@ public:
         return _clock.value();
     }
 
+    float arrowPulsingAlpha() const override {
+        return _clock.arrowValue();
+    }
+
     double textureTime() const override {
         return _clock.textureTime();
     }
@@ -483,6 +505,8 @@ private:
     bool _listEntered {false};
     /** Whether the hilight of a control that takes the keyboard on hover, other than a list, follows the keyboard. */
     bool _hilightFollowsKeyboard {false};
+    /** The wheel's turns gathered into whole steps for the control under the pointer. */
+    input::WheelSteps _wheelSteps;
     /** Whether a held arrow key wrapped one of the lists round (keyRepeatStopped). */
     bool _keyRepeatStopped {false};
     /** Whether the arrow keys pass over a hidden control too (setArrowWalkVisibleOnly). */
@@ -551,7 +575,7 @@ private:
      * are none.
      */
     bool isHovered(const std::optional<std::reference_wrapper<Control>> &control) const;
-    /** The pointer is on \p control, or on none: no list row is entered yet. */
+    /** The pointer is on \p control, or on none: no list row is entered yet and the wheel's turns gather afresh. */
     void setHovered(const std::optional<std::reference_wrapper<Control>> &control);
     /**
      * The pointer comes onto \p control: unless it is already hilighted, it

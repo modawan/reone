@@ -291,9 +291,21 @@ bool SelectionOverlay::handleMouseWheel(const input::MouseWheelEvent &event) {
     if (slot.actions.empty())
         return false;
 
-    // A wheel notch over a slot scrolls it like its arrows.
+    // Each step of the wheel over a slot scrolls it like its arrows, up to
+    // the previous entry; a fraction of a step waits for the next turn over
+    // the same slot.
+    if (_wheelSlot != _selectedActionSlot) {
+        _wheelSteps = input::WheelSteps();
+        _wheelSlot = _selectedActionSlot;
+    }
+    const auto steps = _wheelSteps.take(event);
+    if (steps.y == 0) {
+        return event.y != 0.0f;
+    }
     _game.cancelPartyItemTarget();
-    cycleActionSlot(slot, _selections[_selectionGroup][_selectedActionSlot], event.y > 0, _feedback, _services);
+    for (int i = 0; i < std::abs(steps.y); ++i) {
+        cycleActionSlot(slot, _selections[_selectionGroup][_selectedActionSlot], steps.y > 0, _feedback, _services);
+    }
     _game.requestAutoPause(AutoPauseReason::ActionMenu);
     _game.requestTutorialWindow(kActionMenuTutorial);
     return true;

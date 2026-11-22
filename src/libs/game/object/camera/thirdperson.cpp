@@ -158,7 +158,7 @@ bool ThirdPersonCamera::handleMouseWheel(const input::MouseWheelEvent &event) {
     if (!_game.options().game.wheelZoom || _combat || _deathOrbit) {
         return false;
     }
-    const float notches = event.direction == input::MouseWheelDirection::Flipped ? -event.y : event.y;
+    const float notches = event.physicalNotchesY();
     if (notches == 0.0f) {
         return false;
     }
