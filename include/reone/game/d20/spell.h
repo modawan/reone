@@ -37,10 +37,14 @@ class Model;
 
 namespace game {
 
-/** The spells.2da user types of Force powers, special abilities and item abilities. */
+/** The spells.2da user types: Force powers, special abilities, item abilities and TSL's forms. */
 constexpr int kSpellUserTypeForcePower = 1;
+/** A Force power a level-up may also take. */
+constexpr int kSpellUserTypeLearnedForcePower = 5;
 constexpr int kSpellUserTypeSpecialAbility = 2;
 constexpr int kSpellUserTypeItem = 4;
+/** TSL's lightsaber and Force forms. */
+constexpr int kSpellUserTypeForm = 6;
 
 /** The spells.2da CastAnim code, which picks both the conjure and the cast clip. */
 enum class SpellCastAnimation {

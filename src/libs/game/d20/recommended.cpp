@@ -93,7 +93,8 @@ std::vector<SpellType> recommendPowers(
     const CreatureClass &clazz,
     int picks,
     Alignment alignment,
-    bool fillWithUnranked) {
+    bool fillWithUnranked,
+    const std::function<bool(SpellType)> &refused) {
     const bool darkSide = alignment == Alignment::DarkSide;
 
     auto sideRecommendation = [&spells](SpellType type, bool dark) -> std::optional<int> {
@@ -123,6 +124,9 @@ std::vector<SpellType> recommendPowers(
     std::set<SpellType> chosen;
     for (int pick = 0; pick < picks; ++pick) {
         auto candidates = spells.getLevelUpCandidates(attributes, clazz, chosen);
+        if (refused) {
+            candidates.erase(std::remove_if(candidates.begin(), candidates.end(), refused), candidates.end());
+        }
         auto power = findBest(candidates, darkSide);
         if (!power) {
             power = findBest(candidates, !darkSide);

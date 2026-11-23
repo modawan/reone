@@ -73,6 +73,7 @@ std::vector<FeatType> recommendFeats(const IFeats &feats, const FeatChoice &choi
  *        is the dark side, any other's the light side
  * @param fillWithUnranked true to fill a pick no ranked candidate can take
  *        with the candidate of the lowest row, as an automatic level-up must
+ * @param refused the candidates the character may not be given
  * @return the recommended powers, in the order they were chosen; fewer than
  *         the picks when no candidate is left
  */
@@ -82,7 +83,8 @@ std::vector<SpellType> recommendPowers(
     const CreatureClass &clazz,
     int picks,
     Alignment alignment,
-    bool fillWithUnranked = false);
+    bool fillWithUnranked = false,
+    const std::function<bool(SpellType)> &refused = {});
 
 } // namespace game
 
