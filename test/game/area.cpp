@@ -42,6 +42,10 @@ void reone::game::TestGameModule::setDoorClosedWalkmesh(Door &door, std::shared_
     door._walkmeshClosed = std::move(walkmesh);
 }
 
+void reone::game::TestGameModule::loadAreaARE(Area &area, const resource::generated::ARE &are) {
+    area.loadARE(are);
+}
+
 bool reone::game::TestGameModule::isSafeLocationPoint(const Area &area, const glm::vec3 &point, const Creature &creature) {
     return area.isSafeLocationPoint(point, creature);
 }
@@ -170,6 +174,25 @@ TEST(Area, get_object_by_tag_should_keep_insertion_order) {
     EXPECT_EQ(dead1, area->getObjectByTag(tag, 1));
     EXPECT_EQ(alive2, area->getObjectByTag(tag, 2));
     EXPECT_EQ(dead3, area->getObjectByTag(tag, 3));
+}
+
+// Scripts compare an area's tag: the sonic emitter on the Manaan sea floor
+// acts only where GetTag(GetArea(...)) is "manm28ab" or "manm28ad".
+TEST(Area, takes_its_tag_from_the_are) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault(ReturnRef(sceneGraph));
+    auto area = game.newArea();
+
+    resource::generated::ARE are;
+    are.Tag = "manm28ab";
+    TestGameModule::loadAreaARE(*area, are);
+
+    EXPECT_EQ("manm28ab", area->tag());
 }
 
 TEST(Area, failed_room_attachment_rolls_back_area_ownership) {

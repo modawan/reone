@@ -309,6 +309,8 @@ void Area::activate() {
 
 void Area::loadARE(const resource::generated::ARE &are) {
     _localizedName = _services.resource.strings.getText(are.Name.first);
+    // Scripts compare the area's tag, as read by GetTag(GetArea(...)).
+    _tag = boost::to_lower_copy(are.Tag);
 
     loadCameraStyle(are);
     loadAmbientColor(are);

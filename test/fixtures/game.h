@@ -51,6 +51,10 @@ class Gff;
 struct SaveSlotDescriptor;
 class SaveWorkingState;
 
+namespace generated {
+struct ARE;
+}
+
 }
 
 namespace scene {
@@ -467,6 +471,7 @@ public:
         const SerializedIdentityContext &identityContext);
     static std::optional<int> savedScriptLoop(const Creature &creature);
     static void setDoorClosedWalkmesh(Door &door, std::shared_ptr<scene::WalkmeshSceneNode> walkmesh);
+    static void loadAreaARE(Area &area, const resource::generated::ARE &are);
     static bool isSafeLocationPoint(const Area &area, const glm::vec3 &point, const Creature &creature);
     static glm::vec3 placedCreaturePosition(const Area &area, const glm::vec3 &position, const Creature &creature);
     static void configureSnapshotLinkedDoor(
