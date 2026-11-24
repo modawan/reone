@@ -910,38 +910,84 @@ static glm::vec3 inverseDirection(const glm::vec3 &dir) {
     return inverse;
 }
 
+// Walk lines are tested a tenth of a metre above the ground (Area). A low,
+// steep sill of walkable ground in a room, met from its upper side, is a step
+// up, not a wall: the line goes on from where it meets the sill, as far above
+// it again, as a walker stepping up it would test. Without this, a sill higher
+// and steeper than that tenth stops every walk up it while walks down it pass
+// over. Only a face whose normal lies between kSteepestStep and kGentlestStep
+// from upright and that tops out no more than kMaxStepUp over the ground the
+// line set out from is stepped up. Anything else stops the line as before:
+// gentler slopes (a walk's own steps go up those), higher or steeper walkable
+// ground, faces of other materials, faces met from below, and door and
+// placeable walkmeshes.
 bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const {
+    static constexpr float kClimbLift = 0.1f;
+    static constexpr float kMaxStepUp = 0.3f;
+    // The least and most upright a stepped-up face's normal may be (about 60
+    // and 37 degrees of slope).
+    static constexpr float kSteepestStep = 0.5f;
+    static constexpr float kGentlestStep = 0.8f;
+    // A guard: a line that has stepped up this many times is stopped.
+    static constexpr int kMaxSteps = 16;
+
     glm::vec3 originToDest(dest - origin);
     glm::vec3 dir(glm::normalize(originToDest));
-    float maxDistance = glm::length(originToDest);
-    float minDistance = std::numeric_limits<float>::max();
-
-    for (auto &root : _walkmeshRoots) {
-        if (!root->isEnabled() || root->user() == excludeUser) {
-            continue;
+    const float length = glm::length(originToDest);
+    glm::vec3 from {origin};
+    float travelled = 0.0f;
+    // The ground the line set out from.
+    const float ground = origin.z - kClimbLift;
+    for (int steps = 0;; ++steps) {
+        const float maxDistance = length - travelled;
+        float minDistance = std::numeric_limits<float>::max();
+        Collision nearest;
+        bool climbable = false;
+        for (auto &root : _walkmeshRoots) {
+            if (!root->isEnabled() || root->user() == excludeUser) {
+                continue;
+            }
+            glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(from, 1.0f));
+            glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
+            // An object's walkmesh is passed over when the segment misses its box.
+            float boxDistance = 0.0f;
+            if (!root->walkmesh().isAreaWalkmesh() &&
+                !root->aabb().raycast(objSpaceOrigin, inverseDirection(objSpaceDir), maxDistance, boxDistance)) {
+                continue;
+            }
+            auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, maxDistance, /*ignoreBackface=*/false);
+            if (raycast.fail || raycast.distance > maxDistance || raycast.distance > minDistance) {
+                continue;
+            }
+            uint32_t material = root->walkmesh().materials[raycast.face];
+            glm::vec3 normal = root->walkmesh().normals[raycast.face];
+            nearest.user = root->user();
+            nearest.intersection = from + raycast.distance * dir;
+            nearest.normal = root->absoluteTransform() * glm::vec4(normal, 0.0f);
+            nearest.material = material;
+            climbable = false;
+            if (root->walkmesh().isAreaWalkmesh() && Walkmesh::hasSurfaceMaterial(_walkableSurfaces, material) &&
+                nearest.normal.z >= kSteepestStep && nearest.normal.z < kGentlestStep && glm::dot(nearest.normal, dir) < 0.0f) {
+                const auto &face = root->walkmesh().faces[raycast.face];
+                float top = -std::numeric_limits<float>::max();
+                for (uint32_t index : face.indices) {
+                    const glm::vec3 vertex {root->absoluteTransform() * glm::vec4(root->walkmesh().vertices[index], 1.0f)};
+                    top = std::max(top, vertex.z);
+                }
+                climbable = top <= ground + kMaxStepUp;
+            }
+            minDistance = raycast.distance;
         }
-        glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
-        glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
-        // An object's walkmesh is passed over when the segment misses its box.
-        float boxDistance = 0.0f;
-        if (!root->walkmesh().isAreaWalkmesh() &&
-            !root->aabb().raycast(objSpaceOrigin, inverseDirection(objSpaceDir), maxDistance, boxDistance)) {
-            continue;
+        if (minDistance == std::numeric_limits<float>::max()) {
+            return false;
         }
-        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, maxDistance, /*ignoreBackface=*/false);
-        if (raycast.fail || raycast.distance > maxDistance || raycast.distance > minDistance) {
-            continue;
+        if (!climbable || steps == kMaxSteps) {
+            outCollision = nearest;
+            return true;
         }
-        uint32_t material = root->walkmesh().materials[raycast.face];
-        glm::vec3 normal = root->walkmesh().normals[raycast.face];
-        outCollision.user = root->user();
-        outCollision.intersection = origin + raycast.distance * dir;
-        outCollision.normal = root->absoluteTransform() * glm::vec4(normal, 0.0f);
-        outCollision.material = material;
-        minDistance = raycast.distance;
+        travelled += minDistance;
+        from = nearest.intersection + glm::vec3(0.0f, 0.0f, kClimbLift);
     }
-
-    return minDistance != std::numeric_limits<float>::max();
 }
 
 // How far along a line, in an AABB mesh's space and along a unit direction,
