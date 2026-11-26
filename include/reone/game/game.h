@@ -1093,16 +1093,6 @@ public:
     bool floatingTextEnabled() const {
         return _options.game.feedback.floatingNumbers;
     }
-    /**
-     * The GUI font for a base font name: its small variant when the small-font
-     * option is on, else its large variant. The console font has no variants.
-     */
-    std::string guiFontName(const std::string &baseFont) const {
-        if (baseFont == "fnt_console") {
-            return baseFont;
-        }
-        return baseFont + (_options.game.feedback.smallFonts ? 'a' : 'b');
-    }
     bool tutorialWindowsEnabled() const {
         return _options.game.feedback.tutorialPopups;
     }
@@ -1110,7 +1100,10 @@ public:
         _options.game.feedback.tutorialPopups = enabled;
     }
     const FeedbackOptions &feedbackOptions() const { return _options.game.feedback; }
-    /** The tooltips follow their switch. */
+    /**
+     * Turning the small fonts switch shows every GUI text in the fonts it
+     * picks; the tooltips follow their switch.
+     */
     void setFeedbackOptions(const FeedbackOptions &options);
     /** Write the feedback options to the configuration. */
     void saveFeedbackOptions() const;

@@ -138,6 +138,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/gui/control/listbox.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/imagebutton.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
     ${TESTS_SOURCE_DIR}/gui/control/border.cpp
     ${TESTS_SOURCE_DIR}/gui/control/slider.cpp

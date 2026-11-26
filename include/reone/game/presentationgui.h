@@ -160,6 +160,18 @@ protected:
      * unselected.
      */
     void useK1NewEntryStyle(gui::ListBox::Item &entry) const;
+    /**
+     * An item list's rows are item entries: KotOR's 56 high, TSL's 36, each
+     * stack count in its font, in the variant the GUIs show, and in its box
+     * at the icon's lower right.
+     */
+    void useItemEntryLayout(gui::ListBox &listBox) const;
+    /**
+     * The rows of the workbench's item and upgrade lists: an item list's rows
+     * and count font, each stack count in a box of its own at the icon's
+     * lower right, centred whatever its length.
+     */
+    void useUpgradeListLayout(gui::ListBox &listBox) const;
 
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
     void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);

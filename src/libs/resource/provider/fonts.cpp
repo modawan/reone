@@ -28,14 +28,7 @@ namespace reone {
 
 namespace resource {
 
-static std::unordered_map<std::string, std::string> g_fontOverride = {
-    {"fnt_d16x16", "fnt_d16x16b"}};
-
 std::shared_ptr<Font> Fonts::doGet(std::string resRef) {
-    auto maybeOverride = g_fontOverride.find(resRef);
-    if (maybeOverride != g_fontOverride.end()) {
-        resRef = maybeOverride->second;
-    }
     std::shared_ptr<Texture> texture(_textures.get(resRef, TextureUsage::Font));
     if (!texture)
         return nullptr;

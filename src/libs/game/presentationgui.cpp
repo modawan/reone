@@ -39,6 +39,20 @@ namespace reone {
 
 namespace game {
 
+static constexpr char kItemCountFont[] = "fnt_d16x16";
+// An item entry is this high in each title. Its stack count sits on the
+// bottom of a box at the icon's lower right, this wide, or wider for a count
+// of three or more digits; TSL grows the box by a pixel past the icon.
+static constexpr float kK1ItemRowHeight = 56.0f;
+static constexpr float kTSLItemRowHeight = 36.0f;
+static constexpr float kItemCountWidth = 21.0f;
+static constexpr float kK1ItemCountWideWidth = 42.0f;
+static constexpr float kTSLItemCountWideWidth = 55.0f;
+static constexpr float kTSLItemCountGrowth = 1.0f;
+// The workbench's item and upgrade lists box a stack count as an item list
+// does, or this wide for a count of three or more digits in both titles.
+static constexpr float kUpgradeListCountWideWidth = 42.0f;
+
 PresentationGUI::PresentationGUI(resource::GameID gameId,
                                  const graphics::GraphicsOptions &options,
                                  PresentationServices services) :
@@ -295,6 +309,26 @@ void PresentationGUI::useK1NewEntryStyle(ListBox::Item &entry) const {
     }
     entry.frameColor = kGUIColorNew;
     entry.frameAlpha = kNewEntryFrameAlpha;
+}
+
+void PresentationGUI::useItemEntryLayout(ListBox &listBox) const {
+    listBox.setIconTextFont(kItemCountFont);
+    if (isTSL()) {
+        listBox.setIconTextBox({kTSLItemRowHeight, kItemCountWidth, kTSLItemCountWideWidth, kTSLItemCountGrowth, true});
+        listBox.setItemAuthoredHeight(static_cast<int>(kTSLItemRowHeight));
+    } else {
+        listBox.setIconTextBox({kK1ItemRowHeight, kItemCountWidth, kK1ItemCountWideWidth, 0.0f, false});
+        listBox.setItemAuthoredHeight(static_cast<int>(kK1ItemRowHeight));
+    }
+}
+
+void PresentationGUI::useUpgradeListLayout(ListBox &listBox) const {
+    useItemEntryLayout(listBox);
+    if (isTSL()) {
+        listBox.setIconTextBox({kTSLItemRowHeight, kItemCountWidth, kUpgradeListCountWideWidth, kTSLItemCountGrowth, false});
+    } else {
+        listBox.setIconTextBox({kK1ItemRowHeight, kItemCountWidth, kUpgradeListCountWideWidth, 0.0f, false});
+    }
 }
 
 void PresentationGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {

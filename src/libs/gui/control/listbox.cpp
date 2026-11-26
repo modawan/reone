@@ -34,6 +34,7 @@
 #include "reone/gui/control/togglebutton.h"
 #include "reone/gui/gui.h"
 #include "reone/resource/gff.h"
+#include "reone/resource/provider/fonts.h"
 #include "reone/resource/resources.h"
 #include "reone/scene/render/pass.h"
 #include "reone/system/logutil.h"
@@ -526,6 +527,17 @@ void ListBox::renderScrollBar(const glm::ivec2 &screenSize, const glm::ivec2 &of
     }
 }
 
+void ListBox::resetFont() {
+    Control::resetFont();
+    if (!_iconTextBaseFont.empty()) {
+        resolveIconTextFont();
+    }
+    if (_protoItem) {
+        _protoItem->resetFont();
+        updateItemsLayout();
+    }
+}
+
 void ListBox::stretch(float x, float y, int mask) {
     Control::stretch(x, y, mask);
 
@@ -541,7 +553,7 @@ void ListBox::stretch(float x, float y, int mask) {
         _protoItem->stretch(x, y, mask & ~kStretchHeight);
         if (mask & kStretchHeight) {
             auto extent = _protoItem->extent();
-            extent.height = static_cast<int>(_protoItem->authoredExtent().height * _layoutScale);
+            extent.height = scaledItemHeight();
             _protoItem->setExtent(std::move(extent));
         }
         _protoItem->setPresentationScale(_layoutScale, listLayoutScale);
@@ -751,12 +763,42 @@ ImageButton *ListBox::imageButtonProto() const {
     return _protoItem && _protoItem->type() == ControlType::ImageButton ? static_cast<ImageButton *>(_protoItem.get()) : nullptr;
 }
 
-void ListBox::setIconTextFont(std::shared_ptr<Font> font) {
+void ListBox::setIconTextFont(std::string baseFont) {
     // An image-button prototype draws the icon text itself.
     if (auto imageButton = imageButtonProto()) {
-        imageButton->setIconFont(std::move(font));
+        imageButton->setIconFont(std::move(baseFont));
+        return;
+    }
+    _iconTextBaseFont = std::move(baseFont);
+    resolveIconTextFont();
+}
+
+void ListBox::resolveIconTextFont() {
+    _iconTextFont = _resourceSvc.fonts.get(fontName(_iconTextBaseFont, _gui.smallFonts()));
+}
+
+void ListBox::setIconTextBox(IconTextBox box) {
+    // An image-button prototype draws the icon text itself.
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconTextBox(box);
     } else {
-        _iconTextFont = std::move(font);
+        _iconTextBox = box;
+    }
+}
+
+void ListBox::setIconFrameHilightPulsing(bool pulsing) {
+    _iconFrameHilightPulsing = pulsing;
+    // An image-button prototype draws the icon frame itself.
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconFrameHilightPulsing(pulsing);
+    }
+}
+
+void ListBox::setIconsCentred(bool centred) {
+    _iconsCentred = centred;
+    // An image-button prototype draws the icons itself.
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconCentred(centred);
     }
 }
 
@@ -800,6 +842,23 @@ void ListBox::scrollToBottom() {
 
     _itemOffset = static_cast<int>(offset);
     updateItemSlots();
+}
+
+void ListBox::setItemAuthoredHeight(int height) {
+    if (!_protoItem) {
+        return;
+    }
+    auto authored = _protoItem->authoredExtent();
+    authored.height = height;
+    _protoItem->setAuthoredExtent(std::move(authored));
+    auto extent = _protoItem->extent();
+    extent.height = scaledItemHeight();
+    _protoItem->setExtent(std::move(extent));
+    updateItemsLayout();
+}
+
+int ListBox::scaledItemHeight() const {
+    return static_cast<int>(_protoItem->authoredExtent().height * _layoutScale);
 }
 
 void ListBox::updateItemsLayout() {
@@ -947,36 +1006,19 @@ void ListBox::renderItemWithButtonProtoIcon(
     _protoItem->render(screenSize, offset, pass);
     _protoItem->setExtent(originalExtent);
 
-    if (!item.iconFrame && !item.iconTexture)
-        return;
-
-    glm::ivec2 iconPosition(offset.x + originalExtent.left, offset.y + originalExtent.top);
-    glm::ivec2 iconSize(itemIconWidth, originalExtent.height);
-
-    // The icon frame shows the colour the row's frames show, and their
-    // opacity while the row is not selected.
-    if (item.iconFrame) {
-        const bool selected = _protoItem->isSelected();
-        glm::vec3 frameColor(selected ? _protoItem->hilight().color : _protoItem->border().color);
-        if (_protoItem->usesBorderColorOverride()) {
-            frameColor = _protoItem->borderColorOverride();
-        }
-        float frameAlpha = _protoItem->border().alpha;
-        if (selected) {
-            frameAlpha = _iconFrameHilightPulsing ? _gui.pulsingAlpha() : 1.0f;
-        }
-        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, frameAlpha));
-    }
-    if (item.iconTexture) {
-        pass.drawIcon(*item.iconTexture, iconPosition, iconSize);
-    }
-    const auto &iconTextFont = _iconTextFont ? _iconTextFont : _protoItem->text().font;
-    if (!item.iconText.empty() && iconTextFont) {
-        glm::vec3 position(0.0f);
-        position.x = static_cast<float>(iconPosition.x + iconSize.x);
-        position.y = static_cast<float>(iconPosition.y + iconSize.y - 0.5f * iconTextFont->height() * _protoItem->scale());
-        iconTextFont->render(item.iconText, position, item.iconTextColor.value_or(_protoItem->text().color), TextGravity::LeftCenter, _protoItem->scale());
-    }
+    // The icon square is drawn as an image button's, its frame in the
+    // colour the row's frames show and the count in the row's text colour
+    // unless given its own.
+    ImageButton::IconSlotLook look;
+    look.frameColor = ImageButton::iconFrameColor(*_protoItem, std::nullopt, _iconFrameHilightPulsing ? std::optional<float>(_gui.pulsingAlpha()) : std::nullopt);
+    look.textColor = item.iconTextColor.value_or(_protoItem->text().color);
+    look.centred = _iconsCentred;
+    look.artScale = _protoItem->frameScale();
+    look.textFont = _iconTextFont ? _iconTextFont.get() : _protoItem->text().font.get();
+    look.textBox = _iconTextBox ? &*_iconTextBox : nullptr;
+    look.textScale = _protoItem->scale();
+    ImageButton::renderIconSlot(pass, ImageButton::IconSlot {item.iconFrame.get(), item.iconTexture.get(), item.iconText}, look,
+                                {offset.x + originalExtent.left, offset.y + originalExtent.top}, itemIconWidth);
 }
 
 const ListBox::Item &ListBox::getItemAt(int index) const {

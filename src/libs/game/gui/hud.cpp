@@ -553,7 +553,7 @@ void HUD::loadNoticeBox() {
     border.dimension = kNoticeBoxBorderDimension;
     notice->setBorder(border);
     notice->setHilight(border);
-    notice->setTextFont(_services.resource.fonts.get(kNoticeBoxFont));
+    notice->setTextFont(kNoticeBoxFont);
     notice->setTextAlignment(Control::TextAlign::LeftTop);
     notice->setTextColor(kNoticeBoxTextColor);
     _actionBar.addNotice(notice);

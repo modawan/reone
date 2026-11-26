@@ -272,6 +272,11 @@ public:
     virtual void setSelectedTextColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
 
+    /** Whether the texts show the small variants of their fonts rather than the large ones. */
+    virtual bool smallFonts() const = 0;
+    /** Picks the small or large variants of the fonts, and shows every text in them. */
+    virtual void setSmallFonts(bool useSmall) = 0;
+
     /**
      * Reapplies the layout after authored geometry or the resolution changed.
      * Controls added in screen coordinates keep the place their owner gave
@@ -454,6 +459,12 @@ public:
 
     void setBackground(std::shared_ptr<graphics::Texture> texture) override;
 
+    bool smallFonts() const override {
+        return _smallFonts;
+    }
+
+    void setSmallFonts(bool useSmall) override;
+
     void refreshLayout() override {
         applyLayout();
     }
@@ -481,6 +492,8 @@ private:
     bool _imageButtonTextPulses {false};
     /** How the controls draw their borders and fills. */
     FillRules _fillRules {};
+    /** The texts show the small variants of their fonts. */
+    bool _smallFonts {false};
     glm::ivec2 _rootOffset {0};
     glm::ivec2 _controlOffset {0};
     std::shared_ptr<graphics::Texture> _background;

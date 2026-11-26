@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../control.h"
+#include "imagebutton.h"
 #include "scrollbar.h"
 
 #include <optional>
@@ -25,8 +26,6 @@
 namespace reone {
 
 namespace gui {
-
-class ImageButton;
 
 constexpr int kDefaultSlotCount = 6;
 
@@ -149,6 +148,8 @@ public:
     void update(float dt) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
     void stretch(float x, float y, int mask) override;
+    /** Shows the list's own text and its rows in the variants of their fonts the GUI's font size now picks. */
+    void resetFont() override;
 
     void setExtent(Extent extent) override;
     void setExtentHeight(int height) override;
@@ -222,17 +223,36 @@ public:
      * Off unless set.
      */
     void setProtoMatchContent(bool match);
+    /**
+     * Sets the rows' height as authored, in place of the prototype's: the
+     * rows are \p height tall at the list's density, now and after every
+     * layout.
+     */
+    void setItemAuthoredHeight(int height);
     void setRenderItemIconsForButtonProto(bool render);
-    /** Sets the font the text beside the rows' icons is drawn in, in place of the prototype's. */
-    void setIconTextFont(std::shared_ptr<graphics::Font> font);
+    /**
+     * Sets the font the text beside the rows' icons is named in, in place of
+     * the prototype's; it shows the variant the GUI's font size picks.
+     */
+    void setIconTextFont(std::string baseFont);
+    /** Sets the box the text beside the rows' icons is drawn in; without one it sits in the icon's lower right corner. */
+    void setIconTextBox(IconTextBox box);
+    /**
+     * Sets whether the rows' icons are drawn centred in their squares, at
+     * their size at the rows' density, rather than stretched over them.
+     */
+    void setIconsCentred(bool centred);
     void scrollToBottom();
     /**
      * Scroll the least that brings row \p index into view: up to it when it
      * is above the visible rows, or down until it is the last visible row.
      */
     void scrollToItem(int index);
-    /** A button prototype's icon frame takes the GUI's pulsing alpha while its row is hilighted. */
-    void setIconFrameHilightPulsing(bool pulsing) { _iconFrameHilightPulsing = pulsing; }
+    /**
+     * Whether a row's icon frame takes the GUI's pulsing alpha while the row
+     * is hilighted, for a button prototype or an image-button one.
+     */
+    void setIconFrameHilightPulsing(bool pulsing);
 
     /**
      * Draws underneath the list's own frame and rows. Lets a GUI repaint
@@ -332,8 +352,14 @@ private:
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _overflowing {false};       /**< the rows need more room than the list has */
     bool _renderItemIconsForButtonProto {false};
-    /** The font of the text beside the rows' icons drawn through a button prototype; none for the prototype's. */
+    /** The font of the text beside the rows' icons drawn through a button prototype, as named; none for the prototype's. */
+    std::string _iconTextBaseFont;
+    /** That font in the variant the GUI's font size picks. */
     std::shared_ptr<graphics::Font> _iconTextFont;
+    /** The box of the text beside the rows' icons drawn through a button prototype. */
+    std::optional<IconTextBox> _iconTextBox;
+    /** The rows' icons are drawn centred in their squares (setIconsCentred). */
+    bool _iconsCentred {false};
     float _layoutScale {1.0f};
     BackgroundRenderer _backgroundRenderer;
 
@@ -346,6 +372,10 @@ private:
 
     void updateItemSlots();
     void updateItemsLayout();
+    /** The prototype's authored height at the rows' density, as every layout gives it. */
+    int scaledItemHeight() const;
+    /** Picks the variant of the icon text's named font the GUI's font size picks (setIconTextFont). */
+    void resolveIconTextFont();
     int getInnerHeight() const;
     float getItemPitch(const Item &item) const;
     /** The height of the block of text the rows hold (see addTextLinesAsItems). */

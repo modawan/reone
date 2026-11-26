@@ -17,6 +17,8 @@
 
 #include "reone/gui/guis.h"
 
+#include <algorithm>
+
 #include "reone/resource/provider/gffs.h"
 #include "reone/system/logutil.h"
 
@@ -33,12 +35,32 @@ std::shared_ptr<IGUI> GUIs::doGet(std::string resRef, std::function<void(IGUI &)
     }
     auto gui = std::make_shared<GUI>(_graphicsOpt, _sceneGraphs, _graphicsSvc, _resourceSvc, _clock, _tooltip);
     gui->setFillRules(_fillRules);
+    gui->setSmallFonts(_smallFonts);
     if (preload) {
         preload(*gui);
     }
     info("Loading GUI: " + resRef, LogChannel::GUI);
     gui->load(*gff);
     return gui;
+}
+
+void GUIs::forEachGUI(const std::function<void(IGUI &)> &fn) {
+    for (auto &[resRef, gui] : _guis) {
+        if (gui) {
+            fn(*gui);
+        }
+    }
+    forgetGoneGUIs();
+    for (auto &loaded : _loaded) {
+        if (auto gui = loaded.lock()) {
+            fn(*gui);
+        }
+    }
+}
+
+void GUIs::forgetGoneGUIs() {
+    _loaded.erase(std::remove_if(_loaded.begin(), _loaded.end(), [](const auto &gui) { return gui.expired(); }),
+                  _loaded.end());
 }
 
 } // namespace gui

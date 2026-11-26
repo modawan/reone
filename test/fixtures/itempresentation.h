@@ -137,6 +137,8 @@ public:
     void clear() override { screens.clear(); }
     void updateClock(float) override {}
     void setFillRules(FillRules) override {}
+    void setSmallFonts(bool) override {}
+    std::string fontName(const std::string &baseFont) const override { return Control::fontName(baseFont, false); }
     std::shared_ptr<IGUI> get(const std::string &name, std::function<void(IGUI &)> preload) override {
         auto gui = std::make_shared<RecordingGUI>(options, scene.graphs(), graphics.services(), resources.services(), clock, tooltipState);
         gui->name = name;

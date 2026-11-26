@@ -212,6 +212,13 @@ void GUI::applyLayout() {
     _controlOffset = _rootOffset + glm::ivec2(rootExtent.left, rootExtent.top);
 }
 
+void GUI::setSmallFonts(bool useSmall) {
+    _smallFonts = useSmall;
+    for (auto &control : _controls) {
+        control->resetFont();
+    }
+}
+
 GUI::ScalingMode GUI::controlScaling(const Control &control) const {
     auto maybeScaling = _scalingByControlTag.find(control.tag());
     return maybeScaling != _scalingByControlTag.end() ? maybeScaling->second : _scaling;

@@ -899,6 +899,7 @@ void Game::init() {
         };
     }
     _services.gui.guis.setFillRules(std::move(fillRules));
+    _services.gui.guis.setSmallFonts(_options.game.feedback.smallFonts);
     _services.gui.guis.tooltip().setEnabled(_options.game.feedback.tooltips);
     _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
     // The configuration names one of the levels the player can pick: any row
@@ -7089,7 +7090,11 @@ void Game::setAutoPauseOptions(const AutoPauseOptions &options) {
 }
 
 void Game::setFeedbackOptions(const FeedbackOptions &options) {
+    const bool smallFontsTurned = options.smallFonts != _options.game.feedback.smallFonts;
     _options.game.feedback = options;
+    if (smallFontsTurned) {
+        _services.gui.guis.setSmallFonts(options.smallFonts);
+    }
     _services.gui.guis.tooltip().setEnabled(options.tooltips);
 }
 
@@ -7309,7 +7314,7 @@ bool Game::showTutorialPage() {
         stopMovement();
         _tutorialPopupOnTop = true;
         // The window's pages turn in place; it closes after the last.
-        _tutorialPopup->setMessageFont(_services.resource.fonts.get(guiFontName("fnt_d16x16")));
+        _tutorialPopup->setMessageFont("fnt_d16x16");
         _tutorialPopup->showPages(
             getInterfaceText(*message), icon,
             [this]() { return showNextTutorialPage(); },

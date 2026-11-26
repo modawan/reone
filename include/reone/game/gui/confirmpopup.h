@@ -86,7 +86,7 @@ public:
      */
     void setIcon(const std::string &iconResRef);
     /** Sets the font the message is drawn in, from the next message laid out; the box's own font returns when it closes. */
-    void setMessageFont(std::shared_ptr<graphics::Font> font);
+    void setMessageFont(std::string baseFont);
     /**
      * Takes the box away unanswered. In TSL a box shown closes in the
      * interface green and the highlight colour. The message takes the box's
@@ -136,7 +136,7 @@ private:
     /** The message shown, its tokens resolved. */
     std::string _message;
     /** The message's font and alignment as the box was loaded. */
-    std::shared_ptr<graphics::Font> _messageFont;
+    std::string _messageFont;
     gui::Control::TextAlign _messageAlign {gui::Control::TextAlign::CenterTop};
     /** Whether an icon is shown above the message. */
     bool _hasIcon {false};
