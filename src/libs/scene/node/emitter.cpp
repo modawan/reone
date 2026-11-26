@@ -312,7 +312,12 @@ void EmitterSceneNode::detonate() {
 void EmitterSceneNode::rearmSingle() {
     auto emitter = _modelNode.emitter();
     if (emitter && emitter->updateMode == ModelNode::Emitter::UpdateMode::Single) {
-        _spawned = false;
+        for (SceneNode *child : _children) {
+            auto *particle = static_cast<ParticleSceneNode *>(child);
+            _particlePool.push_back(particle);
+        }
+        _children.clear();
+        doSpawnParticle();
     }
 }
 
