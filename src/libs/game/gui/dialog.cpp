@@ -166,14 +166,13 @@ void DialogGUI::configureReplies() {
     // authored proportion is a bar as wide as a row is tall.
     if (auto scrollBar = _controls.LB_REPLIES->scrollBarOrNull()) {
         auto safeArea = replySafeArea();
-        scrollBar->setExtent({
-            safeArea.left,
-            safeArea.top,
-            static_cast<int>(std::lround(scrollBar->authoredExtent().width * _controls.LBL_MESSAGE->scale())),
-            safeArea.height});
+        scrollBar->setExtent({safeArea.left,
+                              safeArea.top,
+                              static_cast<int>(std::lround(scrollBar->authoredExtent().width * _controls.LBL_MESSAGE->scale())),
+                              safeArea.height});
     }
     _controls.LB_REPLIES->setProtoMatchContent(true);
-    _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
+    _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().baseFont);
     _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
     _controls.LB_REPLIES->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
     _controls.LB_REPLIES->protoItem().setHilightColor(_hilightColor);

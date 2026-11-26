@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "gui.h"
 #include "tooltip.h"
 
@@ -37,6 +39,13 @@ public:
     virtual void clear() = 0;
     /** Sets how the controls of every GUI loaded afterwards draw their border fills (IGUI::fillRules); set before any GUI loads. */
     virtual void setFillRules(FillRules rules) = 0;
+    /**
+     * Picks the small or large variants of the fonts for every GUI, loaded or
+     * loaded later, and shows every text in them.
+     */
+    virtual void setSmallFonts(bool useSmall) = 0;
+    /** The font a text shows for a base font, in the variant picked (Control::fontName). */
+    virtual std::string fontName(const std::string &baseFont) const = 0;
 
     virtual std::shared_ptr<IGUI> get(const std::string &resRef, std::function<void(IGUI &)> preload = nullptr) = 0;
 
@@ -73,6 +82,15 @@ public:
         _fillRules = std::move(rules);
     }
 
+    void setSmallFonts(bool useSmall) override {
+        _smallFonts = useSmall;
+        forEachGUI([useSmall](IGUI &gui) { gui.setSmallFonts(useSmall); });
+    }
+
+    std::string fontName(const std::string &baseFont) const override {
+        return Control::fontName(baseFont, _smallFonts);
+    }
+
     Tooltip &tooltip() override {
         return _tooltip;
     }
@@ -87,7 +105,12 @@ public:
     }
 
     std::shared_ptr<IGUI> load(const std::string &resRef, std::function<void(IGUI &)> preload) override {
-        return doGet(resRef, preload);
+        auto gui = doGet(resRef, preload);
+        if (gui) {
+            forgetGoneGUIs();
+            _loaded.push_back(gui);
+        }
+        return gui;
     }
 
     void updateClock(float dt) override {
@@ -107,8 +130,16 @@ private:
     std::unordered_map<std::string, std::shared_ptr<IGUI>> _guis;
     /** How the controls of the GUIs draw their borders and fills. */
     FillRules _fillRules {};
+    /** The GUIs loaded apart from the shared ones (load), while they live. */
+    std::vector<std::weak_ptr<IGUI>> _loaded;
+    /** The GUIs show the small variants of their fonts. */
+    bool _smallFonts {false};
 
     std::shared_ptr<IGUI> doGet(std::string resRef, std::function<void(IGUI &)> preload);
+    /** Calls \p fn with every GUI that lives, shared or loaded apart. */
+    void forEachGUI(const std::function<void(IGUI &)> &fn);
+    /** Lets go of the GUIs loaded apart that have gone. */
+    void forgetGoneGUIs();
 };
 
 } // namespace gui

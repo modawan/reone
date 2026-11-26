@@ -401,11 +401,6 @@ static ListBox::Item listEntry(Game &game, const Item &item, int index, std::sha
     return entry;
 }
 
-// The font of the count on an item row.
-static std::shared_ptr<graphics::Font> rowCountFont(const Game &game, ServicesView &services) {
-    return services.resource.fonts.get(game.guiFontName("fnt_d16x16"));
-}
-
 void CraftingPanel::restockCreatable() {
     _stock.clear();
     const auto leader = _game.party().getLeader();
@@ -448,7 +443,7 @@ void CraftingPanel::restockCreatable() {
 void CraftingPanel::showCreateList() {
     _creatable.clear();
     _controls.LB_SHOPITEMS->clearItems();
-    _controls.LB_SHOPITEMS->setIconTextFont(rowCountFont(_game, _services));
+    useItemEntryLayout(*_controls.LB_SHOPITEMS);
     // Each stocked item answers to the row that stocked it, which has a skill
     // and a requirement.
     const auto leader = _game.party().getLeader();
@@ -516,7 +511,7 @@ void CraftingPanel::addCreatable(const std::shared_ptr<Item> &item, int row) {
 void CraftingPanel::fillBreakdownList(int keepRow) {
     _breakable.clear();
     _controls.LB_INVITEMS->clearItems();
-    _controls.LB_INVITEMS->setIconTextFont(rowCountFont(_game, _services));
+    useItemEntryLayout(*_controls.LB_INVITEMS);
     for (const auto &item : listBreakable(_character.resolve())) {
         const int index = static_cast<int>(_breakable.size());
         auto entry = listEntry(_game, *item, index, itemFrameTexture(item->stackSize()));
@@ -1064,7 +1059,7 @@ void UpgradeItemsPanel::open(std::vector<UpgradableItem> items,
     _onPick = std::move(onPick);
     _onBack = std::move(onBack);
     _controls.LB_ITEMS->clearItems();
-    _controls.LB_ITEMS->setIconTextFont(rowCountFont(_game, _services));
+    useUpgradeListLayout(*_controls.LB_ITEMS);
     addRows();
     _controls.LB_DESCRIPTION->clearItems();
     _describedRow.reset();
@@ -1959,7 +1954,7 @@ void ItemUpgradePanel::showList(int slot) {
         }
     }
     _controls.LB_ITEMS->clearItems();
-    _controls.LB_ITEMS->setIconTextFont(rowCountFont(_game, _services));
+    useUpgradeListLayout(*_controls.LB_ITEMS);
     for (size_t i = 0; i < _candidates.size(); ++i) {
         const auto &candidate = _candidates[i];
         ListBox::Item entry;
@@ -2634,7 +2629,7 @@ void UpgradeSelectionGUI::populate() {
     _rows = upgradableItems(kindOf(_filter));
     auto &list = *_controls.LB_UPGRADELIST;
     list.clearItems();
-    list.setIconTextFont(rowCountFont(_game, _services));
+    useUpgradeListLayout(list);
     for (size_t i = 0; i < _rows.size(); ++i) {
         const auto item = _rows[i].item.resolve();
         list.addItem(upgradableEntry(_game, _services, _rows[i], static_cast<int>(i), itemFrameTexture(item->stackSize())));

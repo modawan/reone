@@ -133,7 +133,7 @@ void ConfirmPopup::onGUILoaded() {
 
     _rootExtent = _gui->rootControl().extent();
     _listExtent = _controls.LB_MESSAGE->extent();
-    _messageFont = _controls.LB_MESSAGE->protoItem().text().font;
+    _messageFont = _controls.LB_MESSAGE->protoItem().text().baseFont;
     _messageAlign = _controls.LB_MESSAGE->protoItem().text().align;
     _okExtent = _controls.BTN_OK->extent();
     _cancelExtent = _controls.BTN_CANCEL->extent();
@@ -412,7 +412,7 @@ void ConfirmPopup::showConfirm(
 
 void ConfirmPopup::showDatapad(const std::string &message, std::function<void()> onConfirm) {
     auto &proto = _controls.LB_MESSAGE->protoItem();
-    proto.setTextFont(_services.resource.fonts.get(_game.guiFontName("fnt_d16x16")));
+    proto.setTextFont("fnt_d16x16");
     proto.setTextAlignment(Control::TextAlign::LeftTop);
     show(message, "", std::move(onConfirm));
 }
@@ -436,8 +436,8 @@ void ConfirmPopup::setIcon(const std::string &iconResRef) {
     layoutMessage();
 }
 
-void ConfirmPopup::setMessageFont(std::shared_ptr<graphics::Font> font) {
-    _controls.LB_MESSAGE->protoItem().setTextFont(std::move(font));
+void ConfirmPopup::setMessageFont(std::string baseFont) {
+    _controls.LB_MESSAGE->protoItem().setTextFont(std::move(baseFont));
 }
 
 // OK is sized to its label, so the box is laid out again.

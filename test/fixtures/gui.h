@@ -80,6 +80,8 @@ public:
     MOCK_METHOD(void, setControlScaling, (const std::string &, ScalingMode), (override));
     MOCK_METHOD(void, setSelectedTextColor, (glm::vec3), (override));
     MOCK_METHOD(void, setBackground, (std::shared_ptr<graphics::Texture>), (override));
+    MOCK_METHOD(bool, smallFonts, (), (const override));
+    MOCK_METHOD(void, setSmallFonts, (bool), (override));
     MOCK_METHOD(void, refreshLayout, (), (override));
 
     MOCK_METHOD(std::unique_ptr<Control>, newControl, (ControlType, std::string), (override));
@@ -99,6 +101,8 @@ public:
 
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(void, setFillRules, (FillRules), (override));
+    MOCK_METHOD(void, setSmallFonts, (bool), (override));
+    MOCK_METHOD(std::string, fontName, (const std::string &), (const override));
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, load, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(void, updateClock, (float), (override));

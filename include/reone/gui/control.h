@@ -192,6 +192,11 @@ public:
 
     struct Text {
         std::string text;
+        /**
+         * The font the layout names, or the layout's default when it names
+         * none; the text shows its small or large variant (fontName).
+         */
+        std::string baseFont {resource::generated::GUI_TEXT().FONT};
         std::shared_ptr<graphics::Font> font;
         glm::vec3 color {1.0f};
         /** The colour while the control is selected; unset, the hilight's. */
@@ -206,6 +211,13 @@ public:
          */
         bool hilightPulsing {false};
     };
+
+    /**
+     * The font a text shows for the font a layout names: its small variant,
+     * ending in 'a', or its large one, ending in 'b'. The console font has
+     * no variants.
+     */
+    static std::string fontName(const std::string &baseFont, bool useSmall);
 
     static ControlType getType(const resource::generated::GUI_BASECONTROL &gui);
     static std::string getTag(const resource::generated::GUI_BASECONTROL &gui);
@@ -251,6 +263,8 @@ public:
 
     /** The combined layout and text factor used to render this control's text. */
     float scale() const { return _scale; }
+    /** The scale the control's frames and their art are drawn at (setPresentationScale). */
+    float frameScale() const { return _frameLayoutScale; }
     void setScale(float scale) {
         _scale = scale;
         updateTextLines();
@@ -302,6 +316,8 @@ public:
     bool hasBorder() const { return static_cast<bool>(_border); }
     /** Whether the control has a hilight border. */
     bool hasHilight() const { return static_cast<bool>(_hilight); }
+    /** The colour the control's frames show now (getBorderColor); white for a control without a border. */
+    glm::vec3 shownFrameColor() const { return _border ? getBorderColor() : glm::vec3(1.0f); }
     /** The opacity of the control's own border; full without one. */
     float frameAlpha() const { return _border ? _border->alpha : 1.0f; }
     const std::string &borderFillResRef() const { return _borderFillResRef; }
@@ -389,7 +405,10 @@ public:
     /** Sets the alpha the text is drawn with. */
     void setTextOpacity(float opacity) { _text.opacity = opacity; }
     void setTextMessage(std::string text);
-    void setTextFont(std::shared_ptr<graphics::Font> font);
+    /** Sets the font the text is named in; it shows the variant the GUI's font size picks. */
+    void setTextFont(std::string baseFont);
+    /** Shows the text in the variant of its font the GUI's font size now picks. */
+    virtual void resetFont();
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
     bool usesBorderColorOverride() const { return _useBorderColorOverride; }

@@ -29,6 +29,8 @@
 #include "reone/graphics/context.h"
 #include "reone/graphics/font.h"
 #include "reone/graphics/uniforms.h"
+#include "reone/gui/di/services.h"
+#include "reone/gui/guis.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/strings.h"
@@ -174,7 +176,7 @@ void FloatingText::render() {
         return;
     }
     const auto &options = _game.options().graphics;
-    const std::string fontResRef = _game.guiFontName("fnt_d16x16");
+    const std::string fontResRef = _services.gui.guis.fontName("fnt_d16x16");
     if (!_font || _fontResRef != fontResRef) {
         _font = _services.resource.fonts.get(fontResRef);
         _fontResRef = fontResRef;

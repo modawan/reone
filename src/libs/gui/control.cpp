@@ -109,6 +109,7 @@ void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
             loadHilight(*controlStruct.HILIGHT);
         }
     }
+    resetFont();
 
     updateTransform();
 }
@@ -177,7 +178,7 @@ void Control::loadBorder(const resource::generated::GUI_BORDER &gui) {
 }
 
 void Control::loadText(const resource::generated::GUI_TEXT &gui) {
-    _text.font = _resourceSvc.fonts.get(gui.FONT);
+    _text.baseFont = gui.FONT;
 
     int strRef = gui.STRREF;
     _text.text = strRef == -1 ? gui.TEXT : _resourceSvc.strings.getText(strRef);
@@ -185,8 +186,6 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
     _text.color = gui.COLOR;
     _text.align = static_cast<TextAlign>(gui.ALIGNMENT);
     _text.pulsing = (gui.PULSING & kPulsingTextFlag) != 0;
-
-    updateTextLines();
 }
 
 void Control::updateTextLines() {
@@ -1034,8 +1033,21 @@ void Control::setTextMessage(std::string text) {
     updateTextLines();
 }
 
-void Control::setTextFont(std::shared_ptr<Font> font) {
-    _text.font = std::move(font);
+std::string Control::fontName(const std::string &baseFont, bool useSmall) {
+    static const std::string kConsoleFont {"fnt_console"};
+    if (baseFont == kConsoleFont) {
+        return baseFont;
+    }
+    return baseFont + (useSmall ? 'a' : 'b');
+}
+
+void Control::setTextFont(std::string baseFont) {
+    _text.baseFont = std::move(baseFont);
+    resetFont();
+}
+
+void Control::resetFont() {
+    _text.font = _resourceSvc.fonts.get(fontName(_text.baseFont, _gui.smallFonts()));
     updateTextLines();
 }
 
