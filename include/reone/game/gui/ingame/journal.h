@@ -41,6 +41,14 @@ public:
         _resRef = guiResRef("journal");
     }
 
+    bool handle(const input::Event &event) override;
+    void update(float dt) override;
+    void render() override;
+    void clearSelection() override;
+
+    /** The quest items panel has its title where the in-game menu's navigation is. */
+    bool coversInGameMenu() const override { return _questItemsOpen; }
+
     /** Reload the quest list from the journal. */
     void refresh();
     /** The quests the player read while the journal was shown are no longer new. */
@@ -80,6 +88,13 @@ private:
         std::shared_ptr<gui::ListBox> LB_ITEMS;
     };
 
+    struct QuestItemsControls {
+        std::shared_ptr<gui::Button> BTN_BACK;
+        std::shared_ptr<gui::Label> LBL_TITLE;
+        std::shared_ptr<gui::ListBox> LB_ITEMS;
+        std::shared_ptr<gui::ListBox> LB_ITEM_DESCRIPTION;
+    };
+
     struct Row {
         const Journal::Quest *quest;
         const resource::JRL::Category *category;
@@ -95,6 +110,12 @@ private:
     /** The plot IDs of the quests read while the journal is shown. */
     std::vector<std::string> _readQuests;
 
+    std::shared_ptr<gui::IGUI> _questItemsGUI;
+    QuestItemsControls _questItemsControls;
+    /** The descriptions of the quest items listed, row by row. */
+    std::vector<std::string> _questItemDescriptions;
+    bool _questItemsOpen {false};
+
     void onGUILoaded() override;
     void setSort(Sort sort);
     static void sortRows(std::vector<Row> &rows, Sort sort);
@@ -104,6 +125,13 @@ private:
     void updateListControls();
 
     void refreshEntryText(const std::string &plotId);
+
+    /** Load KotOR's quest items panel with the journal, and wire its list and Back button. */
+    void loadQuestItemsPanel();
+    /** List the player's quest items, the first selected and described. */
+    void openQuestItemsPanel();
+    void closeQuestItemsPanel();
+    void showQuestItemDescription(int row);
 
     void bindControls() {
         _controls.BTN_EXIT = findControl<gui::Button>("BTN_EXIT");
