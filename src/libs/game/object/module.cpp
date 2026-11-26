@@ -1727,6 +1727,12 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Creat
         auto placeable = cast<Placeable>(object);
         if (!playerRestricted && canBashPlaceable(*placeable)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
+            // While the player character is down, a companion in control may
+            // not bash a container unless the container allows the party.
+            const auto player = _game.party().player();
+            if (!placeable->isPartyInteract() && player && leader != player && player->isTemporarilyDead()) {
+                actions.back().availability.disallow(PowerUnavailableReason::PlayerCharacterDown);
+            }
         }
         if (canUseSecurityOnPlaceable(*placeable, *leader)) {
             // In TSL plot items used on a container take the place of
