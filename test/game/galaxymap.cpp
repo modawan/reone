@@ -716,16 +716,16 @@ TEST_F(TSLGalaxyMapFixture, a_locked_out_physical_planet_is_still_soft_selected)
     EXPECT_EQ(0, galaxyMap().selectedPlanet());
 }
 
-TEST_F(TSLGalaxyMapFixture, an_unavailable_physical_planet_selects_nothing_when_nothing_was_selected) {
+TEST_F(TSLGalaxyMapFixture, an_unavailable_physical_planet_opens_on_the_first_open_planet) {
     galaxyMap().setAvailable(3, true);
     galaxyMap().setSelectable(3, true);
     ASSERT_EQ(-1, galaxyMap().selectedPlanet());
 
-    // Row 0 is not on the map at all, so it cannot be the opening selection,
-    // and row 3 is not hunted down to stand in for it.
+    // Row 0 is not on the map at all, so it cannot be the opening selection;
+    // with nothing chosen, the first planet travel is open to is.
     _map->prepare(0);
 
-    EXPECT_EQ(-1, galaxyMap().selectedPlanet());
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
 }
 
 TEST_F(GalaxyMapFixture, k1_still_opens_on_the_planet_the_routine_names) {

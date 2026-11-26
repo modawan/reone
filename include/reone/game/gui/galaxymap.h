@@ -134,6 +134,8 @@ private:
     int lockedOutReason(int row) const;
 
     void applyOpeningSelection(int initialPlanet);
+    /** With no planet chosen, chooses the first one on the map that travel is open to. */
+    void selectFirstOpenPlanetIfNone();
     int adjacentDestination(int from, int step) const;
     void selectAdjacentDestination(int step);
 
