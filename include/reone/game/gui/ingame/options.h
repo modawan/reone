@@ -113,9 +113,10 @@ private:
 
     /**
      * The gameplay options page, opened from BTN_GAMEPLAY. The difficulty
-     * level, mouse look, companions levelling up by themselves and combat
-     * movement are handled, and BTN_MOUSE opens the mouse settings; the other
-     * options are drawn as laid out.
+     * level, companions levelling up, mouse look, autosave, the reversed
+     * minigame axis, combat movement and TSL's reversed in-game axis are
+     * handled, and BTN_MOUSE opens the mouse settings; the other options are
+     * drawn as laid out.
      */
     struct GameplayControls {
         std::shared_ptr<gui::Button> BTN_BACK;
@@ -123,24 +124,30 @@ private:
         std::shared_ptr<gui::Button> BTN_DIFFICULTY;
         std::shared_ptr<gui::Button> BTN_DIFFLEFT;
         std::shared_ptr<gui::Button> BTN_DIFFRIGHT;
+        std::shared_ptr<gui::ToggleButton> CB_AUTOSAVE;
         std::shared_ptr<gui::Button> BTN_MOUSE;
         std::shared_ptr<gui::ToggleButton> CB_DISABLEMOVE;
         std::shared_ptr<gui::ToggleButton> CB_INVERTCAM;
         std::shared_ptr<gui::ToggleButton> CB_LEVELUP;
+        std::shared_ptr<gui::ToggleButton> CB_REVERSE;
+        /** TSL only. */
+        std::shared_ptr<gui::ToggleButton> CB_REVERSE_INGAME;
         std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
     };
 
     /**
-     * The graphics options page, opened from BTN_GRAPHICS. Shadows and grass
-     * are handled; the brightness slider is shown but cannot be moved, and
-     * the other controls are drawn as laid out.
+     * The graphics options page, opened from BTN_GRAPHICS. The brightness,
+     * shadows and grass are handled, and TSL's Force Speed where the layout
+     * has it; the other controls are drawn as laid out.
      */
     struct GraphicsControls {
         std::shared_ptr<gui::Button> BTN_ADVANCED;
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
         std::shared_ptr<gui::Button> BTN_RESOLUTION;
+        /** TSL only, and only in some of its layouts. */
+        std::shared_ptr<gui::ToggleButton> CB_FORCESPEED;
         std::shared_ptr<gui::ToggleButton> CB_GRASS;
         std::shared_ptr<gui::ToggleButton> CB_SHADOWS;
         std::shared_ptr<gui::ListBox> LB_DESC;
@@ -209,26 +216,27 @@ private:
     };
 
     /**
-     * KotOR's advanced sound options page, opened from the sound page's
-     * BTN_ADVANCED. Its changes wait for OK (BTN_BACK); Cancel and Escape
-     * drop them.
+     * The advanced sound options page, opened from the sound page's
+     * BTN_ADVANCED: Force Software and the EAX level. Its changes wait for OK
+     * (BTN_BACK); Cancel and Escape drop them. In TSL turning Force Software
+     * off sets the level to none.
      */
     struct AdvancedSoundControls {
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_CANCEL;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
         std::shared_ptr<gui::Button> BTN_EAX;
+        std::shared_ptr<gui::Button> BTN_EAXLEFT;
+        std::shared_ptr<gui::Button> BTN_EAXRIGHT;
         std::shared_ptr<gui::ToggleButton> CB_FORCESOFTWARE;
         std::shared_ptr<gui::ListBox> LB_DESC;
     };
 
-    /**
-     * The mouse settings page, opened from the gameplay page's BTN_MOUSE.
-     * The sensitivity is handled; reversing the buttons is drawn as laid out.
-     */
+    /** The mouse settings page, opened from the gameplay page's BTN_MOUSE: the sensitivity and reversed buttons. */
     struct MouseControls {
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DEFAULT;
+        std::shared_ptr<gui::ToggleButton> CB_REVBUTTONS;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::Slider> SLI_MOUSESEN;
     };
@@ -273,6 +281,8 @@ private:
     AdvancedSoundControls _advancedSoundControls;
     /** Force Software as the advanced sound page shows it, until OK keeps it. */
     bool _forceSoftware {false};
+    /** The EAX level as the advanced sound page shows it, until OK keeps it. */
+    int _eaxLevel {0};
 
     std::shared_ptr<gui::IGUI> _mouseGUI;
     MouseControls _mouseControls;
@@ -303,8 +313,10 @@ private:
 
     /** Load the gameplay options page and wire its buttons. */
     void loadGameplayPanel();
-    /** Open the gameplay page on the current difficulty and Mouse Look. */
+    /** Open the gameplay page on the current options. */
     void openGameplayPanel();
+    /** Show the difficulty and each checkbox as the options have them. */
+    void showGameplayOptions();
     /** Step the difficulty level down or up, within the levels the player can pick. */
     void lowerDifficulty();
     void raiseDifficulty();
@@ -345,17 +357,24 @@ private:
     void openSoundPanel();
     void showVolumes();
 
-    /** Load KotOR's advanced sound options page and wire its controls. */
+    /** Load the advanced sound options page and wire its controls. */
     void loadAdvancedSoundPanel();
     /** Open the advanced sound page on the current options, describing Force Software. */
     void openAdvancedSoundPanel();
-    /** Show Force Software as the page holds it; while it is on, the EAX controls are disabled. */
-    void showForceSoftware();
+    /** Step the page's EAX level down or up, from none to the highest the device renders. */
+    void stepEAXLevel(int direction);
+    /**
+     * Show Force Software and the EAX level as the page holds them, the level
+     * with an arrow on each side it can step to; while Force Software is on,
+     * the EAX controls are disabled.
+     */
+    void showAdvancedSound();
 
     /** Load the mouse settings page and wire its slider and buttons. */
     void loadMousePanel();
-    /** Open the mouse page on the current sensitivity, describing it. */
+    /** Open the mouse page on the current options, describing the sensitivity. */
     void openMousePanel();
+    void showMouseOptions();
 
     /** Every toggle on an options page, and every row of its option list, is a checkbox drawn in the GUI's colours. */
     void showCheckBoxes(gui::IGUI &panel);

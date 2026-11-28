@@ -52,6 +52,7 @@ struct ShaderProgramId {
     static constexpr char pointLightShadows[] = "point_light_shadows";
     static constexpr char postBoxBlur4[] = "post_box_blur4";
     static constexpr char postFXAA[] = "post_fxaa";
+    static constexpr char postGamma[] = "post_gamma";
     static constexpr char postGaussianBlur13[] = "post_gaussian_blur13";
     static constexpr char postGaussianBlur9[] = "post_gaussian_blur9";
     static constexpr char postMedianFilter3[] = "post_median_filter3";

@@ -761,6 +761,8 @@ private:
     bool handleGamepadButtonDown(const input::GamepadButtonEvent &event);
     bool handleGamepadButtonUp(const input::GamepadButtonEvent &event);
     bool handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event);
+    /** 1 for up to pitch up, -1 while the minigame axis is reversed. */
+    int pitchSign() const;
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);

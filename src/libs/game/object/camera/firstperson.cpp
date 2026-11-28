@@ -259,7 +259,8 @@ void FirstPersonCamera::updateAttached(Creature &creature, float dt) {
     // The mouse's strength is its speed, so a movement turns and tilts the
     // same whatever the frame rate.
     const float strengthX = mouseSpeedStrength(_mouseX, dt);
-    const float strengthY = mouseSpeedStrength(_mouseY, dt);
+    // TSL's reverse option swaps up and down for the tilt.
+    const float strengthY = mouseSpeedStrength(tsl && _game.options().game.gameplay.reverseInGameYAxis ? -_mouseY : _mouseY, dt);
     _mouseX = _mouseY = 0.0f;
     const float sensitivity = mouseSensitivity(_game.options().game.mouse.sensitivity);
     if (input == 0.0f) {

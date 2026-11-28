@@ -410,6 +410,18 @@ void AudioMixer::setRoomReverb(bool reverb) {
     }
 }
 
+void AudioMixer::setReverbEnabled(bool enabled) {
+    if (_reverbEnabled == enabled) {
+        return;
+    }
+    _reverbEnabled = enabled;
+    for (auto &active : _sources) {
+        if (active.positional) {
+            _context.setReverbSend(*active.source, reverbSend(active));
+        }
+    }
+}
+
 bool AudioMixer::isStreamed(const ActiveSource &active) const {
     return active.group && _streamedGroups.count(*active.group) > 0;
 }
@@ -422,7 +434,7 @@ static const float kReverbSendFactor = std::pow(0.6f, 5.0f / 3.0f);
 
 // Only positional sounds reach the reverb; 2D sounds stay dry for now.
 float AudioMixer::reverbSend(const ActiveSource &active) const {
-    if (!active.positional || (active.group && _dryGroups.count(*active.group) > 0)) {
+    if (!_reverbEnabled || !active.positional || (active.group && _dryGroups.count(*active.group) > 0)) {
         return 0.0f;
     }
     if (isStreamed(active)) {

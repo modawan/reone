@@ -108,9 +108,7 @@ void OptionsMenu::onGUILoaded() {
     loadGameplayPanel();
     loadGraphicsPanel();
     loadSoundPanel();
-    if (!_game.isTSL()) {
-        loadAdvancedSoundPanel();
-    }
+    loadAdvancedSoundPanel();
     loadMousePanel();
 }
 
@@ -358,6 +356,10 @@ static constexpr int kMouseLookDescriptionStrRef = 48014;
 static constexpr int kMouseLookDescriptionStrRefTSL = 48697;
 static constexpr int kCombatMovementDescriptionStrRef = 42484;
 static constexpr int kAutoLevelUpDescriptionStrRef = 42266;
+static constexpr int kAutoSaveDescriptionStrRef = 38038;
+static constexpr int kReverseMinigameDescriptionStrRef = 48213;
+static constexpr int kReverseMinigameDescriptionStrRefTSL = 48699;
+static constexpr int kReverseInGameDescriptionStrRef = 106490;
 static constexpr int kMouseSettingsDescriptionStrRef = 49071;
 static constexpr int kMouseSettingsDescriptionStrRefTSL = 48720;
 
@@ -370,10 +372,16 @@ void OptionsMenu::loadGameplayPanel() {
     controls.BTN_DIFFICULTY = std::static_pointer_cast<Button>(find("BTN_DIFFICULTY"));
     controls.BTN_DIFFLEFT = std::static_pointer_cast<Button>(find("BTN_DIFFLEFT"));
     controls.BTN_DIFFRIGHT = std::static_pointer_cast<Button>(find("BTN_DIFFRIGHT"));
+    controls.CB_AUTOSAVE = std::static_pointer_cast<ToggleButton>(find("CB_AUTOSAVE"));
     controls.BTN_MOUSE = std::static_pointer_cast<Button>(find("BTN_MOUSE"));
     controls.CB_DISABLEMOVE = std::static_pointer_cast<ToggleButton>(find("CB_DISABLEMOVE"));
     controls.CB_INVERTCAM = std::static_pointer_cast<ToggleButton>(find("CB_INVERTCAM"));
     controls.CB_LEVELUP = std::static_pointer_cast<ToggleButton>(find("CB_LEVELUP"));
+    controls.CB_REVERSE = std::static_pointer_cast<ToggleButton>(find("CB_REVERSE"));
+    const bool tsl = _game.isTSL();
+    if (tsl) {
+        controls.CB_REVERSE_INGAME = std::static_pointer_cast<ToggleButton>(find("CB_REVERSE_INGAME"));
+    }
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     showCheckBoxes(*_gameplayGUI);
@@ -392,26 +400,39 @@ void OptionsMenu::loadGameplayPanel() {
         showDifficulty();
         describe(*_gameplayControls.LB_DESC, kDifficultyDescriptionStrRef);
     });
-    // The mouse look and combat movement boxes change their options at once
-    // and describe themselves when they gain focus.
-    controls.CB_INVERTCAM->setOnClick([this]() {
-        _gameplayControls.CB_INVERTCAM->toggle();
-        _game.setMouseLook(_gameplayControls.CB_INVERTCAM->isOn());
-    });
-    controls.CB_INVERTCAM->setOnSelectionChanged([this](bool selected) {
-        if (selected) {
-            describe(*_gameplayControls.LB_DESC, _game.isTSL() ? kMouseLookDescriptionStrRefTSL : kMouseLookDescriptionStrRef);
-        }
-    });
-    controls.CB_LEVELUP->setOnClick([this]() {
-        _gameplayControls.CB_LEVELUP->toggle();
-        _game.setAutoLevelUpNPCs(_gameplayControls.CB_LEVELUP->isOn());
-    });
-    controls.CB_LEVELUP->setOnSelectionChanged([this](bool selected) {
-        if (selected) {
-            describe(*_gameplayControls.LB_DESC, kAutoLevelUpDescriptionStrRef);
-        }
-    });
+    // Each box changes its option at once and describes itself when it gains
+    // focus. Turning the companions' level-up on levels up at once every
+    // companion who can.
+    struct Box {
+        std::shared_ptr<ToggleButton> control;
+        int strRef;
+        std::function<void(bool)> set;
+    };
+    std::vector<Box> boxes {
+        {controls.CB_LEVELUP, kAutoLevelUpDescriptionStrRef, [this](bool on) { _game.setAutoLevelUpNPCs(on); }},
+        {controls.CB_INVERTCAM, tsl ? kMouseLookDescriptionStrRefTSL : kMouseLookDescriptionStrRef,
+         [this](bool on) { _game.setMouseLook(on); }},
+        {controls.CB_AUTOSAVE, kAutoSaveDescriptionStrRef, [this](bool on) { _game.setAutoSave(on); }},
+        {controls.CB_REVERSE, tsl ? kReverseMinigameDescriptionStrRefTSL : kReverseMinigameDescriptionStrRef,
+         [this](bool on) { _game.setReverseMinigameYAxis(on); }},
+        {controls.CB_DISABLEMOVE, kCombatMovementDescriptionStrRef, [this](bool on) { _game.setCombatMovement(on); }},
+    };
+    if (tsl) {
+        boxes.push_back({controls.CB_REVERSE_INGAME, kReverseInGameDescriptionStrRef,
+                         [this](bool on) { _game.setReverseInGameYAxis(on); }});
+    }
+    for (auto &box : boxes) {
+        auto *control = box.control.get();
+        control->setOnClick([control, set = box.set]() {
+            control->toggle();
+            set(control->isOn());
+        });
+        control->setOnSelectionChanged([this, strRef = box.strRef](bool selected) {
+            if (selected) {
+                describe(*_gameplayControls.LB_DESC, strRef);
+            }
+        });
+    }
     controls.BTN_MOUSE->setOnClick([this]() {
         openMousePanel();
     });
@@ -420,29 +441,18 @@ void OptionsMenu::loadGameplayPanel() {
             describe(*_gameplayControls.LB_DESC, _game.isTSL() ? kMouseSettingsDescriptionStrRefTSL : kMouseSettingsDescriptionStrRef);
         }
     });
-    controls.CB_DISABLEMOVE->setOnClick([this]() {
-        _gameplayControls.CB_DISABLEMOVE->toggle();
-        _game.setCombatMovement(_gameplayControls.CB_DISABLEMOVE->isOn());
-    });
-    controls.CB_DISABLEMOVE->setOnSelectionChanged([this](bool selected) {
-        if (!selected) {
-            return;
-        }
-        _gameplayControls.LB_DESC->clearItems();
-        _gameplayControls.LB_DESC->addTextLinesAsItems(
-            _services.resource.strings.getText(kCombatMovementDescriptionStrRef));
-    });
-    // The defaults are the normal difficulty, mouse look and companions
-    // levelling up by themselves off, and combat movement on.
+    // The defaults are the normal difficulty, autosave and combat movement
+    // on, and the other boxes off.
     controls.BTN_DEFAULT->setOnClick([this]() {
+        const GameplayOptions defaults;
         _game.setDifficultyLevel(kDefaultDifficultyLevel);
-        _game.setMouseLook(false);
-        _game.setAutoLevelUpNPCs(false);
-        _game.setCombatMovement(true);
-        showDifficulty();
-        _gameplayControls.CB_INVERTCAM->setOn(false);
-        _gameplayControls.CB_LEVELUP->setOn(false);
-        _gameplayControls.CB_DISABLEMOVE->setOn(true);
+        _game.setAutoLevelUpNPCs(defaults.autoLevelUpNPCs);
+        _game.setMouseLook(MouseOptions().mouseLook);
+        _game.setAutoSave(defaults.autoSave);
+        _game.setReverseMinigameYAxis(defaults.reverseMinigameYAxis);
+        _game.setCombatMovement(defaults.combatMovement);
+        _game.setReverseInGameYAxis(defaults.reverseInGameYAxis);
+        showGameplayOptions();
     });
     controls.BTN_BACK->setOnClick([this]() {
         closePage();
@@ -450,12 +460,22 @@ void OptionsMenu::loadGameplayPanel() {
 }
 
 void OptionsMenu::openGameplayPanel() {
-    showDifficulty();
-    _gameplayControls.CB_INVERTCAM->setOn(_game.mouseLook());
-    _gameplayControls.CB_LEVELUP->setOn(_game.autoLevelUpNPCs());
-    _gameplayControls.CB_DISABLEMOVE->setOn(_game.combatMovement());
+    showGameplayOptions();
     _gameplayControls.LB_DESC->clearItems();
     openPage(*_gameplayGUI, [] {});
+}
+
+void OptionsMenu::showGameplayOptions() {
+    const auto &controls = _gameplayControls;
+    showDifficulty();
+    controls.CB_LEVELUP->setOn(_game.autoLevelUpNPCs());
+    controls.CB_INVERTCAM->setOn(_game.mouseLook());
+    controls.CB_AUTOSAVE->setOn(_game.autoSave());
+    controls.CB_REVERSE->setOn(_game.reverseMinigameYAxis());
+    controls.CB_DISABLEMOVE->setOn(_game.combatMovement());
+    if (controls.CB_REVERSE_INGAME) {
+        controls.CB_REVERSE_INGAME->setOn(_game.reverseInGameYAxis());
+    }
 }
 
 // The last row of the difficulty table is not a level the player can pick.
@@ -573,6 +593,7 @@ void OptionsMenu::showAutoPauseOptions(const AutoPauseOptions &options) {
 
 // Graphics
 
+static constexpr int kGammaDescriptionStrRef = 42310;
 static constexpr int kShadowsDescriptionStrRef = 47951;
 static constexpr int kShadowsDescriptionStrRefTSL = 48708;
 static constexpr int kGrassDescriptionStrRef = 47955;
@@ -582,6 +603,9 @@ static constexpr int kResolutionDescriptionStrRefTSL = 48707;
 static constexpr int kAdvancedGraphicsDescriptionStrRef = 49070;
 static constexpr int kAdvancedGraphicsDescriptionStrRefTSL = 48710;
 static constexpr int kResolutionFromMainMenuStrRef = 115761;
+// TSL's Force Speed box is named and described by custom strings.
+static constexpr int kForceSpeedNameCustomString = 0;
+static constexpr int kForceSpeedDescriptionCustomString = 1;
 
 void OptionsMenu::loadGraphicsPanel() {
     _graphicsGUI = loadPage("optgraphics");
@@ -595,15 +619,33 @@ void OptionsMenu::loadGraphicsPanel() {
     controls.CB_SHADOWS = std::static_pointer_cast<ToggleButton>(find("CB_SHADOWS"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_GAMMA = std::static_pointer_cast<Slider>(find("SLI_GAMMA"));
+    const bool tsl = _game.isTSL();
+    // Only TSL has Force Speed, and only some of its layouts show the box.
+    if (tsl) {
+        controls.CB_FORCESPEED = std::static_pointer_cast<ToggleButton>(find("CB_FORCESPEED"));
+        // The custom strings name the box in the game's language; without
+        // them it keeps its layout's own name.
+        if (controls.CB_FORCESPEED) {
+            if (auto name = _services.resource.strings.getCustomText(kForceSpeedNameCustomString); !name.empty()) {
+                controls.CB_FORCESPEED->setTextMessage(name);
+            }
+        }
+    }
     showCheckBoxes(*_graphicsGUI);
 
-    // The display's brightness cannot be changed.
-    controls.SLI_GAMMA->setDisabled(true);
+    // The brightness changes at once: the next frame is drawn at its gamma.
+    controls.SLI_GAMMA->setOnValueChanged([this](int value) {
+        _game.setBrightness(value);
+    });
+    controls.SLI_GAMMA->setOnSelectionChanged([this](bool selected) {
+        if (selected) {
+            describe(*_graphicsControls.LB_DESC, kGammaDescriptionStrRef);
+        }
+    });
 
-    // Shadows and grass change at once: the next frame is drawn with them or
-    // without. Shadows off takes soft shadows with them. The configuration is
-    // written when the options close.
-    const bool tsl = _game.isTSL();
+    // Shadows, grass and Force Speed change at once: the next frame is drawn
+    // with them or without. Shadows off takes soft shadows with them. The
+    // configuration is written when the options close.
     controls.CB_SHADOWS->setOnClick([this]() {
         _graphicsControls.CB_SHADOWS->toggle();
         auto &options = _game.options().graphics;
@@ -626,6 +668,17 @@ void OptionsMenu::loadGraphicsPanel() {
             describe(*_graphicsControls.LB_DESC, tsl ? kGrassDescriptionStrRefTSL : kGrassDescriptionStrRef);
         }
     });
+    if (controls.CB_FORCESPEED) {
+        controls.CB_FORCESPEED->setOnClick([this]() {
+            _graphicsControls.CB_FORCESPEED->toggle();
+            _game.setForceSpeed(_graphicsControls.CB_FORCESPEED->isOn());
+        });
+        controls.CB_FORCESPEED->setOnSelectionChanged([this](bool selected) {
+            if (selected) {
+                describe(*_graphicsControls.LB_DESC, _services.resource.strings.getCustomText(kForceSpeedDescriptionCustomString));
+            }
+        });
+    }
     // The sequel's in-game menu draws Screen Resolution disabled and says
     // why when it is pressed.
     const bool resolutionRefused = tsl && _inGame;
@@ -654,12 +707,17 @@ void OptionsMenu::loadGraphicsPanel() {
             describe(*_graphicsControls.LB_DESC, tsl ? kAdvancedGraphicsDescriptionStrRefTSL : kAdvancedGraphicsDescriptionStrRef);
         }
     });
-    // The defaults show shadows and grass.
+    // The defaults are the starting brightness, and show shadows, grass and
+    // the speed blur.
     controls.BTN_DEFAULT->setOnClick([this]() {
         const GraphicsOptions defaults;
         auto &options = _game.options().graphics;
         options.shadows = defaults.shadows;
         options.grass = defaults.grass;
+        _game.setBrightness(kDefaultBrightness);
+        if (_graphicsControls.CB_FORCESPEED) {
+            _game.setForceSpeed(GameOptions().forceSpeed);
+        }
         showGraphicsOptions();
     });
     controls.BTN_BACK->setOnClick([this]() {
@@ -683,8 +741,12 @@ void OptionsMenu::openGraphicsPanel() {
 
 void OptionsMenu::showGraphicsOptions() {
     const auto &options = _game.options().graphics;
+    _graphicsControls.SLI_GAMMA->setValue(_game.brightness());
     _graphicsControls.CB_SHADOWS->setOn(options.shadows);
     _graphicsControls.CB_GRASS->setOn(options.grass);
+    if (_graphicsControls.CB_FORCESPEED) {
+        _graphicsControls.CB_FORCESPEED->setOn(_game.forceSpeed());
+    }
 }
 
 // Screen resolution
@@ -1061,6 +1123,7 @@ static constexpr int kVoiceVolumeDescriptionStrRef = 42312;
 static constexpr int kSoundVolumeDescriptionStrRef = 42313;
 static constexpr int kMovieVolumeDescriptionStrRef = 47921;
 static constexpr int kAdvancedSoundDescriptionStrRef = 49073;
+static constexpr int kAdvancedSoundDescriptionStrRefTSL = 48717;
 
 void OptionsMenu::loadSoundPanel() {
     _soundGUI = loadPage("optsound");
@@ -1094,19 +1157,15 @@ void OptionsMenu::loadSoundPanel() {
         });
     }
 
-    // Only KotOR shows the advanced sound options.
-    if (_game.isTSL()) {
-        controls.BTN_ADVANCED->setVisible(false);
-    } else {
-        controls.BTN_ADVANCED->setOnClick([this]() {
-            openAdvancedSoundPanel();
-        });
-        controls.BTN_ADVANCED->setOnSelectionChanged([this](bool selected) {
-            if (selected) {
-                describe(*_soundControls.LB_DESC, kAdvancedSoundDescriptionStrRef);
-            }
-        });
-    }
+    controls.BTN_ADVANCED->setOnClick([this]() {
+        openAdvancedSoundPanel();
+    });
+    const int advancedStrRef = _game.isTSL() ? kAdvancedSoundDescriptionStrRefTSL : kAdvancedSoundDescriptionStrRef;
+    controls.BTN_ADVANCED->setOnSelectionChanged([this, advancedStrRef](bool selected) {
+        if (selected) {
+            describe(*_soundControls.LB_DESC, advancedStrRef);
+        }
+    });
     controls.BTN_DEFAULT->setOnClick([this]() {
         const AudioOptions defaults;
         auto &mixer = _services.audio.mixer;
@@ -1138,8 +1197,20 @@ void OptionsMenu::showVolumes() {
 
 // Advanced sound
 
-static constexpr int kForceSoftwareDescriptionStrRef = 48577;
-static constexpr int kEAXDescriptionStrRef = 48578;
+// The page's text in each game: the descriptions of Force Software and EAX,
+// then the names of EAX levels 0 (none), 1, 2 and 3.
+struct AdvancedSoundStrRefs {
+    int forceSoftwareDescription;
+    int eaxDescription;
+    std::array<int, AudioOptions::kMaxEAXLevel + 1> eaxNames;
+};
+
+static constexpr AdvancedSoundStrRefs kK1AdvancedSoundStrRefs {48577, 48578, {48573, 48574, 48575, 48576}};
+static constexpr AdvancedSoundStrRefs kTSLAdvancedSoundStrRefs {48718, 48719, {48746, 48747, 48748, 48749}};
+
+static const AdvancedSoundStrRefs &advancedSoundStrRefs(bool tsl) {
+    return tsl ? kTSLAdvancedSoundStrRefs : kK1AdvancedSoundStrRefs;
+}
 
 void OptionsMenu::loadAdvancedSoundPanel() {
     _advancedSoundGUI = loadPage("optsoundadv");
@@ -1149,33 +1220,53 @@ void OptionsMenu::loadAdvancedSoundPanel() {
     controls.BTN_CANCEL = std::static_pointer_cast<Button>(find("BTN_CANCEL"));
     controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
     controls.BTN_EAX = std::static_pointer_cast<Button>(find("BTN_EAX"));
+    controls.BTN_EAXLEFT = std::static_pointer_cast<Button>(find("BTN_EAXLEFT"));
+    controls.BTN_EAXRIGHT = std::static_pointer_cast<Button>(find("BTN_EAXRIGHT"));
     controls.CB_FORCESOFTWARE = std::static_pointer_cast<ToggleButton>(find("CB_FORCESOFTWARE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     showCheckBoxes(*_advancedSoundGUI);
 
-    // The environmental audio level is drawn as laid out; nothing sets it here.
-    controls.BTN_EAX->setOnSelectionChanged([this](bool selected) {
-        if (selected) {
-            describe(*_advancedSoundControls.LB_DESC, kEAXDescriptionStrRef);
-        }
+    // The arrows step the EAX level.
+    controls.BTN_EAXLEFT->setOnClick([this]() {
+        stepEAXLevel(-1);
     });
+    controls.BTN_EAXRIGHT->setOnClick([this]() {
+        stepEAXLevel(1);
+    });
+    for (const auto &control : {controls.BTN_EAX, controls.BTN_EAXLEFT, controls.BTN_EAXRIGHT}) {
+        control->setOnSelectionChanged([this](bool selected) {
+            if (selected) {
+                describe(*_advancedSoundControls.LB_DESC, advancedSoundStrRefs(_game.isTSL()).eaxDescription);
+            }
+        });
+    }
 
+    // In TSL, letting go of forced software starts the EAX level again from
+    // none.
     controls.CB_FORCESOFTWARE->setOnClick([this]() {
         _forceSoftware = !_forceSoftware;
-        showForceSoftware();
+        if (!_forceSoftware && _game.isTSL()) {
+            _eaxLevel = 0;
+        }
+        showAdvancedSound();
     });
     controls.CB_FORCESOFTWARE->setOnSelectionChanged([this](bool selected) {
         if (selected) {
-            describe(*_advancedSoundControls.LB_DESC, kForceSoftwareDescriptionStrRef);
+            describe(*_advancedSoundControls.LB_DESC, advancedSoundStrRefs(_game.isTSL()).forceSoftwareDescription);
         }
     });
+    // The default EAX level is the highest the device renders.
     controls.BTN_DEFAULT->setOnClick([this]() {
         _forceSoftware = AudioOptions().forceSoftware;
-        showForceSoftware();
+        _eaxLevel = _game.bestEAXLevel();
+        showAdvancedSound();
     });
-    // OK keeps the page's Force Software; Cancel, like Escape, drops it.
+    // OK keeps the page's Force Software and EAX level, and the sound runs at
+    // the level as far as the device renders it, at none while software sound
+    // is forced; Cancel, like Escape, drops them.
     controls.BTN_BACK->setOnClick([this]() {
         _game.options().audio.forceSoftware = _forceSoftware;
+        _game.setEAXLevel(_eaxLevel);
         closePage();
     });
     controls.BTN_CANCEL->setOnClick([this]() {
@@ -1185,22 +1276,44 @@ void OptionsMenu::loadAdvancedSoundPanel() {
 
 void OptionsMenu::openAdvancedSoundPanel() {
     _forceSoftware = _game.options().audio.forceSoftware;
-    showForceSoftware();
-    describe(*_advancedSoundControls.LB_DESC, kForceSoftwareDescriptionStrRef);
+    _eaxLevel = _game.options().audio.eaxLevel;
+    showAdvancedSound();
+    describe(*_advancedSoundControls.LB_DESC, advancedSoundStrRefs(_game.isTSL()).forceSoftwareDescription);
     openPage(*_advancedSoundGUI, [] {});
 }
 
-void OptionsMenu::showForceSoftware() {
+void OptionsMenu::stepEAXLevel(int direction) {
+    const int level = _eaxLevel + direction;
+    if (level < 0 || level > _game.bestEAXLevel()) {
+        return;
+    }
+    _eaxLevel = level;
+    showAdvancedSound();
+}
+
+void OptionsMenu::showAdvancedSound() {
     const auto &controls = _advancedSoundControls;
+    const int level = std::clamp(_eaxLevel, 0, AudioOptions::kMaxEAXLevel);
     controls.CB_FORCESOFTWARE->setOn(_forceSoftware);
-    controls.BTN_EAX->setDisabled(_forceSoftware);
-    controls.BTN_EAX->setTextColor(_forceSoftware ? kK1ColorDisabledText : _baseColor);
+    controls.BTN_EAX->setTextMessage(_services.resource.strings.getText(advancedSoundStrRefs(_game.isTSL()).eaxNames[level]));
+    controls.BTN_EAXLEFT->setVisible(level > 0);
+    controls.BTN_EAXRIGHT->setVisible(level < _game.bestEAXLevel());
+    for (const auto &control : {controls.BTN_EAX, controls.BTN_EAXLEFT, controls.BTN_EAXRIGHT}) {
+        control->setDisabled(_forceSoftware);
+    }
+    // The level's caption takes each game's colour for an enabled or a
+    // disabled control.
+    const glm::vec3 enabledColor = _game.isTSL() ? kTSLColorNewText : kK1ColorBlue;
+    const glm::vec3 disabledColor = _game.isTSL() ? kTSLColorDisabledText : kK1ColorDisabledText;
+    controls.BTN_EAX->setTextColor(_forceSoftware ? disabledColor : enabledColor);
 }
 
 // Mouse
 
 static constexpr int kMouseSensitivityDescriptionStrRef = 48013;
 static constexpr int kMouseSensitivityDescriptionStrRefTSL = 48721;
+static constexpr int kReverseButtonsDescriptionStrRef = 48450;
+static constexpr int kReverseButtonsDescriptionStrRefTSL = 48722;
 
 void OptionsMenu::loadMousePanel() {
     _mouseGUI = loadPage("optmouse");
@@ -1208,25 +1321,38 @@ void OptionsMenu::loadMousePanel() {
     auto &controls = _mouseControls;
     controls.BTN_BACK = std::static_pointer_cast<Button>(find("BTN_BACK"));
     controls.BTN_DEFAULT = std::static_pointer_cast<Button>(find("BTN_DEFAULT"));
+    controls.CB_REVBUTTONS = std::static_pointer_cast<ToggleButton>(find("CB_REVBUTTONS"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_MOUSESEN = std::static_pointer_cast<Slider>(find("SLI_MOUSESEN"));
     showCheckBoxes(*_mouseGUI);
 
-    // The sensitivity changes at once; the configuration is written when the
-    // options close.
+    // The sensitivity and the reversed buttons change at once; the
+    // configuration is written when the options close.
     controls.SLI_MOUSESEN->setOnValueChanged([this](int value) {
         _game.options().game.mouse.sensitivity = value;
     });
-    const int descriptionStrRef = _game.isTSL() ? kMouseSensitivityDescriptionStrRefTSL : kMouseSensitivityDescriptionStrRef;
+    const bool tsl = _game.isTSL();
+    const int descriptionStrRef = tsl ? kMouseSensitivityDescriptionStrRefTSL : kMouseSensitivityDescriptionStrRef;
     controls.SLI_MOUSESEN->setOnSelectionChanged([this, descriptionStrRef](bool selected) {
         if (selected) {
             describe(*_mouseControls.LB_DESC, descriptionStrRef);
         }
     });
+    controls.CB_REVBUTTONS->setOnClick([this]() {
+        _mouseControls.CB_REVBUTTONS->toggle();
+        _game.setReverseMouseButtons(_mouseControls.CB_REVBUTTONS->isOn());
+    });
+    const int reverseStrRef = tsl ? kReverseButtonsDescriptionStrRefTSL : kReverseButtonsDescriptionStrRef;
+    controls.CB_REVBUTTONS->setOnSelectionChanged([this, reverseStrRef](bool selected) {
+        if (selected) {
+            describe(*_mouseControls.LB_DESC, reverseStrRef);
+        }
+    });
     controls.BTN_DEFAULT->setOnClick([this]() {
-        const int sensitivity = MouseOptions().sensitivity;
-        _game.options().game.mouse.sensitivity = sensitivity;
-        _mouseControls.SLI_MOUSESEN->setValue(sensitivity);
+        const MouseOptions defaults;
+        _game.options().game.mouse.sensitivity = defaults.sensitivity;
+        _game.setReverseMouseButtons(defaults.reverseButtons);
+        showMouseOptions();
     });
     controls.BTN_BACK->setOnClick([this]() {
         closePage();
@@ -1234,9 +1360,15 @@ void OptionsMenu::loadMousePanel() {
 }
 
 void OptionsMenu::openMousePanel() {
-    _mouseControls.SLI_MOUSESEN->setValue(_game.options().game.mouse.sensitivity);
+    showMouseOptions();
     describe(*_mouseControls.LB_DESC, _game.isTSL() ? kMouseSensitivityDescriptionStrRefTSL : kMouseSensitivityDescriptionStrRef);
     openPage(*_mouseGUI, [] {});
+}
+
+void OptionsMenu::showMouseOptions() {
+    const auto &mouse = _game.options().game.mouse;
+    _mouseControls.SLI_MOUSESEN->setValue(mouse.sensitivity);
+    _mouseControls.CB_REVBUTTONS->setOn(mouse.reverseButtons);
 }
 
 } // namespace game

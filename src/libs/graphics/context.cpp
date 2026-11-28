@@ -232,6 +232,16 @@ std::shared_ptr<Texture> Context::captureScreen(int width, int height) {
     return texture;
 }
 
+void Context::copyBackBuffer(Texture &destination) {
+    _readFramebuffer.reset();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    bindTexture(destination);
+    // From the viewport's corner.
+    const glm::ivec4 corner = _viewports.empty() ? glm::ivec4(0) : _viewports.top();
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, corner.x, corner.y, destination.width(), destination.height());
+}
+
 void Context::bindUniformBuffer(UniformBuffer &buffer, int index) {
     buffer.bind(index);
 }

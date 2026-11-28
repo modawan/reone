@@ -72,6 +72,11 @@ struct GraphicsOptions {
     bool ssr {false};
     bool fxaa {true};
     bool sharpen {true};
+    /**
+     * Each colour channel of the finished frame is raised to this power; 1
+     * leaves the frame as drawn, less brightens it and more darkens it.
+     */
+    float gamma {1.0f};
     TextureQuality textureQuality {TextureQuality::High};
     int shadowResolution {2048};
     int anisotropicFiltering {2};

@@ -121,6 +121,7 @@ public:
     MOCK_METHOD(std::string, getSound, (int strRef), (override));
     MOCK_METHOD(float, getSoundDuration, (int strRef), (override));
     MOCK_METHOD(Language, language, (), (const override));
+    MOCK_METHOD(std::string, getCustomText, (int id), (override));
 };
 
 class MockTwoDAs : public ITwoDAs, boost::noncopyable {
