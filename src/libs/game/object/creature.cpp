@@ -1460,7 +1460,9 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
     restoreSerializedVitality();
     deserializeHeldCounts(*utc);
+    const auto pools = loadedPools();
     deserializeOwnedItemsAndEquipment(*utc, SerializedIdentityContext::templateResource(resRef), false);
+    followWornMaxima(pools);
     countLoadedItems(false);
     updateTransform();
     loadAppearance();
@@ -3990,6 +3992,20 @@ void Creature::restoreSerializedVitality() {
                         (maximumForce > 0 ? beyondAbilityTerms(maximumForce, _forcePoints, forceModifier) : 0);
     }
     updateDeathFromCurrentHitPoints();
+}
+
+Creature::LoadedPools Creature::loadedPools() const {
+    return {currentHitPointsWithoutTemporary(), maxHitPoints(), _currentForce, maxForcePoints()};
+}
+
+void Creature::followWornMaxima(const LoadedPools &before) {
+    Object::setCurrentHitPoints(before.hitPoints + maxHitPoints() - before.maxHitPoints);
+    _currentForce = before.force + maxForcePoints() - before.maxForce;
+    updateDeathFromCurrentHitPoints();
+    // A feat an item grants counts only once the item is bound to its effect,
+    // and a saved effect is back only once the creature's state is published:
+    // the pools follow again then.
+    _poolsAwaitingEffects = loadedPools();
 }
 
 int Creature::serializedCurrentHitPoints() const {
@@ -11771,12 +11787,14 @@ void Creature::deserializeRecord(
     // Vitality is rebuilt from the record before equipment is worn, so worn
     // Constitution, Wisdom and Charisma move the rebuilt pools.
     restoreSerializedVitality();
+    const auto pools = loadedPools();
     if (utc) {
         deserializeOwnedItemsAndEquipment(
             *utc, SerializedIdentityContext::templateResource(templateRes), true);
     } else {
         deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     }
+    followWornMaxima(pools);
     countLoadedItems(partyMember);
     // A reloaded corpse lies, without dying again, in the dead pose it was
     // saved in; one saved in no dead pose lies in the second.
@@ -13452,6 +13470,16 @@ void Creature::recomputeAIStateEffects(int pendingMask, uint64_t removingOrder) 
 // armour class and disguise effects of a worn item follow the saved effects,
 // so they are added once those are back.
 void Creature::onEffectsRestored() {
+    // Runs last: the pools take up what the effects now back raised their maxima by.
+    struct FollowPools {
+        Creature &creature;
+        ~FollowPools() {
+            if (auto pools = std::exchange(creature._poolsAwaitingEffects, std::nullopt)) {
+                creature.followWornMaxima(*pools);
+                creature._poolsAwaitingEffects.reset();
+            }
+        }
+    } followPools {*this};
     std::set<const Item *> visited;
     for (const auto &[slot, item] : _equipment) {
         if (!item || !visited.insert(item.get()).second) {

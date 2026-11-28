@@ -270,7 +270,12 @@ void Map::renderParty(Mode mode, const glm::vec4 &rect, float scale, float pulsi
     // The map screen marks where the companions stand; the minimap shows the
     // leader alone. Both carry the leader's arrow.
     for (int index = 1; mode == Mode::Default && index < party.getSize(); ++index) {
-        auto mapPos = state->toMapPosition(glm::vec2(party.getMember(index)->position()));
+        // A place in the party can name no one for a while, and has no marker.
+        auto member = party.getMember(index);
+        if (!member) {
+            continue;
+        }
+        auto mapPos = state->toMapPosition(glm::vec2(member->position()));
         if (!mapPos) {
             continue;
         }

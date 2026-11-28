@@ -3685,6 +3685,24 @@ private:
      */
     bool hitPointsAtDeathThreshold() const;
     void restoreSerializedVitality();
+    /** The pools and their maxima as a loaded creature has them before it wears what its record lists. */
+    struct LoadedPools {
+        int hitPoints {0};
+        int maxHitPoints {0};
+        int force {0};
+        int maxForce {0};
+    };
+    LoadedPools loadedPools() const;
+    /**
+     * Takes the pools up by all that wearing the record's items raised their
+     * maxima. A worn ability score moves a pool as it is put on; a feat an
+     * item grants raises the maximum alone. The record leaves out the whole
+     * maximum, so without this a creature wearing such an item would come
+     * back short by the feat's share on every load.
+     */
+    void followWornMaxima(const LoadedPools &before);
+    /** The pools as loaded, until the creature's effects are back (see followWornMaxima). */
+    std::optional<LoadedPools> _poolsAwaitingEffects;
     /**
      * Takes \p amount from the creature's vitality. Its dealer, when it is
      * the controlled creature, is shown \p dealt, the damage before the

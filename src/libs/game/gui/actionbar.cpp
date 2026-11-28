@@ -362,8 +362,11 @@ void ActionBar::selectPartyItemTarget(const std::shared_ptr<Creature> &leader, c
     PartyItemTarget target;
     target.item = item;
     target.spell = spell;
+    // A place in the party that names no one is not offered.
     for (int i = 0; i < party.getSize(); ++i) {
-        target.members.push_back(party.getMember(i)->id());
+        if (auto member = party.getMember(i)) {
+            target.members.push_back(member->id());
+        }
     }
     _partyItemTarget = std::move(target);
 }
