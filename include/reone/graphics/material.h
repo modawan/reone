@@ -61,6 +61,13 @@ public:
      */
     glm::vec4 forceSightColor {0.0f, 0.0f, 0.0f, 1.0f};
 
+    /**
+     * An object's illumination colour, such as the tint colour of a
+     * placeable or door: the lighting is moved by twice the colour less one,
+     * so 0.5 leaves it as it is. Off while alpha is 0.
+     */
+    glm::vec4 illumination {0.0f};
+
     bool staticObject {false};
     bool affectedByShadows {false};
     bool affectedByFog {false};

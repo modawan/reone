@@ -330,6 +330,10 @@ private:
     bool _static {false};
     bool _notBlastable {false};
     resource::LocString _transitionDestin;
+    /** Whether the door is drawn in its tint colour. */
+    uint8_t _useTweakColor {0};
+    /** The door's tint colour, a 0xBBGGRR value. */
+    uint32_t _tweakColor {0};
     // END Serializable
 
     bool _preciseUse {false};

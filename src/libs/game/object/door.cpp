@@ -77,7 +77,8 @@ static constexpr int kLinkedToWaypoint = 2;
 
 // The fields a door placed from its template takes from its area entry.
 static const std::vector<std::string> kEntryFields {
-    "TransitionDestin", "LinkedTo", "LinkedToFlags", "LinkedToModule", "Bearing", "X", "Y", "Z"};
+    "TransitionDestin", "LinkedTo", "LinkedToFlags", "LinkedToModule", "Bearing", "X", "Y", "Z",
+    "UseTweakColor", "TweakColor"};
 // The fields a TSL door also takes from its entry.
 static const std::vector<std::string> kEntryFieldsTSL {"Tag"};
 
@@ -85,8 +86,9 @@ static const std::vector<std::string> kEntryFieldsTSL {"Tag"};
 // what its entry gives: in TSL its tag when the entry has one, its transition's
 // destination name when the entry has one, its link, link flags and linked
 // module, its bearing and its position; a missing link or module reads as
-// none, and missing flags, bearing or position as 0. A saved door takes
-// everything from its record.
+// none, and missing flags, bearing or position as 0. It takes the entry's tint
+// colour, none when the entry has none, and its save keeps it. A saved door
+// takes everything from its record.
 void Door::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
@@ -111,6 +113,8 @@ void Door::deserialize(
         if (_game.isTSL() && gff.readString(_tag, "Tag")) {
             boost::to_lower(_tag);
         }
+        _useTweakColor = static_cast<uint8_t>(gff.getUint("UseTweakColor", 0));
+        _tweakColor = gff.getUint("TweakColor", 0);
         placeAtEntryPoint(gff);
     } else {
         deserializeAll(gff, identityContext);
@@ -214,6 +218,8 @@ void Door::deserializeAll(
     }
     gff.readBool(_notBlastable, "NotBlastable");
     gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
+    gff.readByte(_useTweakColor, "UseTweakColor");
+    gff.readDword(_tweakColor, "TweakColor");
 
     // FIXME: deserialize EffectList, ActionList
 }
@@ -265,6 +271,9 @@ void Door::loadAppearance() {
 
     auto modelSceneNode = sceneGraph.newModel(model, ModelUsage::Door);
     modelSceneNode->setUser(*this);
+    if (_useTweakColor != 0) {
+        modelSceneNode->setIllumination(resource::Gff::colorFromUint32(_tweakColor));
+    }
     modelSceneNode->setAnimationEventListener(*this);
     // Under Force Sight a door is drawn see-through.
     modelSceneNode->setForceSightStyle(scene::ModelSceneNode::ForceSightStyle::Translucent);

@@ -320,6 +320,7 @@ void PBRRenderPass::applyMaterialToLocals(const Material &material,
     locals.diffuseColor = glm::vec4 {material.diffuseColor, 0.0f};
     locals.selfIllumColor = glm::vec4(material.selfIllumColor, 1.0f);
     locals.forceSightColor = material.forceSightColor;
+    locals.illumination = material.illumination;
     locals.shellOffset = material.shellOffset;
     if (auto mainTexture = material.mainTexture()) {
         const auto &mainTex = mainTexture->get();

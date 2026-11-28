@@ -58,6 +58,11 @@ void main() {
     if (isFeatureEnabled(FEATURE_WATER)) {
         diffuseColor *= uWaterAlpha;
     }
+    // An object's illumination colour moves the lighting; at full light that
+    // is the surface colour scaled by twice the illumination.
+    if (uIllumination.a > 0.0) {
+        diffuseColor.rgb *= 2.0 * uIllumination.rgb;
+    }
 
     float features = packGeometryFeatures(isFeatureEnabled(FEATURE_ENVMAPCUBE),
                                           isFeatureEnabled(FEATURE_SHADOWS),

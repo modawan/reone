@@ -87,6 +87,9 @@ void main() {
         }
     }
     vec3 lighting = min(vec3(1.0), ambient + max(vec3(0.0), diffuse));
+    if (uIllumination.a > 0.0) {
+        lighting = max(vec3(0.0), lighting + 2.0 * uIllumination.rgb - 1.0);
+    }
 
     vec3 objectColor = lighting * uColor.rgb * diffuseColor;
     if (uForceSight != 0 && isFeatureEnabled(FEATURE_FORCEGLOW)) {
