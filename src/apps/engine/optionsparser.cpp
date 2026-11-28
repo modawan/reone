@@ -22,6 +22,7 @@
 #include <iostream>
 #include <optional>
 
+#include "reone/system/appdirs.h"
 #include "reone/system/types.h"
 
 using namespace boost::program_options;
@@ -30,8 +31,6 @@ using namespace reone::game;
 using namespace reone::graphics;
 
 namespace reone {
-
-static constexpr char kConfigFilename[] = "reone.cfg";
 
 static float positiveFiniteScale(const variables_map &vars, const char *name) {
     float value = vars[name].as<float>();
@@ -106,9 +105,10 @@ std::unique_ptr<Options> OptionsParser::parse() {
     // A configuration that is there but cannot be read, whether it fails to
     // open or part way through, leaves the options at their defaults; the log
     // is not open yet, so this is said on the error stream.
+    const auto configPath = configFilePath();
     std::error_code configError;
-    if (std::filesystem::exists(kConfigFilename, configError) || configError) {
-        std::ifstream config(kConfigFilename);
+    if (std::filesystem::exists(configPath, configError) || configError) {
+        std::ifstream config(configPath);
         std::optional<parsed_options> parsed;
         if (config) {
             parsed = parse_config_file<char>(config, descCommon, true);
@@ -116,7 +116,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         if (parsed && !config.bad()) {
             store(*parsed, vars);
         } else {
-            std::cerr << "Unable to read the configuration at " << kConfigFilename << "; the options are left at their defaults" << std::endl;
+            std::cerr << "Unable to read the configuration at " << configPath.string() << "; the options are left at their defaults" << std::endl;
         }
     }
     notify(vars);
@@ -126,7 +126,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
     options->game.developer = vars["dev"].as<bool>();
     options->game.wheelZoom = vars["wheelzoom"].as<bool>();
-    options->game.configurationPath = std::filesystem::absolute(kConfigFilename);
+    options->game.configurationPath = std::filesystem::absolute(configPath);
     options->game.menuPresentation = game::MenuPresentation::load(options->game.configurationPath);
     options->graphics.width = vars["width"].as<int>();
     options->graphics.height = vars["height"].as<int>();

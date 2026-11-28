@@ -203,6 +203,7 @@ TEST_F(K1StartupTest, loose_sources_rank_by_the_order_k1_registers_them) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -221,6 +222,7 @@ TEST_F(K1StartupTest, loose_order_holds_when_the_newest_sources_are_absent) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -238,6 +240,7 @@ TEST_F(K1StartupTest, the_rims_directory_outranks_override) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -255,6 +258,7 @@ TEST_F(K1StartupTest, streamsounds_stays_out_of_raw_lookup) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -281,6 +285,7 @@ TEST_F(K1StartupTest, patch_outranks_the_override_texture_archive) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -302,6 +307,7 @@ TEST_F(K1StartupTest, the_override_texture_archive_is_class_one_not_class_two) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -321,6 +327,7 @@ TEST_F(K1StartupTest, a_loose_file_outranks_every_encapsulated_startup_source) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -341,6 +348,7 @@ TEST_F(K1StartupTest, the_global_image_outranks_class_two_and_loses_to_class_one
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -359,6 +367,7 @@ TEST_F(K1StartupTest, only_the_named_global_image_is_mounted_from_the_rims_locat
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -388,6 +397,7 @@ TEST_F(K1StartupTest, the_player_archive_outranks_the_texture_pack_and_loses_to_
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -414,6 +424,7 @@ TEST_F(K1StartupTest, the_player_archive_is_not_duplicated_or_repositioned_by_tr
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     auto afterInit = _count();
@@ -446,6 +457,7 @@ TEST_F(K1StartupTest, the_player_archive_is_found_by_basename_not_by_extension) 
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -461,6 +473,7 @@ TEST_F(K1StartupTest, an_absent_player_archive_is_not_a_failure) {
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         EXPECT_NO_THROW(director->init());
     }
     EXPECT_NO_THROW(director->onModuleLoad("foo"));
@@ -489,6 +502,7 @@ TEST_F(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archive
     auto director = makeDirector(game.path, GameID::TSL);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -514,6 +528,7 @@ TEST_F(K1StartupTest, k2_keeps_its_streams_out_of_raw_lookup) {
     auto director = makeDirector(game.path, GameID::TSL);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 
@@ -530,6 +545,7 @@ TEST_F(K1StartupTest, k2_rims_loose_directory_outranks_base_override) {
     auto director = makeDirector(game.path, GameID::TSL);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     EXPECT_EQ("rims", find(kProbe));
@@ -552,6 +568,7 @@ TEST_F(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_
     auto director = makeDirector(game.path, GameID::TSL, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     EXPECT_EQ("rims", find(kProbe));
@@ -562,6 +579,7 @@ TEST_F(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_
     director = makeDirector(game.path, GameID::TSL, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     EXPECT_EQ("configured 1", find(kProbe));
@@ -572,6 +590,7 @@ TEST_F(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_
     director = makeDirector(game.path, GameID::TSL, roots);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
     EXPECT_EQ("configured 0", find(kProbe));
@@ -700,6 +719,7 @@ TEST_F(K1StartupTest, the_global_image_supplies_the_two_da_that_the_key_table_al
     auto director = makeDirector(game.path);
     {
         CwdGuard guard(cwd.path);
+        director->setDataDirectories({cwd.path});
         director->init();
     }
 

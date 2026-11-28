@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.modawan.reone</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>reone</name>
+  <summary>Game engine for Star Wars: KotOR and The Sith Lords</summary>
+  <description>
+    <p>
+      reone is a free and open source game engine, capable of running Star Wars: Knights of the Old Republic and its sequel, The Sith Lords.
+    </p>
+    <p>
+      reone does not include any game data: it needs an installed copy of either game.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.modawan.reone.desktop</launchable>
+  <url type="homepage">https://github.com/modawan/reone</url>
+  <url type="bugtracker">https://github.com/modawan/reone/issues</url>
+  <provides>
+    <binary>reone</binary>
+    <binary>reone-launcher</binary>
+  </provides>
+  <categories>
+    <category>Game</category>
+    <category>RolePlaying</category>
+  </categories>
+</component>

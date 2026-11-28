@@ -1030,6 +1030,7 @@ protected:
 
     void init(ResourceDirector &director, const TmpDir &cwd) {
         CwdGuard guard(cwd.path);
+        director.setDataDirectories({cwd.path});
         director.init();
     }
 

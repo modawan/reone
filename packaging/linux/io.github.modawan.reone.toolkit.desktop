@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=reone toolkit
+GenericName=Game data editor for KotOR and TSL
+Comment=Browse and edit Star Wars: Knights of the Old Republic and The Sith Lords game data
+Exec=reone-toolkit
+Icon=io.github.modawan.reone.toolkit
+Terminal=false
+Categories=Development;
+Keywords=kotor;tsl;modding;gff;erf;2da;

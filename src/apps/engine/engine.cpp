@@ -26,6 +26,7 @@
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gameprobe.h"
+#include "reone/system/appdirs.h"
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stringutil.h"
 #include "reone/system/unicodeutil.h"
@@ -60,6 +61,11 @@ static void imguiInit() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // The window layout is saved with the other per-user files rather than in
+    // whatever directory the engine was started from. ImGui keeps the
+    // pointer, so the string must outlive the context.
+    static const std::string iniFilename = (userDirectory() / "imgui.ini").string();
+    io.IniFilename = iniFilename.c_str();
     ImGui::GetStyle().FontScaleMain = 1.5f;
 }
 
