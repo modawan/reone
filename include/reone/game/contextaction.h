@@ -41,6 +41,8 @@ enum class PowerUnavailableReason {
     InsufficientVitality,
     /** KotOR: a healing kit while no one it would treat needs it. */
     NoOneToHeal,
+    /** An entry a companion may not take while the player character is down. */
+    PlayerCharacterDown,
 };
 
 /**

@@ -52,6 +52,7 @@ static constexpr uint32_t kForbiddenEquipmentMessage = 38614;
 static constexpr uint32_t kRequiredEquipmentMessage = 38615;
 static constexpr uint32_t kMinimumRangeMessage = 42422;
 static constexpr uint32_t kNoOneToHealMessage = 42498;
+static constexpr uint32_t kPlayerCharacterDownMessage = 47936;
 /** The seconds a rejection message is shown. */
 static constexpr float kRejectionDuration = 5.0f;
 /** The seconds a form, implant-mode or behaviour selection announces itself. */
@@ -75,6 +76,9 @@ void ActionMenuFeedback::reject(PowerUnavailableReason reason, ServicesView &ser
         break;
     case PowerUnavailableReason::NoOneToHeal:
         _message = kNoOneToHealMessage;
+        break;
+    case PowerUnavailableReason::PlayerCharacterDown:
+        _message = kPlayerCharacterDownMessage;
         break;
     case PowerUnavailableReason::InsufficientVitality:
     case PowerUnavailableReason::None:
