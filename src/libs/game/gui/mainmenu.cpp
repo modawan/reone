@@ -56,7 +56,13 @@ namespace reone {
 
 namespace game {
 
-static constexpr float kKotorModelSize = 1.4f;
+// Both games' menu scenes are framed by their camerahook through a 22.726
+// degree vertical field of view. KotOR's mainmenu model is laid out for it:
+// its backdrop plane, about 12 units behind the hook and 4.8 tall, fills the
+// view's height, and a wider plane a mod puts there fills a wider screen.
+static constexpr float kMenuVerticalFov = 22.7259998f;
+static constexpr float kMenuClipPlaneNear = 0.1f;
+static constexpr float kMenuClipPlaneFar = 10000.0f;
 
 // KotOR's movie list opens with a row that runs the credits, to their music.
 static constexpr char kCreditsRow[] = "credits";
@@ -171,9 +177,9 @@ void MainMenu::setup3DView() {
 
     SceneInitializer(sceneGraph)
         .aspect(aspect)
-        .depth(kDefaultClipPlaneNear, 10.0f)
+        .depth(kMenuClipPlaneNear, kMenuClipPlaneFar)
+        .perspective(glm::radians(kMenuVerticalFov))
         .modelSupplier(bind(&MainMenu::getKotorModel, this, std::placeholders::_1))
-        .modelScale(kKotorModelSize)
         .cameraFromModelNode("camerahook")
         .invoke();
 
@@ -209,8 +215,8 @@ void MainMenu::refreshScene() {
     SceneInitializer initializer {sceneGraph};
     initializer
         .aspect(extent.width / static_cast<float>(extent.height))
-        .depth(0.1f, 10000.0f)
-        .perspective(glm::radians(22.7259998f))
+        .depth(kMenuClipPlaneNear, kMenuClipPlaneFar)
+        .perspective(glm::radians(kMenuVerticalFov))
         .modelScale(1.0f)
         .prewarmEmitters()
         .modelSupplier([environment](ISceneGraph &) { return environment; });
