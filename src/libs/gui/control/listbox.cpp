@@ -774,7 +774,7 @@ void ListBox::setIconTextFont(std::string baseFont) {
 }
 
 void ListBox::resolveIconTextFont() {
-    _iconTextFont = _resourceSvc.fonts.get(fontName(_iconTextBaseFont, _gui.smallFonts()));
+    _iconTextFont = findFont(_resourceSvc.fonts, _iconTextBaseFont, _gui.smallFonts());
 }
 
 void ListBox::setIconTextBox(IconTextBox box) {

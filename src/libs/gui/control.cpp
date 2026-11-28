@@ -1046,13 +1046,18 @@ std::string Control::fontName(const std::string &baseFont, bool useSmall) {
     return baseFont + (useSmall ? 'a' : 'b');
 }
 
+std::shared_ptr<Font> Control::findFont(resource::IFonts &fonts, const std::string &baseFont, bool useSmall) {
+    auto font = fonts.get(fontName(baseFont, useSmall));
+    return font ? font : fonts.get(baseFont);
+}
+
 void Control::setTextFont(std::string baseFont) {
     _text.baseFont = std::move(baseFont);
     resetFont();
 }
 
 void Control::resetFont() {
-    _text.font = _resourceSvc.fonts.get(fontName(_text.baseFont, _gui.smallFonts()));
+    _text.font = findFont(_resourceSvc.fonts, _text.baseFont, _gui.smallFonts());
     updateTextLines();
 }
 

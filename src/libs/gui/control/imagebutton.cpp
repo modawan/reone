@@ -50,7 +50,7 @@ void ImageButton::setIconFont(std::string baseFont) {
 
 void ImageButton::resetFont() {
     Control::resetFont();
-    _iconFont = _resourceSvc.fonts.get(fontName(_iconBaseFont, _gui.smallFonts()));
+    _iconFont = findFont(_resourceSvc.fonts, _iconBaseFont, _gui.smallFonts());
     if (!_iconFont) {
         _iconFont = _text.font;
     }
