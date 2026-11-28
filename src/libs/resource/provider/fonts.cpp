@@ -20,6 +20,7 @@
 #include "reone/graphics/context.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/texture.h"
 #include "reone/resource/provider/textures.h"
 
 using namespace reone::graphics;
@@ -30,7 +31,9 @@ namespace resource {
 
 std::shared_ptr<Font> Fonts::doGet(std::string resRef) {
     std::shared_ptr<Texture> texture(_textures.get(resRef, TextureUsage::Font));
-    if (!texture)
+    // A texture without character metrics, such as a TGA with no TXI, has
+    // nothing to draw text with.
+    if (!texture || texture->features().numChars <= 0)
         return nullptr;
 
     auto font = std::make_shared<Font>(_context, _meshRegistry, _shaderRegistry, _statistic, _uniforms);

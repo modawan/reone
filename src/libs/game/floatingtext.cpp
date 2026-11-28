@@ -186,6 +186,9 @@ void FloatingText::render() {
     const std::string fontResRef = _services.gui.guis.fontName("fnt_d16x16");
     if (!_font || _fontResRef != fontResRef) {
         _font = _services.resource.fonts.get(fontResRef);
+        if (!_font) {
+            _font = _services.resource.fonts.get("fnt_d16x16");
+        }
         _fontResRef = fontResRef;
     }
     if (!_font) {

@@ -34,6 +34,7 @@ namespace reone {
 namespace resource {
 
 class Gff;
+class IFonts;
 
 struct ResourceServices;
 
@@ -218,6 +219,8 @@ public:
      * no variants.
      */
     static std::string fontName(const std::string &baseFont, bool useSmall);
+    /** The variant of \p baseFont (fontName), or the base font itself when the install has no usable variant. */
+    static std::shared_ptr<graphics::Font> findFont(resource::IFonts &fonts, const std::string &baseFont, bool useSmall);
 
     static ControlType getType(const resource::generated::GUI_BASECONTROL &gui);
     static std::string getTag(const resource::generated::GUI_BASECONTROL &gui);
