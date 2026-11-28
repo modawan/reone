@@ -28,6 +28,8 @@ namespace game {
 
 struct GameOptions {
     std::filesystem::path path;
+    /** Further TSL content folders, each laid out like the game folder; a later one wins. */
+    std::vector<std::filesystem::path> contentRoots;
     bool developer {false};
     bool neo {false};
     /** The mouse wheel moves the follow camera in and out. */

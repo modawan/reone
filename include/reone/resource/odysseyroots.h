@@ -39,6 +39,21 @@ OdysseyResourceRoots defaultOdysseyResourceRoots(const std::filesystem::path &ga
 /// Load every bound package TLK into its stable observable slot.
 void loadLiveTalkTables(Strings &strings, const OdysseyResourceRoots &roots);
 
+/// Every folder of this name the game reads from: the game's own first, then
+/// each configured K2 root's in order. A later folder wins.
+std::vector<std::filesystem::path> contentFolders(
+    GameID game,
+    const std::filesystem::path &gamePath,
+    const OdysseyResourceRoots &roots,
+    std::string_view name);
+
+/// The folder whose dialog.tlk is the base talk table. A configured K2 root
+/// that has one replaces the game's table whole; the last such root wins.
+std::filesystem::path talkTableRoot(
+    GameID game,
+    const std::filesystem::path &gamePath,
+    const OdysseyResourceRoots &roots);
+
 std::vector<std::filesystem::path> looseOverrideRoots(
     GameID game,
     const std::filesystem::path &gamePath,

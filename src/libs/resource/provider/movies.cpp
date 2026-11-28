@@ -33,30 +33,30 @@ namespace resource {
 
 // A movie plays once, so every playback reads the file afresh.
 std::shared_ptr<IMovie> Movies::get(const std::string &name) {
-    auto path = findFileIgnoreCase(_gamePath, "movies/" + name + ".bik");
-    if (!path) {
-        return nullptr;
+    for (auto folder = _folders.rbegin(); folder != _folders.rend(); ++folder) {
+        auto path = findFileIgnoreCase(*folder, name + ".bik");
+        if (!path) {
+            continue;
+        }
+        BikReader bik(*path, _graphicsSvc, _audioPlayer);
+        bik.load();
+        return bik.movie();
     }
-
-    BikReader bik(*path, _graphicsSvc, _audioPlayer);
-    bik.load();
-
-    return bik.movie();
+    return nullptr;
 }
 
 std::vector<std::string> Movies::names() {
     std::vector<std::string> result;
-    auto directory = findFileIgnoreCase(_gamePath, "movies");
-    if (!directory) {
-        return result;
-    }
-    for (const auto &entry : std::filesystem::directory_iterator(*directory)) {
-        if (!entry.is_regular_file() || !boost::iequals(entry.path().extension().string(), ".bik")) {
-            continue;
+    for (const auto &folder : _folders) {
+        for (const auto &entry : std::filesystem::directory_iterator(folder)) {
+            if (!entry.is_regular_file() || !boost::iequals(entry.path().extension().string(), ".bik")) {
+                continue;
+            }
+            result.push_back(boost::to_lower_copy(entry.path().stem().string()));
         }
-        result.push_back(boost::to_lower_copy(entry.path().stem().string()));
     }
     std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
     return result;
 }
 

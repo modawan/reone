@@ -80,17 +80,18 @@ void loadLiveTalkTables(Strings &strings, const OdysseyResourceRoots &roots) {
     }
 }
 
-std::vector<std::filesystem::path> looseOverrideRoots(
+std::vector<std::filesystem::path> contentFolders(
     GameID game,
     const std::filesystem::path &gamePath,
-    const OdysseyResourceRoots &roots) {
+    const OdysseyResourceRoots &roots,
+    std::string_view name) {
     std::vector<std::filesystem::path> result;
-    if (auto base = child(gamePath, "override")) {
+    if (auto base = child(gamePath, name)) {
         appendDistinct(result, *base);
     }
     if (game == GameID::TSL) {
         for (const auto &configured : roots.k2OverrideRoots) {
-            if (auto path = child(configured, "override")) {
+            if (auto path = child(configured, name)) {
                 appendDistinct(result, *path);
             }
         }
@@ -98,22 +99,32 @@ std::vector<std::filesystem::path> looseOverrideRoots(
     return result;
 }
 
+std::filesystem::path talkTableRoot(
+    GameID game,
+    const std::filesystem::path &gamePath,
+    const OdysseyResourceRoots &roots) {
+    if (game == GameID::TSL) {
+        for (auto root = roots.k2OverrideRoots.rbegin(); root != roots.k2OverrideRoots.rend(); ++root) {
+            if (child(*root, "dialog.tlk")) {
+                return *root;
+            }
+        }
+    }
+    return gamePath;
+}
+
+std::vector<std::filesystem::path> looseOverrideRoots(
+    GameID game,
+    const std::filesystem::path &gamePath,
+    const OdysseyResourceRoots &roots) {
+    return contentFolders(game, gamePath, roots, "override");
+}
+
 std::vector<std::filesystem::path> lipsRoots(
     GameID game,
     const std::filesystem::path &gamePath,
     const OdysseyResourceRoots &roots) {
-    std::vector<std::filesystem::path> result;
-    if (auto base = child(gamePath, "lips")) {
-        appendDistinct(result, *base);
-    }
-    if (game == GameID::TSL) {
-        for (const auto &configured : roots.k2OverrideRoots) {
-            if (auto path = child(configured, "lips")) {
-                appendDistinct(result, *path);
-            }
-        }
-    }
-    return result;
+    return contentFolders(game, gamePath, roots, "lips");
 }
 
 std::vector<ModuleSearchRoot> primaryModuleSearchRoots(

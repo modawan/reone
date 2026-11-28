@@ -27,6 +27,29 @@ namespace reone {
 
 static const char kIconName[] = "reone";
 static const char kConfigFilename[] = "reone.cfg";
+static const char kTslWorkshopFolder[] = "workshop/content/208580";
+
+// A Steam library keeps a game in steamapps/common/<game> and the items
+// subscribed for it in steamapps/workshop/content/<app>/<item>. The items come
+// back in order of their number.
+static std::vector<std::filesystem::path> steamWorkshopItems(const std::filesystem::path &gameDir) {
+    std::vector<std::pair<unsigned long long, std::filesystem::path>> items;
+    auto folder = gameDir.parent_path().parent_path() / kTslWorkshopFolder;
+    std::error_code error;
+    for (const auto &entry : std::filesystem::directory_iterator(folder, error)) {
+        auto name = entry.path().filename().string();
+        if (!entry.is_directory() || name.empty() || !std::all_of(name.begin(), name.end(), [](unsigned char ch) { return std::isdigit(ch); })) {
+            continue;
+        }
+        items.emplace_back(std::stoull(name), entry.path());
+    }
+    std::sort(items.begin(), items.end());
+    std::vector<std::filesystem::path> result;
+    for (auto &item : items) {
+        result.push_back(std::move(item.second));
+    }
+    return result;
+}
 
 LauncherFrame::LauncherFrame() :
     wxFrame(nullptr, wxID_ANY, "reone", wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_STYLE & ~(wxRESIZE_BORDER | wxMAXIMIZE_BOX | wxMINIMIZE_BOX)) {
@@ -44,9 +67,16 @@ LauncherFrame::LauncherFrame() :
     _textCtrlGameDir = new wxTextCtrl(this, WindowID::gameDir, _config.gameDir, wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
     _textCtrlGameDir->Bind(wxEVT_LEFT_DOWN, &LauncherFrame::OnGameDirLeftDown, this, WindowID::gameDir);
 
+    auto labelRoots = new wxStaticText(this, wxID_ANY, "Further TSL Content Folders (one per line, a later one wins)", wxDefaultPosition, wxDefaultSize);
+
+    _textCtrlRoots = new wxTextCtrl(this, wxID_ANY, boost::join(_config.roots, "\n"), wxDefaultPosition, wxSize(-1, 60), wxTE_MULTILINE | wxTE_DONTWRAP);
+
     auto gameSizer = new wxBoxSizer(wxVERTICAL);
     gameSizer->Add(labelGameDir, wxSizerFlags(0).Expand());
     gameSizer->Add(_textCtrlGameDir, wxSizerFlags(0).Expand());
+    gameSizer->Add(labelRoots, wxSizerFlags(0).Expand().Border(wxTOP, 3));
+    gameSizer->Add(_textCtrlRoots, wxSizerFlags(0).Expand());
+    gameSizer->Add(new wxButton(this, WindowID::findWorkshop, "Add Steam Workshop Items"), wxSizerFlags(0).Border(wxTOP, 3));
 
     _checkBoxDev = new wxCheckBox(this, wxID_ANY, "Developer Mode", wxDefaultPosition, wxDefaultSize);
     _checkBoxDev->SetValue(_config.devMode);
@@ -361,12 +391,14 @@ LauncherFrame::LauncherFrame() :
 
     Bind(wxEVT_BUTTON, &LauncherFrame::OnLaunch, this, WindowID::launch);
     Bind(wxEVT_BUTTON, &LauncherFrame::OnSaveConfig, this, WindowID::saveConfig);
+    Bind(wxEVT_BUTTON, &LauncherFrame::OnFindWorkshop, this, WindowID::findWorkshop);
 }
 
 void LauncherFrame::LoadConfiguration() {
     options_description options;
     options.add_options()                                                 //
         ("game", value<std::string>()->default_value(_config.gameDir))    //
+        ("root", value<std::vector<std::string>>())                       //
         ("dev", value<bool>()->default_value(_config.devMode))            //
         ("wheelzoom", value<bool>()->default_value(_config.wheelZoom))    //
         ("width", value<int>()->default_value(_config.width))             //
@@ -402,6 +434,9 @@ void LauncherFrame::LoadConfiguration() {
     notify(vars);
 
     _config.gameDir = vars["game"].as<std::string>();
+    if (vars.count("root") > 0) {
+        _config.roots = vars["root"].as<std::vector<std::string>>();
+    }
     _config.devMode = vars["dev"].as<bool>();
     _config.wheelZoom = vars["wheelzoom"].as<bool>();
     _config.width = vars["width"].as<int>();
@@ -445,6 +480,7 @@ void LauncherFrame::OnLaunch(wxCommandEvent &event) {
 void LauncherFrame::SaveConfiguration() {
     static std::set<std::string> recognized {
         "game=",
+        "root=",
         "dev=",
         "wheelzoom=",
         "width=",
@@ -515,6 +551,13 @@ void LauncherFrame::SaveConfiguration() {
     int winScale = atoi(winScaleSelStr.c_str());
 
     _config.gameDir = _textCtrlGameDir->GetValue();
+    _config.roots.clear();
+    for (int i = 0; i < _textCtrlRoots->GetNumberOfLines(); ++i) {
+        auto root = boost::trim_copy(std::string(_textCtrlRoots->GetLineText(i)));
+        if (!root.empty()) {
+            _config.roots.push_back(std::move(root));
+        }
+    }
     _config.devMode = _checkBoxDev->IsChecked();
     _config.wheelZoom = _checkBoxWheelZoom->IsChecked();
     _config.width = stoi(tokens[0]);
@@ -559,6 +602,9 @@ void LauncherFrame::SaveConfiguration() {
 
     std::ofstream config(kConfigFilename);
     config << "game=" << _config.gameDir << std::endl;
+    for (auto &root : _config.roots) {
+        config << "root=" << root << std::endl;
+    }
     config << "dev=" << (_config.devMode ? 1 : 0) << std::endl;
     config << "wheelzoom=" << (_config.wheelZoom ? 1 : 0) << std::endl;
     config << "width=" << _config.width << std::endl;
@@ -598,6 +644,25 @@ void LauncherFrame::OnGameDirLeftDown(wxMouseEvent &event) {
     if (dlg.ShowModal() == wxID_OK) {
         _textCtrlGameDir->SetValue(dlg.GetPath());
     }
+}
+
+void LauncherFrame::OnFindWorkshop(wxCommandEvent &event) {
+    auto items = steamWorkshopItems(std::filesystem::path(std::string(_textCtrlGameDir->GetValue())));
+    if (items.empty()) {
+        wxMessageBox("No Steam Workshop items were found beside the game directory.", "reone");
+        return;
+    }
+    auto text = std::string(_textCtrlRoots->GetValue());
+    for (const auto &item : items) {
+        if (text.find(item.string()) != std::string::npos) {
+            continue;
+        }
+        if (!text.empty() && text.back() != '\n') {
+            text += '\n';
+        }
+        text += item.string();
+    }
+    _textCtrlRoots->SetValue(text);
 }
 
 } // namespace reone
