@@ -39,6 +39,20 @@ namespace reone {
 
 namespace game {
 
+static constexpr char kItemCountFont[] = "fnt_d16x16";
+// An item entry is this high in each title. Its stack count sits on the
+// bottom of a box at the icon's lower right, this wide, or wider for a count
+// of three or more digits; TSL grows the box by a pixel past the icon.
+static constexpr float kK1ItemRowHeight = 56.0f;
+static constexpr float kTSLItemRowHeight = 36.0f;
+static constexpr float kItemCountWidth = 21.0f;
+static constexpr float kK1ItemCountWideWidth = 42.0f;
+static constexpr float kTSLItemCountWideWidth = 55.0f;
+static constexpr float kTSLItemCountGrowth = 1.0f;
+// The workbench's item and upgrade lists box a stack count as an item list
+// does, or this wide for a count of three or more digits in both titles.
+static constexpr float kUpgradeListCountWideWidth = 42.0f;
+
 PresentationGUI::PresentationGUI(resource::GameID gameId,
                                  const graphics::GraphicsOptions &options,
                                  PresentationServices services) :
@@ -84,6 +98,8 @@ void PresentationGUI::preload(IGUI &gui) {
         // KotOR draws a selected control's text in its hilight colour,
         // whatever colour the control's own hilight is authored in.
         gui.setSelectedTextColor(kGUIColorHilight);
+        // Its arrow keys pass over a hidden control, as over a disabled one.
+        gui.setArrowWalkVisibleOnly(true);
     }
 }
 
@@ -266,8 +282,7 @@ void PresentationGUI::useBakedItemSlotArt(ListBox &listBox) {
 
             int iconInset = static_cast<int>(std::lround(kIconOutlineInset * list.layoutScale()));
             int plateInset = static_cast<int>(std::lround(kNameplateOutlineInset * list.layoutScale()));
-            for (int i = 0; i < list.visibleItemCount(); ++i) {
-                auto row = list.visibleItemExtent(i);
+            for (const auto &row : list.visibleItemExtents()) {
                 int iconSize = std::max(row.height - 2 * iconInset, 0);
                 blit(iconInk, {row.left + iconInset, row.top + iconInset, iconSize, iconSize});
                 blit(nameplateInk,
@@ -296,6 +311,26 @@ void PresentationGUI::useK1NewEntryStyle(ListBox::Item &entry) const {
     entry.frameAlpha = kNewEntryFrameAlpha;
 }
 
+void PresentationGUI::useItemEntryLayout(ListBox &listBox) const {
+    listBox.setIconTextFont(kItemCountFont);
+    if (isTSL()) {
+        listBox.setIconTextBox({kTSLItemRowHeight, kItemCountWidth, kTSLItemCountWideWidth, kTSLItemCountGrowth, true});
+        listBox.setItemAuthoredHeight(static_cast<int>(kTSLItemRowHeight));
+    } else {
+        listBox.setIconTextBox({kK1ItemRowHeight, kItemCountWidth, kK1ItemCountWideWidth, 0.0f, false});
+        listBox.setItemAuthoredHeight(static_cast<int>(kK1ItemRowHeight));
+    }
+}
+
+void PresentationGUI::useUpgradeListLayout(ListBox &listBox) const {
+    useItemEntryLayout(listBox);
+    if (isTSL()) {
+        listBox.setIconTextBox({kTSLItemRowHeight, kItemCountWidth, kUpgradeListCountWideWidth, kTSLItemCountGrowth, false});
+    } else {
+        listBox.setIconTextBox({kK1ItemRowHeight, kItemCountWidth, kUpgradeListCountWideWidth, 0.0f, false});
+    }
+}
+
 void PresentationGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {
     auto &root = _gui->rootControl();
     auto authored = root.authoredExtent();
@@ -314,33 +349,6 @@ std::shared_ptr<Texture> PresentationGUI::itemFrameTexture(int stackSize) const 
     int tier = stackSize >= 100 ? 2 : (stackSize > 1 ? 1 : 0);
     auto resRef = isTSL() ? kTSLFrames[tier] : kK1Frames[tier];
     return _presentation.textures.get(resRef, TextureUsage::GUI);
-}
-
-void PresentationGUI::enableK2ButtonBodyFill(Control &control) {
-    if (!isTSL()) {
-        return;
-    }
-
-    auto edge = _presentation.textures.get("uibit_brdr_16wet", TextureUsage::GUI);
-    auto corner = _presentation.textures.get("uibit_brdr_16wct", TextureUsage::GUI);
-
-    auto border = control.border();
-    border.edge = edge;
-    border.corner = corner;
-    control.setBorder(std::move(border));
-
-    auto hilight = control.hilight();
-    hilight.edge = std::move(edge);
-    hilight.corner = std::move(corner);
-    control.setHilight(std::move(hilight));
-}
-
-void PresentationGUI::enableK2ButtonBodyFill(const std::shared_ptr<Control> &control) {
-    if (!control) {
-        return;
-    }
-
-    enableK2ButtonBodyFill(*control);
 }
 
 void PresentationGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar, const std::shared_ptr<Control> &bottomBar) {
@@ -406,6 +414,12 @@ void PresentationGUI::turnK1PartyArrowRight() {
 
 std::string PresentationGUI::guiResRef(const std::string &base) const {
     return isTSL() ? base + "_p" : base;
+}
+
+void PresentationGUI::hoverOnOpening(glm::ivec2 pointer) {
+    if (_gui) {
+        _gui->hoverOnOpening(pointer);
+    }
 }
 
 void PresentationGUI::clickControl(const std::string &tag) {

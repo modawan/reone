@@ -19,8 +19,11 @@
 
 #include <algorithm>
 
+#include <boost/algorithm/string.hpp>
+
 #include "reone/game/d20/attributes.h"
 #include "reone/game/d20/class.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
@@ -54,6 +57,10 @@ void Skills::init() {
         skill->allClassesCanUse = (skills->getInt(row, "allclassescanuse", 0) & 1) != 0;
         skill->hostile = (skills->getInt(row, "hostileskill", 0) & 1) != 0;
         skill->keyAbility = readAbilityColumn(*skills, row, "keyability").value_or(Ability::Strength);
+        // So are the non-player and droid flags, which leave the skill open
+        // when the table does not say.
+        skill->npcCanUse = (skills->getInt(row, "npccanuse", 1) & 1) != 0;
+        skill->droidCanUse = (skills->getInt(row, "droidcanuse", 1) & 1) != 0;
         _skills.insert(std::make_pair(static_cast<SkillType>(row), std::move(skill)));
     }
 }
@@ -125,6 +132,54 @@ bool canCreatureUseSkill(
         return true;
     }
     return canUseSkill(skills, skill, attributes, tsl);
+}
+
+// The TSL companion G0-T0, a droid that may still raise Stealth.
+static constexpr char kG0T0Tag[] = "g0t0";
+
+bool canRaiseSkill(const Skill &skill, SkillType type, const LevellingCreature &creature, bool tsl) {
+    if (creature.pcRules) {
+        return true;
+    }
+    if (!skill.npcCanUse) {
+        return false;
+    }
+    const bool g0t0Stealth {tsl && type == SkillType::Stealth && boost::iequals(creature.tag, kG0T0Tag)};
+    return !creature.droid || skill.droidCanUse || g0t0Stealth;
+}
+
+void addRecommendedSkills(
+    const ISkills &skills,
+    CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    int &points,
+    int totalLevel,
+    const LevellingCreature &creature,
+    const std::set<FeatType> &effectFeats,
+    bool tsl) {
+
+    recommendSkills(clazz, points, [&](SkillType type, int &left) {
+        const Skill &rules = *skills.get(type);
+        return canRaiseSkill(rules, type, creature, tsl) &&
+               attributes.increaseSkillRank(rules, type, left, totalLevel, effectFeats, tsl);
+    });
+}
+
+void addAutoLevelUpSkills(
+    const ISkills &skills,
+    CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    int &points,
+    int level,
+    const LevellingCreature &creature,
+    const std::set<FeatType> &effectFeats,
+    bool tsl) {
+
+    recommendSkills(clazz, points, [&](SkillType type, int &left) {
+        const Skill &rules = *skills.get(type);
+        return canClassUseSkill(rules, clazz) && canRaiseSkill(rules, type, creature, tsl) &&
+               attributes.raiseSkillRank(type, attributes.isClassSkillIn(clazz, type, effectFeats, tsl), level, left);
+    });
 }
 
 } // namespace game

@@ -22,6 +22,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/portrait.h"
 #include "reone/game/portraits.h"
@@ -33,7 +34,6 @@
 #include "reone/resource/strings.h"
 #include "reone/script/types.h"
 #include "reone/system/logutil.h"
-
 
 using namespace reone::audio;
 
@@ -94,9 +94,6 @@ void PartySelection::onGUILoaded() {
         // between them. Collapsing them the way the in-game menus do strands
         // the count below the strip, so the bars keep their authored places.
         useK2ShellTitle(_controls.LBL_TITLE);
-        for (auto &button : {_controls.BTN_ACCEPT, _controls.BTN_DONE, _controls.BTN_BACK}) {
-            enableK2ButtonBodyFill(button);
-        }
     }
     _acceptTextColor = _controls.BTN_ACCEPT->text().color;
 
@@ -202,18 +199,27 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     }
     refreshNpcButtons();
 
-    Party &party = _game.party();
-    for (auto &member : party.members()) {
-        if (member.npc != kNpcPlayer && member.creature) {
-            addNpc(member.npc);
-        }
-    }
     if (ctx.forceNpc1 >= 0) {
         addNpc(ctx.forceNpc1);
     }
     if (ctx.forceNpc2 >= 0) {
         addNpc(ctx.forceNpc2);
     }
+
+    // Once all forced NPC are selected, add current party members until the
+    // limit.
+    Party &party = _game.party();
+    for (auto &member : party.members()) {
+        if (_availableCount <= 0) {
+            break;
+        }
+
+        int npc = member.npc;
+        if (npc != kNpcPlayer && member.creature && !_added[npc]) {
+            addNpc(npc);
+        }
+    }
+
     std::vector<Label *> charLabels {
         _controls.LBL_CHAR0.get(),
         _controls.LBL_CHAR1.get(),

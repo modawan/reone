@@ -78,8 +78,6 @@ void AbilitiesMenu::onGUILoaded() {
     if (_game.isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         useK2ShellTitle(_controls.LBL_ABILITIES);
-        enableK2ButtonBodyFill(_controls.BTN_EXIT);
-        enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
         _controls.LB_DESC_FEATS->setProtoMatchContent(true);
@@ -326,7 +324,7 @@ void AbilitiesMenu::showPowersView(const Creature &character) {
 
     const auto &attributes = character.attributes();
     std::vector<SpellDisplayEntry> entries;
-    for (auto &entry : _services.game.spells.getLevelUpDisplayEntries(attributes, *attributes.classLevels().back().first, {})) {
+    for (auto &entry : _services.game.spells.getLevelUpDisplayEntries(attributes, *attributes.classLevels().back().first, {}, true)) {
         if (entry.visible && entry.known) {
             entries.push_back(std::move(entry));
         }

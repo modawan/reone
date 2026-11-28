@@ -49,6 +49,8 @@ namespace game {
 
 // The tutorial window (tutorial.2da row) the AI script panel asks for.
 static constexpr int kScriptSelectTutorial = 10;
+// The question before an automatic level-up: from level <CUSTOM0> to <CUSTOM1>.
+static constexpr int kAutoLevelUpConfirmStrRef = 36811;
 
 /** The experience table's amount for a level no experience reaches. */
 static constexpr uint32_t kUnreachableExperience = 0xFFFFFFFF;
@@ -124,7 +126,6 @@ void CharacterMenu::onGUILoaded() {
 
     if (_game.isTSL()) {
         useK2ShellTitle(_controls.LBL_TITLE);
-        enableK2ButtonBodyFill(_controls.BTN_EXIT);
         _controls.BTN_CHANGE1 = _inGameMenu.getBtnChange2();
         _controls.BTN_CHANGE2 = _inGameMenu.getBtnChange3();
     }
@@ -142,13 +143,7 @@ void CharacterMenu::onGUILoaded() {
         _game.openLevelUp();
     });
     _controls.BTN_AUTO->setOnClick([this]() {
-        _game.autoLevelUp();
-        // Hidden at once, so a second click before the next update cannot
-        // level a character with no level pending.
-        const bool pending = _game.party().getLeader()->isLevelUpPending();
-        _controls.BTN_AUTO->setVisible(pending);
-        _controls.BTN_LEVELUP->setVisible(pending);
-        refreshControls();
+        confirmAutoLevelUp();
     });
 
     if (!_game.isTSL()) {
@@ -318,10 +313,27 @@ static std::string describeAbilityModifier(int value) {
     return value > 0 ? "+" + std::to_string(value) : std::to_string(value);
 }
 
+void CharacterMenu::confirmAutoLevelUp() {
+    std::shared_ptr<Creature> leader(_game.party().getLeader());
+    if (!leader || !leader->isLevelUpPending()) {
+        return;
+    }
+    const std::string text(_game.getInterfaceText(
+        kAutoLevelUpConfirmStrRef,
+        {{0, std::to_string(leader->attributes().getAggregateLevel())},
+         {1, std::to_string(leader->levelReachedByExperience())}}));
+    _game.showConfirmPopup(text, [this]() {
+        // The new level is not shown over the leader.
+        _game.party().getLeader()->autoLevelUp(false);
+        refreshControls();
+    });
+}
+
 void CharacterMenu::refreshControls() {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     CreatureAttributes &attributes = partyLeader->attributes();
-    _controls.SLD_ALIGN->setValue(partyLeader->goodEvil());
+    // The meter's value grows downwards, so the light side sits at the top.
+    _controls.SLD_ALIGN->setValue(kMaxGoodEvil - partyLeader->goodEvil());
 
     if (!_game.isTSL()) {
         _controls.LBL_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));

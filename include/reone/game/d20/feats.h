@@ -18,6 +18,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -70,6 +71,11 @@ struct FeatChoice {
     std::reference_wrapper<const std::set<FeatType>> chosen;
     /** The character's tag; in TSL, Bao-Dur and Kreia cannot choose the feats their columns never grant them. */
     std::string tag;
+    /**
+     * The level a feat's minimum character level is measured against; none
+     * for the character's total level.
+     */
+    std::optional<int> level;
 
     /** @return the same choice with \p other as the feats chosen so far */
     FeatChoice withChosen(const std::set<FeatType> &other) const {
@@ -113,12 +119,13 @@ public:
     /**
      * Adds the feats a character is granted with its newest level, which is
      * in the last of its classes. A character at its first level with no
-     * experience is granted the race's first-level feats as well. TSL's
-     * companion, Unarmed Specialist and new character rules KotOR does not
-     * have.
+     * experience is granted the race's first-level feats as well, when a
+     * race is given. TSL's companion, Unarmed Specialist and new character
+     * rules KotOR does not have.
      *
-     * @param race the character's race
-     * @param experience the character's experience
+     * @param race the character's race; none for a level gained by an
+     *        automatic level-up, which grants no race feats
+     * @param experience the character's experience; it counts only with a race
      * @param tag the character's tag; TSL's companions have feats of their own
      * @param newCharacter true for a character being created, which in TSL
      *        also starts with its class's player-character feats and War Veteran
@@ -126,7 +133,7 @@ public:
      *         held before or not, except the class's grants of the feats no
      *         TSL character chooses, and War Veteran when it was held
      */
-    virtual std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool newCharacter) const = 0;
+    virtual std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, std::optional<RacialType> race, int experience, const std::string &tag, bool newCharacter) const = 0;
 };
 
 class Feats : public IFeats, boost::noncopyable {
@@ -156,7 +163,7 @@ public:
     std::vector<FeatType> getChoosableFeats(const FeatChoice &choice) const override;
     bool hasPrerequisites(FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen) const override;
     std::vector<FeatDisplayEntry> getLevelUpDisplayEntries(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
-    std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, RacialType race, int experience, const std::string &tag, bool newCharacter) const override;
+    std::vector<FeatType> addGrantedFeats(CreatureAttributes &attributes, std::optional<RacialType> race, int experience, const std::string &tag, bool newCharacter) const override;
 
 private:
     std::unordered_map<FeatType, std::shared_ptr<Feat>> _feats;

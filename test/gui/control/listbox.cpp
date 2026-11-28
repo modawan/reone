@@ -20,6 +20,7 @@
 #include "reone/graphics/shaderprogram.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/gui/gui.h"
+#include "reone/gui/tooltip.h"
 #include "reone/resource/parser/gff/gui.h"
 #include "reone/scene/render/pass.h"
 
@@ -44,8 +45,9 @@ struct FontlessListBox {
     TestEngine &engine = testEngine();
     LocalGraphics localGraphics;
     graphics::GraphicsOptions options;
-    PulsingAlpha pulsingAlpha;
-    GUI gui {options, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource, pulsingAlpha};
+    GUIClock clock;
+    Tooltip tooltip {options};
+    GUI gui {options, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource, clock, tooltip};
     ListBox listBox {gui, engine.services().scene.graphs, localGraphics.module.services(), engine.services().resource};
 
     FontlessListBox() {
@@ -79,6 +81,7 @@ public:
     void drawAABB(const std::vector<glm::vec4> &) override {}
     void drawImage(graphics::Texture &, const glm::ivec2 &, const glm::ivec2 &, glm::vec4, glm::mat3x4,
                    scene::ImageAlphaMode, int) override {}
+    void drawQuad(const glm::ivec2 &, const glm::ivec2 &, glm::vec4) override {}
 };
 
 } // namespace
@@ -126,19 +129,17 @@ TEST(ListBox, sizes_content_rows_when_the_prototype_has_no_font) {
     EXPECT_EQ(1, fixture.listBox.getItemCount());
 }
 
-TEST(ListBox, lays_out_text_line_rows_when_the_prototype_has_no_font) {
+TEST(ListBox, lays_out_a_block_of_text_when_the_prototype_has_no_font) {
     FontlessListBox fixture;
-    fixture.listBox.setTextLineRows(true);
 
     fixture.listBox.addTextLinesAsItems("first\nsecond");
 
     EXPECT_EQ(2, fixture.listBox.getItemCount());
 }
 
-TEST(ListBox, renders_text_line_rows_when_the_prototype_has_no_font) {
+TEST(ListBox, renders_a_block_of_text_when_the_prototype_has_no_font) {
     graphics::ShaderProgram shader {std::vector<std::shared_ptr<graphics::Shader>> {}};
     FontlessListBox fixture;
-    fixture.listBox.setTextLineRows(true);
     fixture.listBox.addTextLinesAsItems("first\nsecond");
     EXPECT_CALL(fixture.localGraphics.module.shaderRegistry(), get(graphics::ShaderProgramId::mvpTexture))
         .Times(AnyNumber())

@@ -22,6 +22,8 @@
 
 #include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
+#include "reone/game/object/module.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/script/routines.h"
 #include "reone/script/virtualmachine.h"
 

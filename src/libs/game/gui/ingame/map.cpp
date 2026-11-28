@@ -25,6 +25,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/map.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
@@ -73,14 +74,17 @@ void MapMenu::onGUILoaded() {
     _controls.BTN_DOWN->setOnClick([this]() {
         selectAdjacentNote(-1);
     });
+    // TSL's note arrows pulse their hilight's fill.
+    if (_game.isTSL()) {
+        _controls.BTN_UP->setHilightPulsing(false, true);
+        _controls.BTN_DOWN->setHilightPulsing(false, true);
+    }
 
     if (_game.isTSL()) {
         // TSL's map offers no return.
         _controls.BTN_RETURN->setDisabled(true);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         useK2ShellTitle(_controls.LBL_TITLE);
-        enableK2ButtonBodyFill(_controls.BTN_RETURN);
-        enableK2ButtonBodyFill(_controls.BTN_EXIT);
     }
 
     if (!_game.isTSL()) {

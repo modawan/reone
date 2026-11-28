@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "reone/audio/source.h"
 #include "reone/graphics/options.h"
 #include "reone/gui/control/listbox.h"
@@ -81,6 +83,9 @@ public:
      * sound, then the control's click handler.
      */
     void clickControl(const std::string &tag);
+
+    /** The screen comes up with the pointer at \p pointer: its GUI hovers what is under it, as IGUI::hoverOnOpening does. */
+    virtual void hoverOnOpening(glm::ivec2 pointer);
 
     std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
 
@@ -155,8 +160,19 @@ protected:
      * unselected.
      */
     void useK1NewEntryStyle(gui::ListBox::Item &entry) const;
-    void enableK2ButtonBodyFill(gui::Control &control);
-    void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
+    /**
+     * An item list's rows are item entries: KotOR's 56 high, TSL's 36, each
+     * stack count in its font, in the variant the GUIs show, and in its box
+     * at the icon's lower right.
+     */
+    void useItemEntryLayout(gui::ListBox &listBox) const;
+    /**
+     * The rows of the workbench's item and upgrade lists: an item list's rows
+     * and count font, each stack count in a box of its own at the icon's
+     * lower right, centred whatever its length.
+     */
+    void useUpgradeListLayout(gui::ListBox &listBox) const;
+
     void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
     void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);
     void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);

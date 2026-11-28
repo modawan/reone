@@ -19,6 +19,7 @@
 
 #include "reone/gui/control/scrollbar.h"
 
+#include "reone/input/event.h"
 #include "reone/scene/render/pass.h"
 
 using namespace reone::scene;
@@ -32,12 +33,14 @@ static constexpr glm::vec3 kSelectedItemColor {1.0f};
 
 void IconChain::clearItems() {
     _items.clear();
+    _itemIndexByTag.clear();
     _links.clear();
     _rowOffset = 0;
     clearFocusedItem();
 }
 
 void IconChain::addItem(Item item) {
+    _itemIndexByTag.insert({item.tag, _items.size()});
     _items.push_back(std::move(item));
 }
 
@@ -50,34 +53,28 @@ void IconChain::addLink(Link link) {
 }
 
 void IconChain::setItemSelected(const std::string &tag, bool selected) {
-    for (auto &item : _items) {
-        if (item.tag == tag) {
-            item.selected = selected;
-            return;
-        }
+    const int index = findItemIndex(tag);
+    if (index != -1) {
+        _items[index].selected = selected;
     }
 }
 
 void IconChain::setItemState(const std::string &tag, State state) {
-    for (auto &item : _items) {
-        if (item.tag == tag) {
-            item.state = state;
-            return;
-        }
+    const int index = findItemIndex(tag);
+    if (index != -1) {
+        _items[index].state = state;
     }
 }
 
 void IconChain::focusItem(const std::string &tag) {
-    auto maybeItem = std::find_if(
-        _items.begin(), _items.end(),
-        [&tag](const Item &item) { return item.tag == tag; });
-    if (maybeItem == _items.end()) {
+    const int index = findItemIndex(tag);
+    if (index == -1) {
         return;
     }
 
-    _focusedItemIndex = static_cast<int>(std::distance(_items.begin(), maybeItem));
+    _focusedItemIndex = index;
     if (_onItemFocus) {
-        _onItemFocus(maybeItem->tag);
+        _onItemFocus(_items[index].tag);
     }
 }
 
@@ -92,19 +89,67 @@ bool IconChain::handleMouseMotion(int x, int y) {
     return false;
 }
 
+bool IconChain::handleKeyDown(input::KeyCode key) {
+    const Item *focused = focusedItem();
+    if (!focused) {
+        return false;
+    }
+    switch (key) {
+    case input::KeyCode::Up:
+    case input::KeyCode::Down: {
+        const int rows = getMaxRow() + 1;
+        const int row = (focused->row + (key == input::KeyCode::Down ? 1 : rows - 1)) % rows;
+        for (int column = focused->column; column >= 0; --column) {
+            const int index = getItemIndexAt(row, column);
+            if (index != -1) {
+                stepFocus(index);
+                break;
+            }
+        }
+        return true;
+    }
+    case input::KeyCode::Left:
+    case input::KeyCode::Right: {
+        const int index = getItemIndexAt(focused->row, focused->column + (key == input::KeyCode::Right ? 1 : -1));
+        if (index != -1) {
+            stepFocus(index);
+        }
+        return true;
+    }
+    case input::KeyCode::Return:
+    case input::KeyCode::KeypadEnter:
+        // Return chooses the focused icon, as a double click does.
+        if (_onItemDoubleClick) {
+            _onItemDoubleClick(focused->tag);
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+void IconChain::stepFocus(int index) {
+    const int row = _items[index].row;
+    const int visibleRows = getVisibleRowCount();
+    if (row < _rowOffset) {
+        _rowOffset = row;
+    } else if (row >= _rowOffset + visibleRows) {
+        _rowOffset = row - visibleRows + 1;
+    }
+    _focusedItemIndex = index;
+    if (_onItemFocus) {
+        _onItemFocus(_items[index].tag);
+    }
+}
+
+// The wheel scrolls a row a step, as the scroll bar's arrows do; a chart
+// takes it at either end too, as a list does.
 bool IconChain::handleMouseWheel(int x, int y) {
-    int maxRowOffset = std::max(0, getMaxRow() - getVisibleRowCount() + 1);
-    if (y < 0 && _rowOffset < maxRowOffset) {
-        ++_rowOffset;
-        clearFocusedItem();
-        return true;
+    if (y == 0) {
+        return false;
     }
-    if (y > 0 && _rowOffset > 0) {
-        --_rowOffset;
-        clearFocusedItem();
-        return true;
-    }
-    return false;
+    scrollBy(-y);
+    return true;
 }
 
 bool IconChain::handleClick(int x, int y, int clicks) {
@@ -123,6 +168,63 @@ bool IconChain::handleClick(int x, int y, int clicks) {
     return true;
 }
 
+bool IconChain::handleMouseDown(int x, int y) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    return scrollBar && scrollBar->pressIfOn(x, y, *this);
+}
+
+bool IconChain::handleMouseDrag(int x, int y) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    return scrollBar && scrollBar->dragIfHeld(x, y, *this);
+}
+
+// A release that lets the scroll bar go clicks nothing.
+bool IconChain::handleMouseUp(int x, int y, bool over, int clicks) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    return !(scrollBar && scrollBar->release()) && over;
+}
+
+void IconChain::update(float dt) {
+    Control::update(dt);
+    if (!_visible) {
+        return;
+    }
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->hold(*this);
+    }
+}
+
+// A page is the rows shown; paging on stops at the last position.
+void IconChain::scrollPage(bool next) {
+    const int last = getScrollPositions() - 1;
+    const int page = getScrollState().visibleValue;
+    if (!next) {
+        scrollToPosition(std::max(_rowOffset - page, 0));
+    } else if (_rowOffset < last) {
+        scrollToPosition(std::min(_rowOffset + page, last));
+    }
+}
+
+void IconChain::scrollToPosition(int rowOffset) {
+    if (rowOffset == _rowOffset) {
+        return;
+    }
+    _rowOffset = rowOffset;
+    clearFocusedItem();
+}
+
+int IconChain::getScrollPositions() const {
+    return std::max(getMaxRow() + 1 - getVisibleRowCount(), 0) + 1;
+}
+
+ScrollBar::ScrollState IconChain::getScrollState() const {
+    ScrollBar::ScrollState state;
+    state.maxValue = getScrollPositions();
+    state.curValue = _rowOffset;
+    state.visibleValue = std::min(getVisibleRowCount(), getMaxRow() + 1);
+    return state;
+}
+
 void IconChain::render(const glm::ivec2 &screenSize,
                        const glm::ivec2 &offset,
                        IRenderPass &pass) {
@@ -130,6 +232,14 @@ void IconChain::render(const glm::ivec2 &screenSize,
         return;
     }
 
+    // As a list's, the scroll bar is drawn first, whether or not every row
+    // shows, then the chart's border, then its cells.
+    if (_scrollBar) {
+        if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+            scrollBar->setScrollState(getScrollState());
+        }
+        _scrollBar->render(screenSize, offset, pass);
+    }
     Control::render(screenSize, offset, pass);
 
     for (auto &item : _items) {
@@ -185,28 +295,14 @@ void IconChain::render(const glm::ivec2 &screenSize,
             renderFocusedBorder(item, focused, itemExtent, offset, pass);
         }
     }
-
-    if (_scrollBar) {
-        int rowCount = getMaxRow() + 1;
-        int visibleRows = getVisibleRowCount();
-        if (rowCount > visibleRows) {
-            ScrollBar::ScrollState state;
-            state.count = rowCount;
-            state.numVisible = visibleRows;
-            state.offset = _rowOffset;
-            auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
-            scrollBar.setScrollState(std::move(state));
-            scrollBar.render(screenSize, offset, pass);
-        }
-    }
 }
 
+// The chart's scroll arrows pulse, as a list's do.
 void IconChain::setScrollBar(std::shared_ptr<Control> scrollBar) {
     _scrollBar = std::move(scrollBar);
-}
-
-void IconChain::setSelected(bool selected) {
-    Control::setSelected(selected);
+    if (auto typed = ScrollBar::of(_scrollBar)) {
+        typed->setArrowsPulsing(true);
+    }
 }
 
 void IconChain::setColumnCount(int count) {
@@ -305,11 +401,23 @@ int IconChain::getItemIndex(int x, int y) const {
     return -1;
 }
 
+int IconChain::getItemIndexAt(int row, int column) const {
+    for (size_t i = 0; i < _items.size(); ++i) {
+        if (_items[i].row == row && _items[i].column == column) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int IconChain::findItemIndex(const std::string &tag) const {
+    auto found = _itemIndexByTag.find(tag);
+    return found != _itemIndexByTag.end() ? static_cast<int>(found->second) : -1;
+}
+
 const IconChain::Item *IconChain::findItem(const std::string &tag) const {
-    auto maybeItem = std::find_if(
-        _items.begin(), _items.end(),
-        [&tag](auto &item) { return item.tag == tag; });
-    return maybeItem != _items.end() ? &*maybeItem : nullptr;
+    const int index = findItemIndex(tag);
+    return index != -1 ? &_items[index] : nullptr;
 }
 
 void IconChain::clearFocusedItem() {
@@ -409,12 +517,15 @@ void IconChain::renderLink(
         return;
     }
 
+    // Without a size of its own, the link's art is drawn at the chart's
+    // frame scale, as the cells are laid out.
     glm::ivec2 linkSize = _cellStyle.linkSize;
+    const glm::ivec2 artSize = frameArtSize(_cellStyle.linkTexture);
     if (linkSize.x <= 0) {
-        linkSize.x = _cellStyle.linkTexture->width();
+        linkSize.x = artSize.x;
     }
     if (linkSize.y <= 0) {
-        linkSize.y = _cellStyle.linkTexture->height();
+        linkSize.y = artSize.y;
     }
 
     int sourceRight = sourceExtent.left + sourceExtent.width;
@@ -501,11 +612,11 @@ void IconChain::renderItemBorder(
     _extent = extent;
     setBorderColorOverride(getItemBorderColor(item, focused));
     setUseBorderColorOverride(true);
-    if (_cellStyle.drawItemBorderFill || !border->fill) {
+    if (_cellStyle.drawItemBorderFill || !border->hasFill()) {
         renderBorder(*border, offset, {extent.width, extent.height}, pass);
     } else {
         Border borderWithoutFill(*border);
-        borderWithoutFill.fill.reset();
+        borderWithoutFill.clearFill();
         renderBorder(borderWithoutFill, offset, {extent.width, extent.height}, pass);
     }
     setUseBorderColorOverride(false);

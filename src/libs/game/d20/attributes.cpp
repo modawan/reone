@@ -22,6 +22,7 @@
 
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
 
@@ -390,7 +391,7 @@ bool CreatureAttributes::increaseSkillRank(const Skill &rules, SkillType skill, 
 std::vector<FeatType> addLevelGrantedFeats(
     CreatureAttributes &attributes,
     const IFeats &feats,
-    RacialType race,
+    std::optional<RacialType> race,
     int experience,
     const std::string &tag) {
 
@@ -403,7 +404,7 @@ std::vector<FeatType> addLevelGrantedFeats(
     return granted;
 }
 
-void addLevelGrantedPowers(
+std::vector<SpellType> addLevelGrantedPowers(
     CreatureAttributes &attributes,
     const ISpells &spells,
     const std::function<bool(SpellType, ClassType)> &canLearnPower) {
@@ -412,10 +413,84 @@ void addLevelGrantedPowers(
     // class knows already.
     CreatureAttributes levelled(attributes.withComingLevel());
     const ClassType newest = attributes.getEffectiveClass();
-    for (SpellType power : spells.addGrantedPowers(levelled)) {
+    const auto granted = spells.addGrantedPowers(levelled);
+    for (SpellType power : granted) {
         if (canLearnPower(power, newest)) {
             attributes.addSpell(power, newest);
         }
+    }
+    return granted;
+}
+
+void chooseAutoLevelUp(
+    CreatureAttributes &attributes,
+    const IFeats &feats,
+    const ISpells &spells,
+    const ISkills &skills,
+    const AutoLevelUpCreature &creature,
+    bool tsl) {
+
+    assert(!attributes.classLevels().empty());
+    CreatureClass &clazz = *attributes.classLevels().back().first;
+    const int newClassLevel = attributes.classLevels().back().second + 1;
+    // The new character level, which several rules are measured by.
+    const int level = attributes.getAggregateLevel() + 1;
+
+    // The feats are chosen on the creature as it is before the level, with
+    // the feats the level grants.
+    CreatureAttributes unlevelled(attributes);
+
+    const int intelligenceModifier = attributes.getAbilityModifier(Ability::Intelligence);
+    int points = attributes.unspentSkillPoints() + clazz.skillPointsForLevel(intelligenceModifier, level == 1, tsl);
+    addAutoLevelUpSkills(skills, attributes, clazz, points, level, creature, creature.effectFeats, tsl);
+    attributes.setUnspentSkillPoints(points);
+
+    addLevelGrantedFeats(attributes, feats, std::nullopt, 0, creature.tag);
+    for (FeatType feat : attributes.featOrder()) {
+        unlevelled.addFeat(feat);
+    }
+
+    // The recommended feats fill the level's normal and bonus picks, each
+    // feat's minimum level measured by the new character level; a pick no
+    // ranked feat can take takes the lowest row that can.
+    const std::set<FeatType> noFeatsChosen;
+    FeatChoice choice {
+        unlevelled,
+        clazz,
+        clazz.getFeatGain(newClassLevel),
+        clazz.getBonusFeatGain(newClassLevel),
+        creature.effectFeats,
+        noFeatsChosen,
+        creature.tag,
+        level};
+    for (FeatType feat : recommendFeats(feats, choice, choice.normalPicks + choice.bonusPicks, true)) {
+        attributes.addFeat(feat);
+    }
+
+    // Only a spell-casting class gains powers, those the level grants and
+    // those chosen for it; a power the creature cannot learn in the class is
+    // not added.
+    if (clazz.isSpellCaster()) {
+        const auto grantedPowers = addLevelGrantedPowers(attributes, spells, creature.canLearnPower);
+        const std::set<SpellType> granted {grantedPowers.begin(), grantedPowers.end()};
+        const auto chosen = spells.getAutoLevelUpPowers(
+            attributes,
+            clazz,
+            creature.alignment,
+            clazz.getPowerGain(newClassLevel),
+            creature.pcRules,
+            granted,
+            creature.knowsAffordablePower);
+        for (SpellType power : chosen) {
+            if (creature.canLearnPower(power, clazz.type())) {
+                attributes.addSpell(power, clazz.type());
+            }
+        }
+    }
+
+    if (gainsAbilityPoint(level)) {
+        const Ability ability = recommendLevelUpAbility(clazz, attributes);
+        attributes.setAbilityScore(ability, attributes.getAbilityScore(ability) + 1);
     }
 }
 

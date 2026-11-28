@@ -19,6 +19,8 @@
 
 #include <vector>
 
+#include <glm/vec2.hpp>
+
 #include "options.h"
 #include "types.h"
 
@@ -71,7 +73,12 @@ public:
 
     void setRelativeMouseMode(bool relative);
     /** Move the system cursor to \p x, \p y in window coordinates. */
-    void warpMouse(int x, int y);
+    void warpMouse(float x, float y);
+
+    /** The window's size in window coordinates, which the mouse is reported in. */
+    glm::ivec2 size() const;
+    /** The window's drawable in pixels: more than its size on a high-density display. */
+    glm::ivec2 pixelSize() const;
 
     SDL_Window *sdlWindow() { return _window; };
     SDL_GLContext sdlContext() { return _context; };

@@ -81,7 +81,7 @@ void InGameMenuHost::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
         _controls.LBL_SECTITLE->setBorderFill(std::string());
         updateK2SectionTitle();
-        refreshK2Footer();
+        refreshK2Footer(currentFooter());
         // A small footer portrait hands control to its party member.
         if (_changeCharacter) {
             _controls.BTN_CHANGE2->setOnClick([this]() { _changeCharacter(1); });
@@ -144,7 +144,10 @@ bool InGameMenuHost::handle(const input::Event &event) {
 void InGameMenuHost::update(float dt) {
     PresentationGUI::update(dt);
 
-    refreshK2Footer();
+    // The footer is read once a frame, for both its views.
+    const InGameMenuFooter footer = currentFooter();
+    refreshK2Footer(footer);
+    pulseNewIndicators(footer);
 
     auto tabGui = getActiveTabGUI();
     if (tabGui) {
@@ -182,7 +185,7 @@ void InGameMenuHost::changeTab(InGameMenuTab tab) {
         return;
     updateK2SectionTitle();
     updateTabButtons();
-    refreshK2Footer();
+    refreshK2Footer(currentFooter());
 }
 
 void InGameMenuHost::updateK2SectionTitle() {
@@ -193,7 +196,10 @@ void InGameMenuHost::updateK2SectionTitle() {
     auto border = _controls.LBL_SECTITLE->border();
     border.edge = _presentation.textures.get("uibit_brdr_16bet", TextureUsage::GUI);
     border.corner = _presentation.textures.get("uibit_brdr_16bct", TextureUsage::GUI);
-    border.fill.reset();
+    // The frame names its art, held or missing; the fill goes.
+    border.edgeMissing = !border.edge;
+    border.cornerMissing = !border.corner;
+    border.clearFill();
     _controls.LBL_SECTITLE->setBorder(std::move(border));
 
     auto activeTab = getActiveTabGUI();
@@ -205,7 +211,20 @@ void InGameMenuHost::updateK2SectionTitle() {
     }
 }
 
-void InGameMenuHost::refreshK2Footer() {
+void InGameMenuHost::pulseNewIndicators(const InGameMenuFooter &footer) {
+    if (_controls.LBLH_INV) {
+        _controls.LBLH_INV->setBorderPulsing(false, footer.newItems);
+    }
+    if (_controls.LBLH_JOU) {
+        _controls.LBLH_JOU->setBorderPulsing(false, footer.newJournalEntries);
+    }
+}
+
+InGameMenuFooter InGameMenuHost::currentFooter() const {
+    return _footer ? _footer() : InGameMenuFooter {};
+}
+
+void InGameMenuHost::refreshK2Footer(const InGameMenuFooter &footer) {
     if (!isTSL()) {
         return;
     }
@@ -235,7 +254,6 @@ void InGameMenuHost::refreshK2Footer() {
     hide(_controls.LBL_DISABLE3);
     hide(_controls.PB_FORCE1);
 
-    auto footer = _footer ? _footer() : InGameMenuFooter {};
     std::array<std::shared_ptr<Label>, 3> backLabels {
         _controls.LBL_BACK1,
         _controls.LBL_BACK2,
@@ -296,7 +314,8 @@ void InGameMenuHost::refreshK2Footer() {
     _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(footer.levels[1]);
 
     _controls.PB_VIT1->setVisible(true);
-    _controls.PB_VIT1->setValue(footer.vitalityPercent);
+    _controls.PB_VIT1->setMaxValue(100);
+    _controls.PB_VIT1->setCurValue(footer.vitalityPercent);
 
     _controls.LBL_DEBILATATED1->setVisible(footer.subjectDebilitated);
 }

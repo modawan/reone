@@ -113,8 +113,9 @@ private:
 
     /**
      * The gameplay options page, opened from BTN_GAMEPLAY. The difficulty
-     * level, mouse look and combat movement are handled, and BTN_MOUSE opens
-     * the mouse settings; the other options are drawn as laid out.
+     * level, mouse look, companions levelling up by themselves and combat
+     * movement are handled, and BTN_MOUSE opens the mouse settings; the other
+     * options are drawn as laid out.
      */
     struct GameplayControls {
         std::shared_ptr<gui::Button> BTN_BACK;
@@ -125,6 +126,7 @@ private:
         std::shared_ptr<gui::Button> BTN_MOUSE;
         std::shared_ptr<gui::ToggleButton> CB_DISABLEMOVE;
         std::shared_ptr<gui::ToggleButton> CB_INVERTCAM;
+        std::shared_ptr<gui::ToggleButton> CB_LEVELUP;
         std::shared_ptr<gui::Label> LBL_TITLE;
         std::shared_ptr<gui::ListBox> LB_DESC;
     };

@@ -29,6 +29,8 @@
 #include "reone/graphics/context.h"
 #include "reone/graphics/font.h"
 #include "reone/graphics/uniforms.h"
+#include "reone/gui/di/services.h"
+#include "reone/gui/guis.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/strings.h"
@@ -46,11 +48,13 @@ static constexpr float kExperienceTextDuration = 3.0f;
 static constexpr int kMaxFloatingTextEntries = 5;
 static constexpr int kMissStrRef = 1373;
 static constexpr int kExperienceStrRef = 38551;
+static constexpr int kLevelUpStrRef = 32154;
 
 static const glm::vec3 kDamageColor(0.74f, 0.11f, 0.0f);
 static const glm::vec3 kHealColor(0.28f, 0.92f, 0.11f);
 static const glm::vec3 kMissColor(1.0f);
 static const glm::vec3 kExperienceColor(0.95f, 0.0f, 0.85f);
+static const glm::vec3 kLevelUpColor(0.98f, 0.45f, 0.0f);
 
 static glm::vec2 projectToScreen(
     const glm::vec3 &position,
@@ -106,9 +110,14 @@ void FloatingText::addExperience(const Object &object, int amount) {
     add(object, _game.getInterfaceText(kExperienceStrRef) + " " + std::to_string(amount), Style::Experience);
 }
 
-// Experience stays up twice as long as the other numbers.
+void FloatingText::addLevelUp(const Object &object, int level) {
+    // The label, a space and the level.
+    add(object, _game.getInterfaceText(kLevelUpStrRef) + " " + std::to_string(level), Style::LevelUp);
+}
+
+// Experience and a level reached stay up twice as long as the other numbers.
 float FloatingText::getDuration(Style style) {
-    return style == Style::Experience ? kExperienceTextDuration : kFloatingTextDuration;
+    return style == Style::Experience || style == Style::LevelUp ? kExperienceTextDuration : kFloatingTextDuration;
 }
 
 void FloatingText::add(const Object &object, std::string text, Style style) {
@@ -174,7 +183,7 @@ void FloatingText::render() {
         return;
     }
     const auto &options = _game.options().graphics;
-    const std::string fontResRef = _game.guiFontName("fnt_d16x16");
+    const std::string fontResRef = _services.gui.guis.fontName("fnt_d16x16");
     if (!_font || _fontResRef != fontResRef) {
         _font = _services.resource.fonts.get(fontResRef);
         _fontResRef = fontResRef;
@@ -201,7 +210,7 @@ void FloatingText::render() {
     const glm::vec3 cameraPosition = graphicsCamera->position();
     const float layoutScale = std::min(options.width / 800.0f, options.height / 600.0f) * options.guiScale;
     const float textScale = layoutScale * options.guiTextScale * kK1CombatTextScale;
-    const float lineHeight = _font->height() * textScale;
+    const float lineHeight = _font->lineAdvance(textScale);
 
     _services.graphics.uniforms.setGlobals([&options](auto &globals) {
         globals.reset();
@@ -215,83 +224,81 @@ void FloatingText::render() {
         globals.projectionInv = glm::inverse(globals.projection);
     });
 
-    _services.graphics.context.withViewport(
-        {0, 0, options.width, options.height},
+    _services.graphics.context.withDepthTestMode(
+        DepthTestMode::None,
         [this, &projection, &view, cameraForward, cameraPosition,
          &options, layoutScale, textScale, lineHeight]() {
-            _services.graphics.context.withDepthTestMode(
-                DepthTestMode::None,
+            _services.graphics.context.withDepthMask(
+                false,
                 [this, &projection, &view, cameraForward, cameraPosition,
                  &options, layoutScale, textScale, lineHeight]() {
-                    _services.graphics.context.withDepthMask(
-                        false,
+                    _services.graphics.context.withBlendMode(
+                        BlendMode::Normal,
                         [this, &projection, &view, cameraForward, cameraPosition,
                          &options, layoutScale, textScale, lineHeight]() {
-                            _services.graphics.context.withBlendMode(
-                                BlendMode::Normal,
-                                [this, &projection, &view, cameraForward, cameraPosition,
-                                 &options, layoutScale, textScale, lineHeight]() {
-                                    for (auto it = _entries.rbegin();
-                                         it != _entries.rend();
-                                         ++it) {
-                                        const Entry &entry = *it;
-                                        auto object = _game.getObjectById(entry.objectId);
-                                        if (!object) {
-                                            continue;
-                                        }
+                            for (auto it = _entries.rbegin();
+                                 it != _entries.rend();
+                                 ++it) {
+                                const Entry &entry = *it;
+                                auto object = _game.getObjectById(entry.objectId);
+                                if (!object) {
+                                    continue;
+                                }
 
-                                        auto model = object->sceneNode();
-                                        if (!model) {
-                                            continue;
-                                        }
+                                auto model = object->sceneNode();
+                                if (!model) {
+                                    continue;
+                                }
 
-                                        const glm::vec3 position = model->origin();
-                                        if (glm::dot(cameraForward, position) <=
-                                            glm::dot(cameraForward, cameraPosition)) {
-                                            continue;
-                                        }
+                                const glm::vec3 position = model->origin();
+                                if (glm::dot(cameraForward, position) <=
+                                    glm::dot(cameraForward, cameraPosition)) {
+                                    continue;
+                                }
 
-                                        if (!entry.anchorOffset) {
-                                            continue;
-                                        }
+                                if (!entry.anchorOffset) {
+                                    continue;
+                                }
 
-                                        glm::vec2 screen = projectToScreen(
-                                            position,
-                                            view,
-                                            projection,
-                                            options.width,
-                                            options.height);
+                                glm::vec2 screen = projectToScreen(
+                                    position,
+                                    view,
+                                    projection,
+                                    options.width,
+                                    options.height);
 
-                                        glm::vec3 color;
-                                        switch (entry.style) {
-                                        case Style::Damage:
-                                            color = kDamageColor;
-                                            break;
-                                        case Style::Heal:
-                                            color = kHealColor;
-                                            break;
-                                        case Style::Experience:
-                                            color = kExperienceColor;
-                                            break;
-                                        case Style::Miss:
-                                            color = kMissColor;
-                                            break;
-                                        }
+                                glm::vec3 color;
+                                switch (entry.style) {
+                                case Style::Damage:
+                                    color = kDamageColor;
+                                    break;
+                                case Style::Heal:
+                                    color = kHealColor;
+                                    break;
+                                case Style::Experience:
+                                    color = kExperienceColor;
+                                    break;
+                                case Style::LevelUp:
+                                    color = kLevelUpColor;
+                                    break;
+                                case Style::Miss:
+                                    color = kMissColor;
+                                    break;
+                                }
 
-                                        float x = screen.x + entry.anchorOffset->x;
-                                        float y = screen.y + entry.anchorOffset->y -
-                                                  kFloatingTextOffsetY * layoutScale -
-                                                  (entry.stack - 0.5f) * lineHeight;
-                                        float alpha = entry.remaining / getDuration(entry.style);
+                                float x = screen.x + entry.anchorOffset->x;
+                                float y = screen.y + entry.anchorOffset->y -
+                                          kFloatingTextOffsetY * layoutScale -
+                                          (entry.stack - 0.5f) * lineHeight;
+                                float alpha = entry.remaining / getDuration(entry.style);
 
-                                        _font->render(
-                                            entry.text,
-                                            glm::vec3(x, y, 0.0f),
-                                            glm::vec4(color, alpha),
-                                            TextGravity::CenterCenter,
-                                            textScale);
-                                    }
-                                });
+                                _font->render(
+                                    entry.text,
+                                    glm::vec3(x, y, 0.0f),
+                                    glm::vec4(color, alpha),
+                                    TextGravity::CenterCenter,
+                                    textScale);
+                            }
                         });
                 });
         });

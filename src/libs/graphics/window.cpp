@@ -194,8 +194,20 @@ void Window::setRelativeMouseMode(bool isRelative) {
     SDL_SetWindowRelativeMouseMode(_window, isRelative);
 }
 
-void Window::warpMouse(int x, int y) {
-    SDL_WarpMouseInWindow(_window, static_cast<float>(x), static_cast<float>(y));
+glm::ivec2 Window::size() const {
+    glm::ivec2 size {0};
+    SDL_GetWindowSize(_window, &size.x, &size.y);
+    return size;
+}
+
+glm::ivec2 Window::pixelSize() const {
+    glm::ivec2 size {0};
+    SDL_GetWindowSizeInPixels(_window, &size.x, &size.y);
+    return size;
+}
+
+void Window::warpMouse(float x, float y) {
+    SDL_WarpMouseInWindow(_window, x, y);
 }
 
 } // namespace graphics

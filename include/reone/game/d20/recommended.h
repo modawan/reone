@@ -18,6 +18,7 @@
 #pragma once
 
 #include <functional>
+#include <set>
 
 #include "../types.h"
 
@@ -73,6 +74,7 @@ std::vector<FeatType> recommendFeats(const IFeats &feats, const FeatChoice &choi
  *        is the dark side, any other's the light side
  * @param fillWithUnranked true to fill a pick no ranked candidate can take
  *        with the candidate of the lowest row, as an automatic level-up must
+ * @param refused the candidates the character may not be given
  * @return the recommended powers, in the order they were chosen; fewer than
  *         the picks when no candidate is left
  */
@@ -82,7 +84,27 @@ std::vector<SpellType> recommendPowers(
     const CreatureClass &clazz,
     int picks,
     Alignment alignment,
+    bool fillWithUnranked = false,
+    const std::function<bool(SpellType)> &refused = {});
+
+/**
+ * Chooses powers as recommended for the character's side, as recommendPowers
+ * does, from the candidates \p candidates gives for the powers chosen so far,
+ * in power row order.
+ */
+std::vector<SpellType> recommendPowers(
+    const ISpells &spells,
+    const std::function<std::vector<SpellType>(const std::set<SpellType> &chosen)> &candidates,
+    int picks,
+    Alignment alignment,
     bool fillWithUnranked = false);
+
+/**
+ * @return the ability an automatic level-up's ability point goes to: the
+ *         class's primary ability, or when the class names none, the highest
+ *         ability, the first in ability order on a tie
+ */
+Ability recommendLevelUpAbility(const CreatureClass &clazz, const CreatureAttributes &attributes);
 
 } // namespace game
 

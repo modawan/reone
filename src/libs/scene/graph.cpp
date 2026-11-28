@@ -516,10 +516,12 @@ static const glm::vec3 kForceSightFogLuminance {0.30f, 0.59f, 0.11f};
 static constexpr float kForceSightFogGrey = 0.65f;
 
 Texture &SceneGraph::render(const glm::ivec2 &dim) {
-    if (!_renderPipeline) {
+    // A pipeline's targets have one size, so another size takes a new one.
+    if (!_renderPipeline || dim != _renderPipelineSize) {
         auto rendererType = _graphicsOpt.pbr ? RendererType::PBR : RendererType::Retro;
         _renderPipeline = _renderPipelineFactory.create(rendererType, dim);
         _renderPipeline->init();
+        _renderPipelineSize = dim;
     }
     auto &pipeline = *_renderPipeline;
     pipeline.reset();

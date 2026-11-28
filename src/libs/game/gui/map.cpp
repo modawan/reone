@@ -20,6 +20,8 @@
 #include "reone/game/areamapstate.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/module.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/meshregistry.h"
@@ -117,10 +119,9 @@ void Map::render(Mode mode, const glm::vec4 &bounds, float scale, float pulsingA
 }
 
 void Map::renderScissored(const glm::vec4 &bounds, const std::function<void()> &block) {
-    const int height = _game.options().graphics.height;
-    const glm::ivec4 scissorBounds(
-        bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
-    _services.graphics.context.withScissorTest(scissorBounds, block);
+    const glm::ivec4 clip(bounds[0], bounds[1], bounds[2], bounds[3]);
+    const auto &options = _game.options().graphics;
+    graphics::withScissorRect(_services.graphics.context, {options.width, options.height}, clip, block, true);
 }
 
 glm::vec4 Map::mapRect(Mode mode, const glm::vec4 &bounds, float scale) const {

@@ -20,7 +20,8 @@
 #include <algorithm>
 
 #include "reone/graphics/texture.h"
-#include "reone/graphics/textureutil.h"
+#include "reone/gui/control/track.h"
+#include "reone/input/event.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/resources.h"
@@ -37,89 +38,154 @@ void Slider::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIte
     Control::load(gui, protoItem);
 
     auto &controlStruct = *static_cast<const resource::generated::GUI_CONTROLS *>(&gui);
-    _maxValue = controlStruct.MAXVALUE;
-    _value = std::clamp(controlStruct.CURVALUE, 0, _maxValue);
-    _thumb = _resourceSvc.textures.get(controlStruct.THUMB->IMAGE, TextureUsage::GUI);
-}
-
-// The thumb keeps its image's width, grown with the layout, and the track's
-// height. It travels the track's width less its own. On a track taller than
-// it is wide, the alignment meter's, it keeps its image's height and the
-// track's width instead, and travels upwards as the value grows.
-Control::Extent Slider::thumbExtent() const {
-    if (_extent.height > _extent.width) {
-        int height = static_cast<int>(getImageSize(*_thumb).y * _frameLayoutScale);
-        int top = _extent.top + (_extent.height - height) * (_maxValue - _value) / _maxValue;
-        return Extent(_extent.left, top, _extent.width, height);
+    if (controlStruct.MAXVALUE >= 0) {
+        _maxValue = controlStruct.MAXVALUE;
     }
-    int width = static_cast<int>(getImageSize(*_thumb).x * _frameLayoutScale);
-    int left = _extent.left + (_extent.width - width) * _value / _maxValue;
-    return Extent(left, _extent.top, width, _extent.height);
-}
-
-void Slider::render(const glm::ivec2 &screenSize,
-                    const glm::ivec2 &offset,
-                    scene::IRenderPass &pass) {
-    if (!_visible) {
-        return;
+    setValue(controlStruct.CURVALUE);
+    if (controlStruct.THUMB && !controlStruct.THUMB->IMAGE.empty()) {
+        _thumb = _resourceSvc.textures.get(controlStruct.THUMB->IMAGE, TextureUsage::GUI);
     }
-    Control::render(screenSize, offset, pass);
-    Extent thumb = thumbExtent();
-    pass.drawImage(
-        *_thumb,
-        {thumb.left + offset.x, thumb.top + offset.y},
-        {thumb.width, thumb.height});
 }
 
-bool Slider::handleKeyDown(input::KeyCode key) {
-    if (!_selected) {
+void Slider::setValue(int value) {
+    _value = std::clamp(value, 0, std::max(0, _maxValue));
+}
+
+void Slider::step(int steps) {
+    if (moveThumb(steps) && _onValueChanged) {
+        _onValueChanged(_value);
+    }
+}
+
+bool Slider::moveThumb(int steps) {
+    const int previous = _value;
+    setValue(_value + steps);
+    if (_value == previous) {
         return false;
     }
-    switch (key) {
-    case input::KeyCode::Left:
-        changeValue(_value - 1);
-        return true;
-    case input::KeyCode::Right:
-        changeValue(_value + 1);
-        return true;
-    default:
-        return false;
-    }
-}
-
-// A click on the track steps the value one towards the click.
-bool Slider::handleClick(int x, int y, int clicks) {
-    Extent thumb = thumbExtent();
-    if (x < thumb.left) {
-        changeValue(_value - 1);
-    } else if (x >= thumb.left + thumb.width) {
-        changeValue(_value + 1);
+    if (_onStep) {
+        _onStep();
     }
     return true;
 }
 
-// Only a press on the thumb holds it; a press on the track is a click.
-bool Slider::handleMouseDown(int x, int y) {
-    return thumbExtent().contains(x, y);
-}
-
-void Slider::handleMouseDrag(int x, int y) {
-    changeValue((x - _extent.left) * _maxValue / _extent.width);
-}
-
-void Slider::setValue(int value) {
-    _value = std::clamp(value, 0, _maxValue);
-}
-
-void Slider::changeValue(int value) {
-    int changed = std::clamp(value, 0, _maxValue);
-    if (changed == _value) {
-        return;
+// The thumb spans the track's breadth; along the track it keeps its image's
+// length, grown with the layout, and sits in proportion to the value.
+Control::Extent Slider::thumbExtent() const {
+    Extent extent {_extent.left, _extent.top, _extent.width, _extent.height};
+    if (!_thumb) {
+        return extent;
     }
-    _value = changed;
-    if (_onValueChanged) {
+    const bool vertical = isVertical();
+    const glm::ivec2 image {frameArtSize(_thumb)};
+    int &start = vertical ? extent.top : extent.left;
+    int &length = vertical ? extent.height : extent.width;
+    const int trackLength = length;
+    length = std::min(trackLength, vertical ? image.y : image.x);
+    if (_maxValue > 0) {
+        start += (trackLength - length) * _value / _maxValue;
+    }
+    return extent;
+}
+
+// The thumb takes a press anywhere on it; the track either side of it takes
+// one strictly inside the frame's inner extent.
+Slider::Press Slider::pressAt(int x, int y) const {
+    const Extent thumb = thumbExtent();
+    if (thumb.contains(x, y)) {
+        return Press::Thumb;
+    }
+    const bool vertical = isVertical();
+    const Extent track = innerExtent(_extent);
+    if (!spanAcross(track, vertical).containsInside(pointAcross(x, y, vertical))) {
+        return Press::None;
+    }
+    const int along = pointAlong(x, y, vertical);
+    const TrackSpan trackAlong = spanAlong(track, vertical);
+    const TrackSpan thumbAlong = spanAlong(thumb, vertical);
+    if (trackAlong.start < along && along < thumbAlong.start) {
+        return Press::TrackBefore;
+    }
+    if (thumbAlong.end() < along && along < trackAlong.end()) {
+        return Press::TrackAfter;
+    }
+    return Press::None;
+}
+
+bool Slider::handleMouseDown(int x, int y) {
+    _pressValue = _value;
+    const Press press = pressAt(x, y);
+    _dragging = press == Press::Thumb;
+    switch (press) {
+    case Press::Thumb:
+        _thumbPressAlong = pointAlong(x, y, isVertical());
+        break;
+    case Press::TrackBefore:
+        moveThumb(-1);
+        break;
+    case Press::TrackAfter:
+        moveThumb(1);
+        break;
+    default:
+        break;
+    }
+    return true;
+}
+
+// The thumb keeps the point it was pressed at under the pointer.
+bool Slider::handleMouseDrag(int x, int y) {
+    if (_dragging) {
+        const bool vertical = isVertical();
+        const int travel = spanAlong(_extent, vertical).length - spanAlong(thumbExtent(), vertical).length;
+        setValue(draggedValue(_pressValue, _thumbPressAlong, pointAlong(x, y, vertical), travel, _maxValue));
+    }
+    return true;
+}
+
+// The release reports the value the press and drag left, wherever it is, and
+// reports it over the slider even when it did not move.
+bool Slider::handleMouseUp(int x, int y, bool over, int clicks) {
+    _dragging = false;
+    if (_onValueChanged && (over || _value != _pressValue)) {
         _onValueChanged(_value);
     }
+    return false;
+}
+
+// The GUI gives the arrow keys only to the control holding the keyboard.
+bool Slider::handleKeyDown(input::KeyCode key) {
+    const input::KeyCode decrease = isVertical() ? input::KeyCode::Up : input::KeyCode::Left;
+    const input::KeyCode increase = isVertical() ? input::KeyCode::Down : input::KeyCode::Right;
+    if (key == decrease) {
+        step(-1);
+        return true;
+    }
+    if (key == increase) {
+        step(1);
+        return true;
+    }
+    return false;
+}
+
+bool Slider::handleMouseWheel(int x, int y) {
+    if (y != 0) {
+        // The wheel turned up moves the thumb up or right; a vertical
+        // slider's value grows downwards.
+        step(isVertical() ? -y : y);
+    }
+    return true;
+}
+
+void Slider::render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) {
+    if (!_visible) {
+        return;
+    }
+    Control::render(screenSize, offset, pass);
+    if (!_thumb) {
+        return;
+    }
+    const Extent thumb = thumbExtent();
+    pass.drawImage(*_thumb, {thumb.left + offset.x, thumb.top + offset.y}, {thumb.width, thumb.height});
 }
 
 } // namespace gui

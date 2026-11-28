@@ -58,6 +58,7 @@ public:
     MOCK_METHOD(void, bindTexture, (Texture &, int), (override));
 
     MOCK_METHOD(const glm::ivec4 &, viewport, (), (const override));
+    MOCK_METHOD(void, setScreenPixelSize, (glm::ivec2), (override));
     MOCK_METHOD(DepthTestMode, depthTestMode, (), (const override));
     MOCK_METHOD(bool, depthMask, (), (const override));
     MOCK_METHOD(PolygonMode, polygonMode, (), (const override));
@@ -86,6 +87,9 @@ public:
     MOCK_METHOD(void, withPolygonMode, (PolygonMode, const std::function<void()> &), (override));
     MOCK_METHOD(void, withFaceCullMode, (FaceCullMode, const std::function<void()> &), (override));
     MOCK_METHOD(void, withBlendMode, (BlendMode, const std::function<void()> &), (override));
+
+private:
+    glm::ivec4 _viewport {0};
 };
 
 class MockMeshRegistry : public IMeshRegistry, boost::noncopyable {

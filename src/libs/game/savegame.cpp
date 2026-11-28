@@ -9,15 +9,16 @@
 #include <iomanip>
 #include <sstream>
 
-#include "reone/resource/director.h"
-#include "reone/resource/parser/gff/are.h"
-#include "reone/resource/parser/gff/ifo.h"
+#include "reone/game/object/module.h"
 #include "reone/game/portraits.h"
 #include "reone/game/savedgame.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/format/tgawriter.h"
-#include "reone/system/fileutil.h"
+#include "reone/resource/director.h"
+#include "reone/resource/parser/gff/are.h"
+#include "reone/resource/parser/gff/ifo.h"
 #include "reone/system/exception/validation.h"
+#include "reone/system/fileutil.h"
 #include "reone/system/logger.h"
 #include "reone/system/logutil.h"
 

@@ -242,6 +242,12 @@ LauncherFrame::LauncherFrame() :
     _checkBoxSharpen = new wxCheckBox(this, wxID_ANY, "Enable Image Sharpening", wxDefaultPosition, wxDefaultSize);
     _checkBoxSharpen->SetValue(_config.sharpen);
 
+    _checkBoxFullRes = new wxCheckBox(this, wxID_ANY, "Draw the World at Full Resolution", wxDefaultPosition, wxDefaultSize);
+    _checkBoxFullRes->SetValue(_config.fullRes);
+
+    _checkBoxStretch = new wxCheckBox(this, wxID_ANY, "Stretch to Fill the Screen", wxDefaultPosition, wxDefaultSize);
+    _checkBoxStretch->SetValue(_config.stretch);
+
     auto graphicsSizer = new wxStaticBoxSizer(wxVERTICAL, this, "Graphics");
     graphicsSizer->Add(resSizer, wxSizerFlags(0).Expand());
     graphicsSizer->Add(winScaleSizer, wxSizerFlags(0).Expand());
@@ -257,6 +263,8 @@ LauncherFrame::LauncherFrame() :
     graphicsSizer->Add(_checkBoxSSR, wxSizerFlags(0).Expand());
     graphicsSizer->Add(_checkBoxFXAA, wxSizerFlags(0).Expand());
     graphicsSizer->Add(_checkBoxSharpen, wxSizerFlags(0).Expand());
+    graphicsSizer->Add(_checkBoxFullRes, wxSizerFlags(0).Expand());
+    graphicsSizer->Add(_checkBoxStretch, wxSizerFlags(0).Expand());
 
     // END Graphics
 
@@ -372,6 +380,8 @@ void LauncherFrame::LoadConfiguration() {
         ("ssr", value<bool>()->default_value(_config.ssr))                //
         ("fxaa", value<bool>()->default_value(_config.fxaa))              //
         ("sharpen", value<bool>()->default_value(_config.sharpen))        //
+        ("fullresworld", value<bool>()->default_value(_config.fullRes))   //
+        ("stretch", value<bool>()->default_value(_config.stretch))        //
         ("texquality", value<int>()->default_value(_config.texQuality))   //
         ("anisofilter", value<int>()->default_value(_config.anisofilter)) //
         ("shadowres", value<int>()->default_value(_config.shadowres))     //
@@ -405,6 +415,8 @@ void LauncherFrame::LoadConfiguration() {
     _config.ssr = vars["ssr"].as<bool>();
     _config.fxaa = vars["fxaa"].as<bool>();
     _config.sharpen = vars["sharpen"].as<bool>();
+    _config.fullRes = vars["fullresworld"].as<bool>();
+    _config.stretch = vars["stretch"].as<bool>();
     _config.texQuality = vars["texquality"].as<int>();
     _config.shadowres = vars["shadowres"].as<int>();
     _config.anisofilter = vars["anisofilter"].as<int>();
@@ -446,6 +458,8 @@ void LauncherFrame::SaveConfiguration() {
         "ssr=",
         "fxaa=",
         "sharpen=",
+        "fullresworld=",
+        "stretch=",
         "texquality=",
         "anisofilter=",
         "shadowres=",
@@ -514,6 +528,8 @@ void LauncherFrame::SaveConfiguration() {
     _config.ssr = _checkBoxSSR->IsChecked();
     _config.fxaa = _checkBoxFXAA->IsChecked();
     _config.sharpen = _checkBoxSharpen->IsChecked();
+    _config.fullRes = _checkBoxFullRes->IsChecked();
+    _config.stretch = _checkBoxStretch->IsChecked();
     _config.texQuality = _choiceTextureQuality->GetSelection();
     _config.shadowres = _choiceShadowResolution->GetSelection();
     _config.anisofilter = _choiceAnisoFilter->GetSelection();
@@ -556,6 +572,8 @@ void LauncherFrame::SaveConfiguration() {
     config << "ssr=" << (_config.ssr ? 1 : 0) << std::endl;
     config << "fxaa=" << (_config.fxaa ? 1 : 0) << std::endl;
     config << "sharpen=" << (_config.sharpen ? 1 : 0) << std::endl;
+    config << "fullresworld=" << (_config.fullRes ? 1 : 0) << std::endl;
+    config << "stretch=" << (_config.stretch ? 1 : 0) << std::endl;
     config << "texquality=" << _config.texQuality << std::endl;
     config << "shadowres=" << _config.shadowres << std::endl;
     config << "anisofilter=" << _config.anisofilter << std::endl;

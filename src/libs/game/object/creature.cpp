@@ -4342,6 +4342,42 @@ void Creature::applyLevelUp(CreatureAttributes attributes, CreatureClass &clazz)
     _levelUpChimeArmed = true;
 }
 
+void Creature::autoLevelUp(bool showLevel) {
+    AutoLevelUpCreature creature;
+    creature.pcRules = levelsAsPlayerCharacter();
+    creature.droid = _race == RacialType::Droid;
+    creature.tag = _tag;
+    creature.alignment = alignment();
+    creature.effectFeats = effectFeats();
+    creature.canLearnPower = [this](SpellType power, ClassType clazz) {
+        return canLearnPower(power, clazz);
+    };
+    creature.knowsAffordablePower = [this](SpellType power) {
+        const auto spell = _services.game.spells.get(power);
+        return spell && hasAffordableSpell(*spell);
+    };
+    int levels = 0;
+    while (isLevelUpPending()) {
+        CreatureAttributes attributes(_attributes);
+        chooseAutoLevelUp(attributes, _services.game.feats, _services.game.spells, _services.game.skills, creature, _game.isTSL());
+        CreatureClass &clazz = *attributes.classLevels().back().first;
+        applyLevelUp(std::move(attributes), clazz);
+        ++levels;
+    }
+    if (levels == 0) {
+        return;
+    }
+    if (_playerCreated) {
+        _game.party().recomputeCompanionInfluence();
+    }
+    if (showLevel) {
+        _game.floatingText().addLevelUp(*this, _attributes.getAggregateLevel());
+    }
+    for (int i = 0; i < levels; ++i) {
+        _game.signalPlayerLevelUp(*this);
+    }
+}
+
 void Creature::addClass(CreatureClass &clazz) {
     _attributes.addClassLevels(&clazz, 0);
     updatePureGoodEvilPowers();
@@ -5326,11 +5362,28 @@ void Creature::playWeaponFlourish() {
     addFireForgetAnimation(clip, kWeaponDrawMilliseconds, 1.0f, false, AnimationSource {kWeaponFlourishAnimationId});
 }
 
+bool Creature::isFlourishing() const {
+    if (_oneShot && _oneShot->id == kWeaponFlourishAnimationId) {
+        return true;
+    }
+    const bool queued = std::any_of(_fireForgetQueue.begin(), _fireForgetQueue.end(), [](const FireForgetEntry &entry) {
+        return entry.source.id == kWeaponFlourishAnimationId;
+    });
+    if (queued) {
+        return true;
+    }
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    const std::string layer = getWeaponDrawOverlayAnimation();
+    return model && !layer.empty() && model->isAnimationPlaying(layer);
+}
+
 // A living creature that can flourish powers its lightsabers and enters combat
 // state; alive or dead, the flourish then plays. In TSL a flourish waits for
 // the weapon-switch cooldown and starts it, the player's is refused in
 // restricted areas, and stun batons and empty hands do not flourish; in KotOR
-// only the melee weapon classes flourish.
+// only the melee weapon classes flourish. The player's flourishes run one at a
+// time: a press while one plays or waits shows no other. A script's flourish
+// always queues.
 void Creature::flourishWeapons(bool playerCommand) {
     const bool tsl = _game.isTSL();
     if (tsl && isSwitchWeaponsCoolingDown()) {
@@ -5358,7 +5411,9 @@ void Creature::flourishWeapons(bool playerCommand) {
         setLightsabersPowered(true, true);
         setCombatState(true, CombatActivation::Indirect, false);
     }
-    playWeaponFlourish();
+    if (!playerCommand || !isFlourishing()) {
+        playWeaponFlourish();
+    }
     if (tsl) {
         startSwitchWeaponsCooldown();
     }
@@ -6158,24 +6213,26 @@ bool Creature::isLevelUpPending() const {
     if (isDead() || isTemporarilyDead()) {
         return false;
     }
-    const int level = _attributes.getAggregateLevel();
-    return level < maxCharacterLevel(_game.isTSL()) &&
-           static_cast<uint32_t>(_xp) >= _services.game.combatTables.experienceThreshold(level);
+    return levelReachedByExperience() > _attributes.getAggregateLevel();
+}
+
+int Creature::levelReachedByExperience() const {
+    return levelReachedFrom(_attributes.getAggregateLevel());
+}
+
+int Creature::levelReachedFrom(int level) const {
+    while (level < maxCharacterLevel(_game.isTSL()) &&
+           static_cast<uint32_t>(_xp) >= _services.game.combatTables.experienceThreshold(level)) {
+        ++level;
+    }
+    return level;
 }
 
 // Only a player character walks the table; any other creature keeps its
 // level.
 int Creature::potentialLevel() const {
-    const auto &tables = _services.game.combatTables;
-    int level = getSpellLevel(false);
-    if (!_isPC) {
-        return level;
-    }
-    while (level < maxCharacterLevel(_game.isTSL()) &&
-           static_cast<uint32_t>(_xp) >= tables.experienceThreshold(level)) {
-        ++level;
-    }
-    return level;
+    const int level = getSpellLevel(false);
+    return _isPC ? levelReachedFrom(level) : level;
 }
 
 std::optional<uint32_t> Creature::getNeededXP() const {
@@ -6208,8 +6265,8 @@ void Creature::runSpawnScript() {
     // control, carried through an ordinary module transition is the same
     // creature: the destination area takes it in without recreating it, and
     // its OnSpawn does not run a second time. A companion or puppet made from
-    // its roster record is a new creature and runs it again. The flag is set
-    // whether or not a script was authored.
+    // its roster record takes the record's flag. The flag is set whether or
+    // not a script was authored.
     if (_spawnScriptFired) {
         return;
     }
@@ -7732,11 +7789,7 @@ void Creature::modifyAlignment(int shift, bool dontModifyNPCs) {
         _goodEvil = shifted();
         if (!dontModifyNPCs) {
             _game.setGlobalNumber(kPlayerAlignmentGlobal, _goodEvil);
-            for (int npc = 0; npc < static_cast<int>(Party::kK2NpcCount); ++npc) {
-                if (auto companion = party.getAvailableMember(npc)) {
-                    companion->recomputeInfluenceAlignment();
-                }
-            }
+            party.recomputeCompanionInfluence();
         }
     } else if (party.isMember(*this)) {
         _baseCNPCAlignment = clampGoodEvil(_baseCNPCAlignment + shift);

@@ -105,9 +105,11 @@ void ConfirmPopup::onGUILoaded() {
     if (_datapad) {
         _gui->rootControl().setBorderFill(kDatapadBackground);
     }
+    // A button the pointer comes onto takes the keys and keeps its hilight
+    // after the pointer leaves it.
+    _gui->setHilightFollowsKeyboard(true);
+    _controls.LB_MESSAGE->setOwnSound(true);
     _controls.LB_MESSAGE->setItemsInteractive(false);
-    // The message is one block of text that scrolls a line at a time.
-    _controls.LB_MESSAGE->setTextLineRows(true);
 
     // The box as authored, centred in the authored canvas so the Scaled
     // layout lands it mid-screen at any resolution. Every message is laid
@@ -120,6 +122,10 @@ void ConfirmPopup::onGUILoaded() {
     iconExtent.width = iconSize;
     iconExtent.height = iconSize;
     icon->setExtent(std::move(iconExtent));
+    // KotOR tiles the icon's art over the icon, measured at the layout's
+    // scale; TSL stretches it.
+    icon->setPresentationScale(_gui->scale());
+    icon->setBorderFillStyle(_game.isTSL() ? Control::Border::FillStyle::Stretch : Control::Border::FillStyle::Tile);
     icon->setSharpenBorderFillAlpha(true);
     icon->setVisible(false);
     _icon = std::shared_ptr<Control>(std::move(icon));
@@ -127,8 +133,7 @@ void ConfirmPopup::onGUILoaded() {
 
     _rootExtent = _gui->rootControl().extent();
     _listExtent = _controls.LB_MESSAGE->extent();
-    _messageExtent = _controls.LB_MESSAGE->protoItem().extent();
-    _messageFont = _controls.LB_MESSAGE->protoItem().text().font;
+    _messageFont = _controls.LB_MESSAGE->protoItem().text().baseFont;
     _messageAlign = _controls.LB_MESSAGE->protoItem().text().align;
     _okExtent = _controls.BTN_OK->extent();
     _cancelExtent = _controls.BTN_CANCEL->extent();
@@ -146,13 +151,13 @@ void ConfirmPopup::applyColors(const PopupColors &colors) {
     _controls.LB_MESSAGE->protoItem().setTextColor(colors.text);
 }
 
-void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+void ConfirmPopup::show(const std::string &message, const std::string &iconResRef,
                         std::function<void()> onConfirm, const std::optional<PopupColors> &colors) {
-    open(message, std::move(icon), false, colors);
+    open(message, iconResRef, false, colors);
     _onConfirm = std::move(onConfirm);
 }
 
-void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Texture> icon, bool allowCancel,
+void ConfirmPopup::open(const std::string &message, const std::string &iconResRef, bool allowCancel,
                         const std::optional<PopupColors> &colors) {
     // A box without colours of its own keeps those it has.
     if (colors) {
@@ -163,9 +168,9 @@ void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Te
     _nextPage = {};
     _controls.BTN_CANCEL->setVisible(allowCancel);
     _controls.BTN_OK->setTextMessage(_defaultConfirmText);
-    _hasIcon = static_cast<bool>(icon);
+    _hasIcon = !iconResRef.empty();
     if (_hasIcon) {
-        _icon->setBorderFill(std::move(icon));
+        _icon->setBorderFill(iconResRef);
     }
     _icon->setVisible(_hasIcon);
 
@@ -174,6 +179,9 @@ void ConfirmPopup::open(const std::string &message, std::shared_ptr<graphics::Te
     layoutMessage();
 
     _visible = true;
+    hoverOnOpening(_game.pointerPosition());
+    _gui->clearActiveControl();
+    _gui->selectActiveControl(*_controls.BTN_OK);
 }
 
 int ConfirmPopup::buttonWidth(const Button &button) const {
@@ -182,11 +190,14 @@ int ConfirmPopup::buttonWidth(const Button &button) const {
     const int border = button.border().dimension;
     const float textWidth = text.font->measure(text.text, button.scale());
     int width = static_cast<int>(std::lround(kButtonMinWidth * scale));
-    const int step = static_cast<int>(std::lround(kButtonWidthStep * scale));
-    while (width - 2 * border < textWidth) {
-        width += step;
+    // As many steps, of at least a pixel, as the label needs to fit.
+    const int step = std::max(1, static_cast<int>(std::lround(kButtonWidthStep * scale)));
+    const float needed = textWidth - static_cast<float>(width - 2 * border);
+    if (needed > 0.0f) {
+        width += step * static_cast<int>(std::ceil(needed / static_cast<float>(step)));
     }
-    return width + static_cast<int>(scale * static_cast<float>(2 * button.border().innerOffset));
+    // The border's inner offset is already at the layout's scale.
+    return width + 2 * button.border().innerOffset;
 }
 
 void ConfirmPopup::layoutMessage() {
@@ -252,7 +263,8 @@ void ConfirmPopup::layoutMessage() {
     const int barTopOffset = _scrollBarExtent.top - _listExtent.top;
     const int barHeightOffset = _scrollBarExtent.height - _listExtent.height;
     const auto &proto = list.protoItem();
-    const int lineHeight = static_cast<int>(std::lround(proto.text().font->height() * proto.scale()));
+    // The box grows by the message's line unit.
+    const int lineHeight = proto.textLineUnit();
 
     // Place the box and its message on screen and lay the message out across
     // the list's inner width, less the scroll bar while it is enabled, a line
@@ -282,14 +294,6 @@ void ConfirmPopup::layoutMessage() {
             bar.height = listInBox.height + barHeightOffset;
             scrollBar->setExtent(std::move(bar));
         }
-        // The list places the lines itself; the row is a line high and as
-        // wide as the room.
-        auto textExtent = _messageExtent;
-        textExtent.left = listInBox.left;
-        textExtent.top = listInBox.top;
-        textExtent.width = std::max(0, list.getItemWidth());
-        textExtent.height = lineHeight;
-        list.protoItem().setExtent(std::move(textExtent));
         list.clearItems();
         list.addTextLinesAsItems(_message);
     };
@@ -368,8 +372,6 @@ void ConfirmPopup::layoutDatapadMessage() {
     const int barRightInset = (_listExtent.left + _listExtent.width) - (_scrollBarExtent.left + _scrollBarExtent.width);
     const int barTopOffset = _scrollBarExtent.top - _listExtent.top;
     const int barHeightOffset = _scrollBarExtent.height - _listExtent.height;
-    const auto &proto = list.protoItem();
-    const int lineHeight = static_cast<int>(std::lround(proto.text().font->height() * proto.scale()));
     const auto wrap = [&]() {
         if (scrollBar) {
             Control::Extent bar;
@@ -379,12 +381,6 @@ void ConfirmPopup::layoutDatapadMessage() {
             bar.height = listExtent.height + barHeightOffset;
             scrollBar->setExtent(std::move(bar));
         }
-        auto textExtent = _messageExtent;
-        textExtent.left = listExtent.left;
-        textExtent.top = listExtent.top;
-        textExtent.width = std::max(0, list.getItemWidth());
-        textExtent.height = lineHeight;
-        list.protoItem().setExtent(std::move(textExtent));
         list.clearItems();
         list.addTextLinesAsItems(_message);
     };
@@ -409,21 +405,21 @@ void ConfirmPopup::showConfirm(
     std::function<void()> onConfirm,
     std::function<void()> onCancel,
     const std::optional<PopupColors> &colors) {
-    open(message, nullptr, true, colors);
+    open(message, "", true, colors);
     _onConfirm = std::move(onConfirm);
     _onCancel = std::move(onCancel);
 }
 
 void ConfirmPopup::showDatapad(const std::string &message, std::function<void()> onConfirm) {
     auto &proto = _controls.LB_MESSAGE->protoItem();
-    proto.setTextFont(_services.resource.fonts.get(_game.guiFontName("fnt_d16x16")));
+    proto.setTextFont("fnt_d16x16");
     proto.setTextAlignment(Control::TextAlign::LeftTop);
-    show(message, nullptr, std::move(onConfirm));
+    show(message, "", std::move(onConfirm));
 }
 
-void ConfirmPopup::showPages(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+void ConfirmPopup::showPages(const std::string &message, const std::string &iconResRef,
                              std::function<bool()> nextPage, std::function<void()> onConfirm) {
-    open(message, std::move(icon), false, std::nullopt);
+    open(message, iconResRef, false, std::nullopt);
     _nextPage = std::move(nextPage);
     _onConfirm = std::move(onConfirm);
 }
@@ -433,15 +429,15 @@ void ConfirmPopup::setMessage(const std::string &message) {
     layoutMessage();
 }
 
-void ConfirmPopup::setIcon(std::shared_ptr<graphics::Texture> icon) {
+void ConfirmPopup::setIcon(const std::string &iconResRef) {
     _hasIcon = true;
-    _icon->setBorderFill(std::move(icon));
+    _icon->setBorderFill(iconResRef);
     _icon->setVisible(true);
     layoutMessage();
 }
 
-void ConfirmPopup::setMessageFont(std::shared_ptr<graphics::Font> font) {
-    _controls.LB_MESSAGE->protoItem().setTextFont(std::move(font));
+void ConfirmPopup::setMessageFont(std::string baseFont) {
+    _controls.LB_MESSAGE->protoItem().setTextFont(std::move(baseFont));
 }
 
 // OK is sized to its label, so the box is laid out again.

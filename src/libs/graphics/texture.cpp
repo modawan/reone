@@ -198,60 +198,35 @@ void Texture::configureCubeMap() {
 }
 
 void Texture::refresh() {
+    int levels = 1;
     if (isCubeMapArray()) {
         refreshCubeMapArray();
     } else if (isCubeMap()) {
-        refreshCubeMap();
+        levels = refreshCubeMap();
     } else if (is2DArray()) {
         refresh2DArray();
     } else if (is2D()) {
-        refresh2D();
+        levels = refresh2D();
     } else {
         throw NotImplementedException("Unsupported texture type: " + std::to_string(static_cast<int>(_type)));
     }
     if (isMipmapFilter(_properties.minFilter)) {
         auto target = getTargetGL();
-        glGenerateMipmap(target);
+        if (levels > 1) {
+            // Sampling stops at the last level the file shipped, so a chain
+            // that ends before 1x1 still leaves the texture complete.
+            glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, levels - 1);
+        } else {
+            glGenerateMipmap(target);
+        }
         if (_properties.anisotropy > 1.0f) {
             glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, _properties.anisotropy);
         }
     }
 }
 
-void Texture::refresh2D() {
-    const void *pixelsData;
-    size_t pixelsSize;
-    if (!_layers.empty() && _layers.front().pixels) {
-        auto &pixels = _layers.front().pixels;
-        pixelsData = pixels->data();
-        pixelsSize = pixels->size();
-    } else {
-        pixelsData = nullptr;
-        pixelsSize = 0;
-    }
-    switch (_pixelFormat) {
-    case PixelFormat::DXT1:
-    case PixelFormat::DXT5:
-        glCompressedTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            getInternalPixelFormatGL(_pixelFormat),
-            _width, _height,
-            0,
-            pixelsSize, pixelsData);
-        break;
-    default:
-        glTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            getInternalPixelFormatGL(_pixelFormat),
-            _width, _height,
-            0,
-            getPixelFormatGL(_pixelFormat),
-            getPixelTypeGL(_pixelFormat),
-            pixelsData);
-        break;
-    }
+int Texture::refresh2D() {
+    return uploadLayer(GL_TEXTURE_2D, _layers.empty() ? nullptr : &_layers.front());
 }
 
 void Texture::refresh2DArray() {
@@ -281,41 +256,54 @@ void Texture::refresh2DArray() {
     }
 }
 
-void Texture::refreshCubeMap() {
-    const void *pixelsData;
-    size_t pixelsSize;
+int Texture::refreshCubeMap() {
+    int levels = 0;
     for (int i = 0; i < kNumCubeFaces; ++i) {
-        if (_layers.size() > i && _layers[i].pixels) {
-            auto &pixels = _layers[i].pixels;
-            pixelsData = pixels->data();
-            pixelsSize = pixels->size();
-        } else {
-            pixelsData = nullptr;
-            pixelsSize = 0;
+        const Layer *layer = _layers.size() > i ? &_layers[i] : nullptr;
+        int faceLevels = uploadLayer(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, layer);
+        levels = i == 0 ? faceLevels : std::min(levels, faceLevels);
+    }
+    return levels;
+}
+
+int Texture::uploadLayer(uint32_t target, const Layer *layer) {
+    const ByteBuffer *base = layer ? layer->pixels.get() : nullptr;
+    uploadLevel(target, 0, _width, _height, base);
+    int level = 1;
+    if (layer) {
+        for (const auto &mip : layer->mips) {
+            uploadLevel(target, level, std::max(1, _width >> level), std::max(1, _height >> level), mip.get());
+            ++level;
         }
-        switch (_pixelFormat) {
-        case PixelFormat::DXT1:
-        case PixelFormat::DXT5:
-            glCompressedTexImage2D(
-                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-                0,
-                getInternalPixelFormatGL(_pixelFormat),
-                _width, _height,
-                0,
-                pixelsSize, pixelsData);
-            break;
-        default:
-            glTexImage2D(
-                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-                0,
-                getInternalPixelFormatGL(_pixelFormat),
-                _width, _height,
-                0,
-                getPixelFormatGL(_pixelFormat),
-                getPixelTypeGL(_pixelFormat),
-                pixelsData);
-            break;
-        }
+    }
+    return level;
+}
+
+void Texture::uploadLevel(uint32_t target, int level, int width, int height, const ByteBuffer *pixels) {
+    const void *pixelsData = pixels ? pixels->data() : nullptr;
+    size_t pixelsSize = pixels ? pixels->size() : 0;
+    switch (_pixelFormat) {
+    case PixelFormat::DXT1:
+    case PixelFormat::DXT5:
+        glCompressedTexImage2D(
+            target,
+            level,
+            getInternalPixelFormatGL(_pixelFormat),
+            width, height,
+            0,
+            pixelsSize, pixelsData);
+        break;
+    default:
+        glTexImage2D(
+            target,
+            level,
+            getInternalPixelFormatGL(_pixelFormat),
+            width, height,
+            0,
+            getPixelFormatGL(_pixelFormat),
+            getPixelTypeGL(_pixelFormat),
+            pixelsData);
+        break;
     }
 }
 

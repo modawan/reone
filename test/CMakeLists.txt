@@ -138,13 +138,16 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/gui/control/listbox.cpp
+    ${TESTS_SOURCE_DIR}/gui/control/imagebutton.cpp
     ${TESTS_SOURCE_DIR}/gui/control/progressbar.cpp
     ${TESTS_SOURCE_DIR}/gui/control/border.cpp
     ${TESTS_SOURCE_DIR}/gui/control/slider.cpp
     ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/gui/gui.cpp
     ${TESTS_SOURCE_DIR}/gui/guiinput.cpp
+    ${TESTS_SOURCE_DIR}/gui/keys.cpp
     ${TESTS_SOURCE_DIR}/gui/textinput.cpp
+    ${TESTS_SOURCE_DIR}/gui/tooltip.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/gameprobe.cpp
@@ -195,6 +198,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/system/binaryreader.cpp
     ${TESTS_SOURCE_DIR}/system/binarywriter.cpp
     ${TESTS_SOURCE_DIR}/system/cast.cpp
+    ${TESTS_SOURCE_DIR}/system/crashreport.cpp
     ${TESTS_SOURCE_DIR}/system/fileutil.cpp
     ${TESTS_SOURCE_DIR}/system/hexutil.cpp
     ${TESTS_SOURCE_DIR}/system/logger.cpp

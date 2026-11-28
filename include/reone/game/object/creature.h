@@ -901,6 +901,11 @@ public:
      * title's maximum, neither dead nor downed.
      */
     bool isLevelUpPending() const;
+    /**
+     * The level the creature's experience reaches by the experience table, up
+     * to the title's maximum, from its own level.
+     */
+    int levelReachedByExperience() const;
     /** The level-up chime may still sound for the creature: from its creation, and again after each level-up. */
     bool isLevelUpChimeArmed() const { return _levelUpChimeArmed; }
     void setLevelUpChimeArmed(bool armed) { _levelUpChimeArmed = armed; }
@@ -2069,6 +2074,15 @@ public:
      * points it grants.
      */
     void applyLevelUp(CreatureAttributes attributes, CreatureClass &clazz);
+    /**
+     * Gains every level the creature's experience allows in its last class,
+     * making each level's choices as chooseAutoLevelUp does. A level gained
+     * by the player-created character then moves the companions through
+     * their influence, and with \p showLevel the creature's new level floats
+     * over it. The module hears of each level a player character gains once
+     * all are applied.
+     */
+    void autoLevelUp(bool showLevel);
     /**
      * Gains a class at level 0, after any number already held; a class already
      * held is unchanged. Its Pure Good or Evil powers are applied afresh.
@@ -3269,6 +3283,11 @@ private:
     void updateRollingFootstep();
     /** The footstep group of the controlled creature, or of a creature of the creature's size. */
     int footstepSoundGroup() const;
+    /**
+     * The level the creature's experience reaches by the experience table, up
+     * to the title's maximum, from \p level.
+     */
+    int levelReachedFrom(int level) const;
 
     void runDeathScript();
     void runDamagedScript();
@@ -3489,6 +3508,11 @@ private:
      */
     void setAnimationSource(AnimationSource source);
     void playTopFireForgetAnimation();
+    /**
+     * Whether a flourish plays as the one-shot or waits in the fire-and-forget
+     * queue, or the draw layer a flourish plays while moving is still on.
+     */
+    bool isFlourishing() const;
     /**
      * The hit of a melee swing sounds the weapon against the target, makes a
      * creature-model target that can react flinch at once, as a layer outside

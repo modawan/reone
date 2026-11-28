@@ -17,7 +17,8 @@
 
 #include "reone/gui/control/progressbar.h"
 
-#include "reone/graphics/context.h"
+#include <algorithm>
+
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
@@ -40,9 +41,13 @@ void ProgressBar::load(const resource::generated::GUI_BASECONTROL &gui, bool pro
     Control::load(gui, protoItem);
 
     auto &controlStruct = *static_cast<const resource::generated::GUI_CONTROLS *>(&gui);
+    setMaxValue(controlStruct.MAXVALUE);
+    setCurValue(controlStruct.CURVALUE);
     _startFromLeft = controlStruct.STARTFROMLEFT != 0;
     if (controlStruct.PROGRESS) {
-        _progress = createBorder(*controlStruct.PROGRESS);
+        _progress = *createBorder(*controlStruct.PROGRESS);
+        _authoredProgressDimension = controlStruct.PROGRESS->DIMENSION;
+        scaleOwnFrames();
     }
 }
 
@@ -52,58 +57,57 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
     if (!_visible) {
         return;
     }
-    // The authored backing - the same capsule art tinted with the border
-    // colour - draws at full size behind the cropped fill, so a partially
-    // filled bar keeps its full silhouette.
     Control::render(screenSize, offset, pass);
-    if (_value == 0 || !_progress || !_progress->fill) {
+    // The progress border, frame and fill, is laid over the inner extent cut
+    // to the value's share, its art fitted to the cut by its fill style. The
+    // share starts at the bar's top or left edge, or at its bottom or right
+    // edge when the bar does not start from the left.
+    const Extent inner = innerExtent(_extent);
+    const float fraction {fillFraction(_curValue, _maxValue)};
+    Extent fill = inner;
+    if (_extent.height > _extent.width) {
+        fill.height = static_cast<int>(static_cast<float>(inner.height) * fraction);
+        if (!_startFromLeft) {
+            fill.top = inner.top + inner.height - fill.height;
+        }
+    } else {
+        fill.width = static_cast<int>(static_cast<float>(inner.width) * fraction);
+        if (!_startFromLeft) {
+            fill.left = inner.left + inner.width - fill.width;
+        }
+    }
+    if (fill.width <= 0 || fill.height <= 0) {
         return;
     }
-    const glm::vec4 color {_progress->color, _progress->pulseFill ? _gui.pulsingAlpha() : _progress->alpha};
-    // The fill fraction follows the bar's long axis, keeping the full
-    // authored size on the cross axis, and crops the art to the visible
-    // fraction instead of squashing it. Tall bars - the party vitality and
-    // Force columns - grow from the bottom; wide bars anchor to their
-    // authored start edge. Each pixel edge is rounded once and the size is
-    // their difference, keeping the anchored edge aligned with the backing.
-    float fraction = _value / 100.0f;
-    glm::mat3x4 uv(1.0f);
-    if (_extent.height > _extent.width) {
-        int bottom = _extent.top + _extent.height + offset.y;
-        int top = static_cast<int>(std::lround(bottom - _extent.height * fraction));
-        uv[1][1] = fraction;
-        uv[2][1] = 0.0f;
-        pass.drawImage(
-            *_progress->fill,
-            {_extent.left + offset.x, top},
-            {_extent.width, bottom - top},
-            color,
-            uv);
-    } else {
-        int left = _extent.left + offset.x;
-        int right = left + _extent.width;
-        int fillLeft = _startFromLeft
-                           ? left
-                           : static_cast<int>(std::lround(right - _extent.width * fraction));
-        int fillRight = _startFromLeft
-                            ? static_cast<int>(std::lround(left + _extent.width * fraction))
-                            : right;
-        uv[0][0] = fraction;
-        uv[2][0] = _startFromLeft ? 0.0f : 1.0f - fraction;
-        pass.drawImage(
-            *_progress->fill,
-            {fillLeft, _extent.top + offset.y},
-            {fillRight - fillLeft, _extent.height},
-            color,
-            uv);
+    renderBorder(
+        _progress,
+        offset + glm::ivec2(fill.left - _extent.left, fill.top - _extent.top),
+        {fill.width, fill.height},
+        pass,
+        BorderRenderPart::All,
+        false,
+        _progress.color);
+}
+
+float ProgressBar::fillFraction(int curValue, int maxValue) {
+    if (maxValue <= 0) {
+        return 1.0f;
+    }
+    return static_cast<float>(std::clamp(curValue, 0, maxValue)) / static_cast<float>(maxValue);
+}
+
+void ProgressBar::setMaxValue(int value) {
+    if (value >= 0) {
+        _maxValue = value;
     }
 }
 
-void ProgressBar::setValue(int value) {
-    if (value < 0 || value > 100) {
-        throw std::out_of_range("value out of range: " + std::to_string(value));
-    }
-    _value = value;
+void ProgressBar::setCurValue(int value) {
+    _curValue = std::clamp(value, 0, _maxValue);
+}
+
+void ProgressBar::scaleOwnFrames() {
+    _progress.dimension = scaledFrameSize(_authoredProgressDimension);
 }
 
 } // namespace gui

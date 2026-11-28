@@ -137,7 +137,6 @@ void OptionsMenu::loadFrontPage() {
         buttons.push_back({_inGameControls.BTN_QUIT, kExitGameDescriptionStrRef});
     }
     for (const auto &[button, strRef] : buttons) {
-        enableK2ButtonBodyFill(button);
         button->setOnSelectionChanged([this, strRef = strRef](bool selected) {
             if (selected) {
                 describe(*_controls.LB_DESC, strRef);
@@ -162,13 +161,11 @@ void OptionsMenu::loadFrontPage() {
     });
 
     if (!_inGame) {
-        enableK2ButtonBodyFill(_mainMenuBack);
         _mainMenuBack->setOnClick([this]() {
             _game.closeMainMenuOptions();
         });
         return;
     }
-    enableK2ButtonBodyFill(_inGameControls.BTN_EXIT);
     _inGameControls.BTN_LOADGAME->setOnClick([this]() {
         _game.openSaveLoad(SaveLoadMode::LoadFromInGame);
     });
@@ -283,8 +280,6 @@ void OptionsMenu::loadFeedbackPanel() {
         controls.LBL_BAR1 = std::static_pointer_cast<Label>(find("LBL_BAR1"));
         controls.LBL_BAR2 = std::static_pointer_cast<Label>(find("LBL_BAR2"));
         fillK2SectionStrip(controls.LBL_BAR1, controls.LBL_BAR2);
-        enableK2ButtonBodyFill(controls.BTN_BACK);
-        enableK2ButtonBodyFill(controls.BTN_DEFAULT);
     }
 
     // Row order and names: TSL has eight rows, KotOR adds small fonts before tooltips.
@@ -362,6 +357,7 @@ static constexpr int kDefaultDifficultyLevel = 1;
 static constexpr int kMouseLookDescriptionStrRef = 48014;
 static constexpr int kMouseLookDescriptionStrRefTSL = 48697;
 static constexpr int kCombatMovementDescriptionStrRef = 42484;
+static constexpr int kAutoLevelUpDescriptionStrRef = 42266;
 static constexpr int kMouseSettingsDescriptionStrRef = 49071;
 static constexpr int kMouseSettingsDescriptionStrRefTSL = 48720;
 
@@ -377,12 +373,10 @@ void OptionsMenu::loadGameplayPanel() {
     controls.BTN_MOUSE = std::static_pointer_cast<Button>(find("BTN_MOUSE"));
     controls.CB_DISABLEMOVE = std::static_pointer_cast<ToggleButton>(find("CB_DISABLEMOVE"));
     controls.CB_INVERTCAM = std::static_pointer_cast<ToggleButton>(find("CB_INVERTCAM"));
+    controls.CB_LEVELUP = std::static_pointer_cast<ToggleButton>(find("CB_LEVELUP"));
     controls.LBL_TITLE = std::static_pointer_cast<Label>(find("LBL_TITLE"));
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     showCheckBoxes(*_gameplayGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
     // The level changes at once; the configuration is written when the options close.
     controls.BTN_DIFFLEFT->setOnClick([this]() {
@@ -409,6 +403,15 @@ void OptionsMenu::loadGameplayPanel() {
             describe(*_gameplayControls.LB_DESC, _game.isTSL() ? kMouseLookDescriptionStrRefTSL : kMouseLookDescriptionStrRef);
         }
     });
+    controls.CB_LEVELUP->setOnClick([this]() {
+        _gameplayControls.CB_LEVELUP->toggle();
+        _game.setAutoLevelUpNPCs(_gameplayControls.CB_LEVELUP->isOn());
+    });
+    controls.CB_LEVELUP->setOnSelectionChanged([this](bool selected) {
+        if (selected) {
+            describe(*_gameplayControls.LB_DESC, kAutoLevelUpDescriptionStrRef);
+        }
+    });
     controls.BTN_MOUSE->setOnClick([this]() {
         openMousePanel();
     });
@@ -429,14 +432,16 @@ void OptionsMenu::loadGameplayPanel() {
         _gameplayControls.LB_DESC->addTextLinesAsItems(
             _services.resource.strings.getText(kCombatMovementDescriptionStrRef));
     });
-    // The defaults are the normal difficulty, mouse look off and combat
-    // movement on.
+    // The defaults are the normal difficulty, mouse look and companions
+    // levelling up by themselves off, and combat movement on.
     controls.BTN_DEFAULT->setOnClick([this]() {
         _game.setDifficultyLevel(kDefaultDifficultyLevel);
         _game.setMouseLook(false);
+        _game.setAutoLevelUpNPCs(false);
         _game.setCombatMovement(true);
         showDifficulty();
         _gameplayControls.CB_INVERTCAM->setOn(false);
+        _gameplayControls.CB_LEVELUP->setOn(false);
         _gameplayControls.CB_DISABLEMOVE->setOn(true);
     });
     controls.BTN_BACK->setOnClick([this]() {
@@ -447,6 +452,7 @@ void OptionsMenu::loadGameplayPanel() {
 void OptionsMenu::openGameplayPanel() {
     showDifficulty();
     _gameplayControls.CB_INVERTCAM->setOn(_game.mouseLook());
+    _gameplayControls.CB_LEVELUP->setOn(_game.autoLevelUpNPCs());
     _gameplayControls.CB_DISABLEMOVE->setOn(_game.combatMovement());
     _gameplayControls.LB_DESC->clearItems();
     openPage(*_gameplayGUI, [] {});
@@ -506,9 +512,6 @@ void OptionsMenu::loadAutoPausePanel() {
     controls.CB_TRIGGERS = std::static_pointer_cast<ToggleButton>(find("CB_TRIGGERS"));
     controls.LB_DETAILS = std::static_pointer_cast<ListBox>(find("LB_DETAILS"));
     showCheckBoxes(*_autoPauseGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
     // Each checkbox describes itself when it gains focus; a click only flips it.
     const bool tsl = _game.isTSL();
@@ -593,11 +596,6 @@ void OptionsMenu::loadGraphicsPanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_GAMMA = std::static_pointer_cast<Slider>(find("SLI_GAMMA"));
     showCheckBoxes(*_graphicsGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
-    enableK2ButtonBodyFill(controls.BTN_RESOLUTION);
-    enableK2ButtonBodyFill(controls.BTN_ADVANCED);
 
     // The display's brightness cannot be changed.
     controls.SLI_GAMMA->setDisabled(true);
@@ -704,8 +702,6 @@ void OptionsMenu::loadResolutionPanel() {
     controls.BTN_CANCEL = std::static_pointer_cast<Button>(find("BTN_CANCEL"));
     controls.BTN_OK = std::static_pointer_cast<Button>(find("BTN_OK"));
     controls.LB_RESOLUTIONS = std::static_pointer_cast<ListBox>(find("LB_RESOLUTIONS"));
-    enableK2ButtonBodyFill(controls.BTN_CANCEL);
-    enableK2ButtonBodyFill(controls.BTN_OK);
     useK1ListEntryColors(controls.LB_RESOLUTIONS->protoItem());
     // A click chooses a mode; OK keeps it.
     controls.LB_RESOLUTIONS->setSelectionMode(ListBox::SelectionMode::OnClick);
@@ -851,9 +847,6 @@ void OptionsMenu::loadAdvancedGraphicsPanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     addInterfaceSizeSlider();
     showCheckBoxes(*_advancedGraphicsGUI);
-    for (auto &button : {controls.BTN_BACK, controls.BTN_CANCEL, controls.BTN_DEFAULT}) {
-        enableK2ButtonBodyFill(button);
-    }
 
     const bool tsl = _game.isTSL();
     // Each arrow steps its option one level; the page shows the new level.
@@ -971,6 +964,20 @@ void OptionsMenu::addInterfaceSizeSlider() {
     const auto &lastRow = _advancedGraphicsControls.CB_VSYNC->authoredExtent();
     const int sliderOffset = slider.EXTENT.TOP - label.EXTENT.TOP;
 
+    // The row is the gamma row's layout under the last row of this page, with
+    // an ID of this page's own and links among this page's controls: the
+    // label takes no keys, and the slider sits between V-Sync and what
+    // V-Sync led down to.
+    const int sliderId {_advancedGraphicsGUI->unusedControlId()};
+    auto &vsync = *_advancedGraphicsControls.CB_VSYNC;
+    const int belowId {vsync.moveTo(Control::MoveDirection::Down)};
+    label.ID = -1;
+    label.MOVETO = resource::generated::GUI_CONTROLS_MOVETO();
+    slider.ID = sliderId;
+    slider.MOVETO = resource::generated::GUI_CONTROLS_MOVETO();
+    slider.MOVETO.UP = vsync.id();
+    slider.MOVETO.DOWN = belowId;
+
     label.TAG = "LBL_GUISCALE";
     label.EXTENT.TOP = lastRow.top + lastRow.height + kGUIScaleRowGap;
     label.TEXT->STRREF = static_cast<uint32_t>(-1);
@@ -988,6 +995,18 @@ void OptionsMenu::addInterfaceSizeSlider() {
     _advancedGraphicsGUI->addControlToFront(sliderControl, IGUI::ControlCoordinates::Authored);
     _advancedGraphicsControls.LBL_GUISCALE = std::static_pointer_cast<Label>(labelControl);
     _advancedGraphicsControls.SLI_GUISCALE = std::static_pointer_cast<Slider>(sliderControl);
+
+    vsync.setMoveTo(Control::MoveDirection::Down, sliderId);
+    // Without a link down from V-Sync, or an ID of its own, nothing below
+    // leads up to it.
+    if (belowId < 0 || vsync.id() < 0) {
+        return;
+    }
+    // What V-Sync led down to leads up to the slider in its place.
+    const auto below = _advancedGraphicsGUI->findControlById(belowId);
+    if (below && below->get().moveTo(Control::MoveDirection::Up) == vsync.id()) {
+        below->get().setMoveTo(Control::MoveDirection::Up, sliderId);
+    }
 }
 
 void OptionsMenu::openAdvancedGraphicsPanel() {
@@ -1055,9 +1074,6 @@ void OptionsMenu::loadSoundPanel() {
     controls.SLI_MOVIE = std::static_pointer_cast<Slider>(find("SLI_MOVIE"));
     controls.SLI_MUSIC = std::static_pointer_cast<Slider>(find("SLI_MUSIC"));
     controls.SLI_VO = std::static_pointer_cast<Slider>(find("SLI_VO"));
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
     // A volume follows its slider as it moves, sounds already playing
     // included, and describes itself when the slider gains focus.
@@ -1195,9 +1211,6 @@ void OptionsMenu::loadMousePanel() {
     controls.LB_DESC = std::static_pointer_cast<ListBox>(find("LB_DESC"));
     controls.SLI_MOUSESEN = std::static_pointer_cast<Slider>(find("SLI_MOUSESEN"));
     showCheckBoxes(*_mouseGUI);
-
-    enableK2ButtonBodyFill(controls.BTN_BACK);
-    enableK2ButtonBodyFill(controls.BTN_DEFAULT);
 
     // The sensitivity changes at once; the configuration is written when the
     // options close.

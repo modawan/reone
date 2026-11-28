@@ -150,7 +150,7 @@ public:
     MOCK_METHOD(std::vector<FeatType>, getChoosableFeats, (const FeatChoice &choice), (const override));
     MOCK_METHOD(bool, hasPrerequisites, (FeatType type, const CreatureAttributes &attributes, const std::set<FeatType> &effectFeats, const std::set<FeatType> &chosen), (const override));
     MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
-    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, RacialType race, int experience, const std::string &tag, bool newCharacter), (const override));
+    MOCK_METHOD(std::vector<FeatType>, addGrantedFeats, (CreatureAttributes & attributes, std::optional<RacialType> race, int experience, const std::string &tag, bool newCharacter), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {
@@ -234,7 +234,8 @@ public:
     MOCK_METHOD((std::optional<std::reference_wrapper<const RangeRow>>), findRange, (int row), (const override));
     MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
     MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
-    MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+    MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen, bool ownedForms), (const override));
+    MOCK_METHOD(std::vector<SpellType>, getAutoLevelUpPowers, (const CreatureAttributes &attributes, const CreatureClass &clazz, Alignment alignment, int count, bool playerCharacter, const std::set<SpellType> &granted, const std::function<bool(SpellType)> &knownAndAffordable), (const override));
     MOCK_METHOD(std::vector<SpellType>, addGrantedPowers, (CreatureAttributes & attributes), (const override));
 
 private:

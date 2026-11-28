@@ -225,6 +225,8 @@ void setCardFace(
     button.setDisabled(!interactive);
     button.setHilightOverBorder(true);
     button.setHilightFill(cardHiliteTexture(tsl));
+    // A card's hilight fill pulses.
+    button.setHilightPulsing(false, true);
     button.setSelected(false);
     label.setTextMessage(text);
     label.setVisible(true);

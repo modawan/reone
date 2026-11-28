@@ -17,6 +17,7 @@
 
 #include "reone/game/d20/spells.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <charconv>
@@ -25,6 +26,7 @@
 
 #include "reone/game/d20/attributes.h"
 #include "reone/game/d20/class.h"
+#include "reone/game/d20/recommended.h"
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
@@ -129,8 +131,19 @@ static constexpr int kUnofferedMasterSpell = -2;
 
 static bool isPickerVisible(const Spell &spell, const CreatureClass &clazz) {
     auto maybeRequirement = spell.getClassLevelRequirement(clazz.type());
-    return spell.userType == kSpellUserTypeForcePower && spell.nameStrRef != 0 && !spell.unofferedOnLevelUp &&
-           maybeRequirement && *maybeRequirement >= 0;
+    const bool forcePower = spell.userType == kSpellUserTypeForcePower || spell.userType == kSpellUserTypeLearnedForcePower;
+    return forcePower && spell.nameStrRef != 0 && !spell.unofferedOnLevelUp && maybeRequirement && *maybeRequirement >= 0;
+}
+
+// A TSL form the character owns shows in the abilities screen's powers view as known.
+static bool isShownOwnedForm(SpellType type, const Spell &spell, const CreatureAttributes &attributes, bool tsl) {
+    return tsl && spell.userType == kSpellUserTypeForm && spell.nameStrRef != 0 && attributes.hasSpell(type);
+}
+
+// A power's level is measured against the character's total level after the
+// level-up, all classes together.
+static int levelUpTotalLevel(const CreatureAttributes &attributes) {
+    return attributes.getAggregateLevel() + 1;
 }
 
 // Whether each master power and each prerequisite of the power is known or chosen.
@@ -466,9 +479,8 @@ bool Spells::isLevelUpCandidate(
         return false;
     }
 
-    int targetClassLevel = attributes.getClassLevel(clazz.type()) + 1;
     auto maybeRequirement = maybeSpell->second->getClassLevelRequirement(clazz.type());
-    return maybeRequirement && targetClassLevel >= *maybeRequirement &&
+    return maybeRequirement && levelUpTotalLevel(attributes) >= *maybeRequirement &&
            prerequisitesSatisfied(*maybeSpell->second, attributes, chosen);
 }
 
@@ -491,10 +503,11 @@ std::vector<SpellType> Spells::getLevelUpCandidates(
 std::vector<SpellDisplayEntry> Spells::getLevelUpDisplayEntries(
     const CreatureAttributes &attributes,
     const CreatureClass &clazz,
-    const std::set<SpellType> &chosen) const {
+    const std::set<SpellType> &chosen,
+    bool ownedForms) const {
     std::set<SpellType> visible;
     for (const auto &[type, spell] : _spells) {
-        if (isPickerVisible(*spell, clazz)) {
+        if (isPickerVisible(*spell, clazz) || (ownedForms && isShownOwnedForm(type, *spell, attributes, _tsl))) {
             visible.insert(type);
         }
     }
@@ -510,7 +523,7 @@ std::vector<SpellDisplayEntry> Spells::getLevelUpDisplayEntries(
         parents.emplace(type, getDisplayParent(*_spells.at(type), visible, depths));
     }
 
-    int targetClassLevel = attributes.getClassLevel(clazz.type()) + 1;
+    const int newTotalLevel = levelUpTotalLevel(attributes);
     std::vector<SpellDisplayEntry> result;
     for (const auto &[type, spell] : _spells) {
         SpellDisplayEntry entry;
@@ -536,7 +549,7 @@ std::vector<SpellDisplayEntry> Spells::getLevelUpDisplayEntries(
             entry.availability = SpellAvailability::Known;
         } else if (entry.chosen) {
             entry.availability = SpellAvailability::Chosen;
-        } else if (maybeRequirement && targetClassLevel < *maybeRequirement) {
+        } else if (maybeRequirement && newTotalLevel < *maybeRequirement) {
             entry.availability = SpellAvailability::LockedClassLevel;
         } else if (!prerequisitesSatisfied(*spell, attributes, chosen)) {
             entry.availability = SpellAvailability::LockedMissingPrerequisite;
@@ -563,6 +576,50 @@ std::vector<SpellDisplayEntry> Spells::getLevelUpDisplayEntries(
         return left.sourceOrder < right.sourceOrder;
     });
     return result;
+}
+
+std::vector<SpellType> Spells::getAutoLevelUpPowers(
+    const CreatureAttributes &attributes,
+    const CreatureClass &clazz,
+    Alignment alignment,
+    int count,
+    bool playerCharacter,
+    const std::set<SpellType> &granted,
+    const std::function<bool(SpellType)> &knownAndAffordable) const {
+    // The powers the level-up screen offers to the class, in row order.
+    std::vector<SpellType> powers;
+    for (const auto &[type, spell] : _spells) {
+        if (isPickerVisible(*spell, clazz)) {
+            powers.push_back(type);
+        }
+    }
+    std::sort(powers.begin(), powers.end(), [](SpellType left, SpellType right) {
+        return static_cast<int>(left) < static_cast<int>(right);
+    });
+    const int newTotalLevel = levelUpTotalLevel(attributes);
+    auto candidates = [&](const std::set<SpellType> &chosen) {
+        auto taken = [&chosen, &granted](SpellType other) {
+            return chosen.count(other) > 0 || granted.count(other) > 0;
+        };
+        auto met = [&taken, &knownAndAffordable](SpellType required) {
+            return taken(required) || knownAndAffordable(required);
+        };
+        std::vector<SpellType> result;
+        for (SpellType power : powers) {
+            if (isPickDenied(power, playerCharacter)) {
+                continue;
+            }
+            const Spell &spell = *_spells.at(power);
+            if (newTotalLevel >= *spell.getClassLevelRequirement(clazz.type()) &&
+                !attributes.hasSpell(power) && !taken(power) &&
+                std::all_of(spell.masterSpells.begin(), spell.masterSpells.end(), met) &&
+                std::all_of(spell.prerequisites.begin(), spell.prerequisites.end(), met)) {
+                result.push_back(power);
+            }
+        }
+        return result;
+    };
+    return recommendPowers(*this, candidates, count, alignment, true);
 }
 
 std::vector<SpellType> Spells::addGrantedPowers(CreatureAttributes &attributes) const {

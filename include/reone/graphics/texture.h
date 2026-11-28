@@ -93,6 +93,8 @@ public:
         int numChars {0};
         float fontHeight {0.0f};
         float spacingR {0.0f};
+        /** The spacing below each line of text, in the font height's units. */
+        float spacingB {0.0f};
         std::vector<glm::vec3> upperLeftCoords;
         std::vector<glm::vec3> lowerRightCoords;
 
@@ -110,6 +112,12 @@ public:
 
     struct Layer {
         std::shared_ptr<ByteBuffer> pixels;
+
+        /**
+         * Levels 1 and beyond, when the file shipped them. Level i is
+         * max(1, width >> i) by max(1, height >> i).
+         */
+        std::vector<std::shared_ptr<ByteBuffer>> mips;
     };
 
     Texture(std::string name,
@@ -194,10 +202,16 @@ private:
     void configure2D();
     void configureCubeMap();
 
-    void refresh2D();
+    int refresh2D();
     void refresh2DArray();
-    void refreshCubeMap();
+    int refreshCubeMap();
     void refreshCubeMapArray();
+    /**
+     * Uploads a layer's base level and any levels it shipped, and returns how
+     * many. A null layer allocates an empty base level.
+     */
+    int uploadLayer(uint32_t target, const Layer *layer);
+    void uploadLevel(uint32_t target, int level, int width, int height, const ByteBuffer *pixels);
 
     uint32_t getTargetGL() const;
 };

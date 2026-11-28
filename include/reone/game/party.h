@@ -451,6 +451,8 @@ public:
     bool removeAvailableMember(int npc);
 
     bool isMemberAvailable(int npc) const;
+    /** Whether the party's items hold one the player has not yet seen. */
+    bool hasNewItems() const;
     std::shared_ptr<Creature> getAvailableMember(int npc) const;
     std::shared_ptr<Creature> getAvailableMember(
         int npc, bool loadIfMissing);
@@ -676,7 +678,8 @@ public:
     /**
      * Record an award in the pool and pay it, with the TSL companion bonus,
      * to the travelling companions and the creature under the player's
-     * control; feedback and the Status Summary follow the award source.
+     * control; feedback and the Status Summary follow the award source. A
+     * companion paid then levels up by itself as levelUpByItself rules.
      */
     void awardXP(int amount, XPSource source);
     /** The TSL mentor's bonus on an award, paid to the recipients but not recorded in the pool. */
@@ -685,9 +688,35 @@ public:
     void setXP(int xp);
     /**
      * A roster companion brought into the world is paid up to its joining
-     * experience plus its share of the pool.
+     * experience plus its share of the pool. When it is paid, it then levels
+     * up by itself as levelUpByItself rules.
      */
     void catchUpExperience(int npc, Creature &creature);
+    /**
+     * The Auto Level Up NPCs rule: while the option is on, a creature that is
+     * not player-created and can level up gains every level it can by itself,
+     * its new level floating over it (Creature::autoLevelUp).
+     *
+     * It is applied at the events that can let a companion level up: to each
+     * follower an award pays, to a companion caught up as it is brought into
+     * the world, to a TSL companion gaining a class by script, and to every
+     * companion when the option is turned on (levelUpCompanionsByThemselves).
+     * On TSL it also holds for the followers while play shows the main
+     * interface (levelUpFollowersByThemselves).
+     */
+    void levelUpByItself(Creature &creature);
+    /**
+     * The player character's new level moves every companion with a creature
+     * through its influence (Creature::recomputeInfluenceAlignment).
+     */
+    void recomputeCompanionInfluence();
+    /** Every companion travelling with the party levels up by itself (levelUpByItself). */
+    void levelUpCompanionsByThemselves();
+    /**
+     * On TSL, every party member standing that is neither under the player's
+     * control nor player-created levels up by itself (levelUpByItself).
+     */
+    void levelUpFollowersByThemselves();
 
     // END Experience
 

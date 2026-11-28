@@ -640,7 +640,7 @@ TEST_F(RecommendedTest, should_fall_back_on_the_other_sides_recommendations) {
     CreatureClass guardian(ClassType::JediGuardian, *classes, strings, twoDas);
     CreatureAttributes attributes;
 
-    // The light side power needs a class level the character does not reach.
+    // The light side power needs a level the character does not reach.
     EXPECT_EQ(recommendPowers(*spells, attributes, guardian, 3, Alignment::LightSide),
               (std::vector<SpellType> {static_cast<SpellType>(1), static_cast<SpellType>(0)}));
 }
@@ -684,6 +684,16 @@ TEST_F(RecommendedTest, should_fill_power_picks_with_unranked_candidates_only_wh
     EXPECT_EQ(recommendPowers(*spells, attributes, guardian, 3, Alignment::LightSide), std::vector<SpellType> {static_cast<SpellType>(1)});
     EXPECT_EQ(recommendPowers(*spells, attributes, guardian, 4, Alignment::LightSide, true),
               (std::vector<SpellType> {static_cast<SpellType>(1), static_cast<SpellType>(0), static_cast<SpellType>(2)}));
+}
+
+TEST_F(RecommendedTest, should_recommend_no_power_it_is_told_to_refuse) {
+    CreatureClass guardian(ClassType::JediGuardian, *classes, strings, twoDas);
+    CreatureAttributes attributes;
+    const auto refuseStun = [](SpellType power) { return power == kStun; };
+
+    const auto powers = recommendPowers(*spells, attributes, guardian, 2, Alignment::LightSide, false, refuseStun);
+    EXPECT_THAT(powers, Not(Contains(kStun)));
+    EXPECT_THAT(powers, Contains(kForcePush));
 }
 
 // Point costs shared by the screens and the recommendations
@@ -730,6 +740,6 @@ TEST_F(RecommendedTest, should_not_auto_level_a_leader_with_no_level_pending) {
     game.party().setPlayer(leader);
     ASSERT_FALSE(leader->isLevelUpPending());
 
-    EXPECT_FALSE(game.autoLevelUp());
+    leader->autoLevelUp(false);
     EXPECT_EQ(leader->attributes().getAggregateLevel(), 1);
 }

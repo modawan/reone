@@ -48,6 +48,9 @@ void LoadingScreen::onGUILoaded() {
     bindControls();
 
     _controls.LBL_HINT->setTextMessage("");
+    // The bar counts the progress in hundredths, whatever maximum the layout
+    // gives it.
+    _controls.PB_PROGRESS->setMaxValue(100);
     _loadScreens = getRequiredTwoDA(_services.resource.twoDas, "loadscreens");
 }
 
@@ -95,7 +98,7 @@ std::string LoadingScreen::musicResRef(const std::string &moduleName) const {
 }
 
 void LoadingScreen::setProgress(int progress) {
-    _controls.PB_PROGRESS->setValue(progress);
+    _controls.PB_PROGRESS->setCurValue(progress);
 }
 
 } // namespace game

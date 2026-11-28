@@ -43,6 +43,7 @@
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
+#include "reone/game/camerastyle.h"
 #include "reone/game/combat.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/races.h"
@@ -76,11 +77,24 @@
 #include "reone/game/gui/store.h"
 #include "reone/game/location.h"
 #include "reone/game/minigame.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/areaofeffect.h"
+#include "reone/game/object/camera/animated.h"
+#include "reone/game/object/camera/dialog.h"
+#include "reone/game/object/camera/firstperson.h"
+#include "reone/game/object/camera/static.h"
+#include "reone/game/object/camera/thirdperson.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/minigameobject.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/party.h"
 #include "reone/game/player.h"
 #include "reone/game/projectiles.h"
@@ -186,6 +200,85 @@ Game::Game(
     initJournalNotifications();
     // TSL keeps combat lines in a list of their own.
     _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
+}
+
+std::shared_ptr<Module> Game::newModule() {
+    return newObject<Module>(*this, _services);
+}
+
+std::shared_ptr<Module> Game::newSavedModule() {
+    // The module is not part of the serialized object graph, but it still
+    // needs a live identity: authored OnLoad scripts run with the module
+    // as OBJECT_SELF and may schedule commands back onto it.
+    return newObject<Module>(*this, _services);
+}
+
+std::shared_ptr<Area> Game::newArea(std::string sceneName) {
+    return newObject<Area>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Creature> Game::newCreature(std::string sceneName) {
+    return newObject<Creature>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Creature> Game::newPresentationCreature(
+    std::string sceneName) {
+    auto creature = newPresentationObject<Creature>(
+        std::move(sceneName), *this, _services);
+    creature->setGoodEvil(kNeutralGoodEvil);
+    return creature;
+}
+
+std::shared_ptr<Placeable> Game::newPlaceable(std::string sceneName) {
+    return newObject<Placeable>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Door> Game::newDoor(std::string sceneName) {
+    return newObject<Door>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Waypoint> Game::newWaypoint(std::string sceneName) {
+    return newObject<Waypoint>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Trigger> Game::newTrigger(std::string sceneName) {
+    return newObject<Trigger>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Sound> Game::newSound(std::string sceneName) {
+    return newObject<Sound>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<AnimatedCamera> Game::newAnimatedCamera(std::string sceneName) {
+    return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<DialogCamera> Game::newDialogCamera(std::string sceneName) {
+    return newObject<DialogCamera>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<FirstPersonCamera> Game::newFirstPersonCamera(float fovy, std::string sceneName) {
+    return newObject<FirstPersonCamera>(fovy, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<StaticCamera> Game::newStaticCamera(std::string sceneName) {
+    return newObject<StaticCamera>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<ThirdPersonCamera> Game::newThirdPersonCamera(CameraStyle style, std::string sceneName) {
+    return newObject<ThirdPersonCamera>(std::move(style), std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<AreaOfEffect> Game::newAreaOfEffect(std::string sceneName) {
+    return newObject<AreaOfEffect>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Encounter> Game::newEncounter(std::string sceneName) {
+    return newObject<Encounter>(std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Store> Game::newStore(std::string sceneName) {
+    return newObject<Store>(std::move(sceneName), *this, _services);
 }
 
 bool Game::isAnimatedCutsceneShowing() const {
@@ -793,6 +886,21 @@ void Game::init() {
     }
     _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
     _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
+    // TSL stretches a border fill of the whole-extent style over its
+    // control, keeps frames and fill art at their own size, stretches the
+    // fills of its bar labels and mirrors its frames' side corners.
+    gui::FillRules fillRules;
+    fillRules.extentFills = isTSL();
+    fillRules.unscaledArt = isTSL();
+    fillRules.mirroredCorners = isTSL();
+    if (isTSL()) {
+        fillRules.stretchesFill = [](const gui::Control &control) {
+            return control.type() == gui::ControlType::Label && control.tag().find("LBL_BAR") != std::string::npos;
+        };
+    }
+    _services.gui.guis.setFillRules(std::move(fillRules));
+    _services.gui.guis.setSmallFonts(_options.game.feedback.smallFonts);
+    _services.gui.guis.tooltip().setEnabled(_options.game.feedback.tooltips);
     _options.game.clientDifficulty = loadDifficultyLevel(_options.game.configurationPath, _options.game.clientDifficulty);
     // The configuration names one of the levels the player can pick: any row
     // of the difficulty table but the last.
@@ -806,6 +914,7 @@ void Game::init() {
     _options.game.gameCompleted = loadGameCompleted(_options.game.configurationPath, _options.game.gameCompleted);
     initConsole();
     initTables();
+    loadTooltipPanel();
     resetGalaxyMap();
     initLocalServices();
     setSceneSurfaces();
@@ -1156,7 +1265,20 @@ bool Game::isCoolingDown(const input::Event &event) {
     return leftButton || returnKey;
 }
 
+// The pointer is on the control the screens shown find under it, or on
+// none; a move no screen follows starts the tooltip's wait again.
 bool Game::handle(const input::Event &event) {
+    if (event.type == input::EventType::MouseMotion) {
+        auto &tooltip = _services.gui.guis.tooltip();
+        tooltip.beginPointerMove();
+        const bool taken {handleInput(event)};
+        tooltip.endPointerMove();
+        return taken;
+    }
+    return handleInput(event);
+}
+
+bool Game::handleInput(const input::Event &event) {
     // Either Shift is the alternate actions key: pressing one holds it and
     // releasing one lets it go. While a menu, the credits or a popup holds
     // the input, a Shift is taken only when its keymap row lets menus take
@@ -1319,9 +1441,10 @@ void Game::updateFrame(float frameTime) {
     // fade run this frame. A pending end keeps the death GUI up while its
     // delay lasts, then returns to the main menu once the game is not over.
     updateDeathSequence();
-    // Every GUI's pulse runs through pauses, whatever the screen, and slows
-    // with the world under the sequel's gameover panel.
-    _services.gui.guis.updatePulsingAlpha(frameTime * _deathTimeScale);
+    // The GUIs' clock, their pulses and cycling art, runs through pauses,
+    // whatever the screen, and slows with the world under the sequel's
+    // gameover panel.
+    _services.gui.guis.updateClock(frameTime * _deathTimeScale);
     if (_endGamePending) {
         if (_endGameDelay <= 0.0f) {
             if (!_gameOver) {
@@ -1550,6 +1673,11 @@ void Game::updateFrame(float frameTime) {
     }
     syncPartyCombatMode();
     commitTutorialWindow();
+    // While play shows the main interface, a TSL follower that can level up
+    // does so by itself rather than showing a mark.
+    if (_screen == Screen::InGame) {
+        _party.levelUpFollowersByThemselves();
+    }
     auto gui = getScreenGUI();
     if (gui) {
         gui->update(dt);
@@ -1565,6 +1693,10 @@ void Game::updateFrame(float frameTime) {
     }
     if (_tutorialPopup && _tutorialPopup->isVisible()) {
         _tutorialPopup->update(dt);
+    }
+    // The tooltip waits in real time, and not at all in free-look.
+    if (!_freeLook) {
+        _services.gui.guis.tooltip().update(frameTime);
     }
     // The credits run in real time and hold still while the game is paused.
     if (_credits) {
@@ -3318,10 +3450,9 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         return nullptr;
     }
 
-    // A creature made from its roster record is a new creature: it runs its
-    // creation script again, whatever the record says of the one it was made
-    // from.
-    removeSaveField(*record, "CreatnScrptFird");
+    // A creature made from its roster record takes the record's word on
+    // whether its creation script has run: a companion that has been in the
+    // game does not run it, or the heartbeat that follows it, a second time.
     const auto context =
         SerializedIdentityContext::detachedRecord(name + ".utc");
     auto creature = newCreature(*record, context);
@@ -3655,7 +3786,13 @@ void Game::renderScene() {
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
-    auto &output = scene.render({_options.graphics.width, _options.graphics.height});
+    // The world is drawn at the render size and stretched to the screen's
+    // pixels, which on a high-density display outnumber its units, or at the
+    // pixels themselves at full resolution.
+    const auto &graphics = _options.graphics;
+    const glm::ivec4 &viewport = _services.graphics.context.viewport();
+    const glm::ivec2 size = graphics.worldFullResolution ? glm::ivec2(viewport[2], viewport[3]) : glm::ivec2(graphics.width, graphics.height);
+    auto &output = scene.render(size);
     _lastRenderedSceneOutput = &output;
     _services.graphics.uniforms.setLocals(std::bind(&LocalUniforms::reset, std::placeholders::_1));
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::ndcTexture));
@@ -3849,7 +3986,7 @@ void Game::displayDeathMessage() {
             _deathMessage->init();
         }
         // Queue end-game so the GUI isn't destroyed in its own callback.
-        _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), nullptr, [this]() { requestEndGame(); });
+        _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), "", [this]() { requestEndGame(); });
     }
 }
 
@@ -5004,6 +5141,13 @@ void Game::removeMotionBlurProgram() {
     }
 }
 
+void Game::setAutoLevelUpNPCs(bool on) {
+    _options.game.gameplay.autoLevelUpNPCs = on;
+    if (on) {
+        _party.levelUpCompanionsByThemselves();
+    }
+}
+
 void Game::setSpeedBlur(bool enabled) {
     _services.scene.graphs.get(kSceneMain).setSpeedBlur(enabled);
 }
@@ -5244,6 +5388,10 @@ void Game::renderGUI() {
         renderPopup(_confirmPopup, _messageBoxUnderStation);
     }
     renderPopup(_datapadBox, _datapadUnderStation);
+    // The tooltip shows over the screens, but not in free-look.
+    if (!_freeLook) {
+        _services.gui.guis.tooltip().render();
+    }
     // The credits cover everything, the fade included, and hide the pointer.
     // The pointer also hides while the mouse turns the camera.
     if (_credits) {
@@ -6962,6 +7110,60 @@ void Game::setAutoPauseOptions(const AutoPauseOptions &options) {
     _options.game.autoPause = options;
 }
 
+void Game::setFeedbackOptions(const FeedbackOptions &options) {
+    const bool smallFontsTurned = options.smallFonts != _options.game.feedback.smallFonts;
+    _options.game.feedback = options;
+    if (smallFontsTurned) {
+        _services.gui.guis.setSmallFonts(options.smallFonts);
+    }
+    _services.gui.guis.tooltip().setEnabled(options.tooltips);
+}
+
+// The tooltips' panel. KotOR has one for each screen height, scaled by the
+// screen's height over three quarters of the width the panel was made for.
+// TSL has one for all, scaled from 800x600 keeping its shape.
+void Game::loadTooltipPanel() {
+    const int width = _options.graphics.width;
+    const int height = _options.graphics.height;
+    std::string resRef {"tooltip8X6_p"};
+    int layoutWidth {800};
+    int layoutHeight {600};
+    if (!isTSL()) {
+        struct Panel {
+            int minHeight;
+            const char *resRef;
+            int madeWidth;
+        };
+        static constexpr std::array<Panel, 5> kPanels {{{1200, "tooltip16X12", 1600},
+                                                        {1024, "tooltip12x10", 1280},
+                                                        {960, "tooltip12X9", 1280},
+                                                        {768, "tooltip10X8", 1024},
+                                                        {0, "tooltip8X6", 800}}};
+        const auto found = std::find_if(kPanels.begin(), kPanels.end(), [height](const Panel &candidate) {
+            return height >= candidate.minHeight;
+        });
+        const Panel &chosen = found != kPanels.end() ? *found : kPanels.back();
+        resRef = chosen.resRef;
+        // The width keeps the screen's shape, so the height alone sets the
+        // scale.
+        layoutHeight = chosen.madeWidth * 3 / 4;
+        layoutWidth = height > 0
+                          ? static_cast<int>(std::lround(static_cast<float>(width) * static_cast<float>(layoutHeight) / static_cast<float>(height)))
+                          : chosen.madeWidth;
+    }
+    auto panel = _services.gui.guis.get(resRef, [](gui::IGUI &gui) {
+        gui.setScaling(gui::IGUI::ScalingMode::PositionRelativeToCenter);
+    });
+    // Without its panel the game runs without tooltips.
+    if (!panel) {
+        warn("Game: tooltip panel not found: " + resRef);
+        return;
+    }
+    panel->setResolution(layoutWidth, layoutHeight);
+    panel->refreshLayout();
+    _services.gui.guis.tooltip().setPanel(std::move(panel));
+}
+
 void Game::saveAutoPauseOptions() const {
     _options.game.autoPause.save(_options.game.configurationPath);
 }
@@ -7099,7 +7301,7 @@ bool Game::showTutorialPage() {
     }
     const bool hasNext = tutorialMessage(tutorial.messages, _tutorialPage + 1).has_value();
 
-    std::shared_ptr<Texture> icon;
+    std::string icon;
     const auto &iconResRef = tutorial.icon;
     if (!iconResRef.empty()) {
         // TSL leaves out controller button glyphs.
@@ -7110,7 +7312,7 @@ bool Game::showTutorialPage() {
                                return boost::iequals(iconResRef, name);
                            });
         if (!glyph) {
-            icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
+            icon = boost::to_lower_copy(iconResRef);
         }
     }
 
@@ -7123,8 +7325,8 @@ bool Game::showTutorialPage() {
     if (_tutorialPopup->isVisible()) {
         // A window open takes the new tutorial in place: its first page, and
         // its icon only when it has one, the old icon staying otherwise.
-        if (icon) {
-            _tutorialPopup->setIcon(std::move(icon));
+        if (!icon.empty()) {
+            _tutorialPopup->setIcon(icon);
         }
         _tutorialPopup->setMessage(getInterfaceText(*message));
     } else {
@@ -7133,9 +7335,9 @@ bool Game::showTutorialPage() {
         stopMovement();
         _tutorialPopupOnTop = true;
         // The window's pages turn in place; it closes after the last.
-        _tutorialPopup->setMessageFont(_services.resource.fonts.get(guiFontName("fnt_d16x16")));
+        _tutorialPopup->setMessageFont("fnt_d16x16");
         _tutorialPopup->showPages(
-            getInterfaceText(*message), std::move(icon),
+            getInterfaceText(*message), icon,
             [this]() { return showNextTutorialPage(); },
             [this]() { finishTutorialWindow(true); });
     }
@@ -9508,20 +9710,6 @@ void Game::returnToScreen(Screen underneath) {
     changeScreen(underneath);
 }
 
-bool Game::autoLevelUp() {
-    auto leader = _party.getLeader();
-    if (!leader || !leader->isLevelUpPending()) {
-        return false;
-    }
-    if (!_charGen) {
-        _charGen = tryLoadGUI<CharacterGeneration>();
-    }
-    if (!_charGen) {
-        return false;
-    }
-    return _charGen->autoLevelUp();
-}
-
 static constexpr int kLevelUpAvailableStrRef = 1438;
 static constexpr char kLevelUpDialogFiredGlobal[] = "000_Level_Dlg_Fired";
 static constexpr char kLevelUpDialogScript[] = "k_level_dlg";
@@ -9902,6 +10090,9 @@ void Game::changeScreen(Screen screen) {
         finishTutorialWindow(false);
     }
     _screen = screen;
+    if (auto opened = getScreenGUI()) {
+        opened->hoverOnOpening(pointerPosition());
+    }
 }
 
 GameGUI *Game::getScreenGUI() const {
@@ -10550,12 +10741,11 @@ void Game::consoleSkipMovie(const ConsoleArgs &args) {
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {
     consoleCheckUsage(args, 2, 1024, "icon|none message ...");
-    std::shared_ptr<Texture> icon;
-    std::string_view iconResRef(args[1].value());
-    if (!boost::iequals(iconResRef, "none")) {
-        icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
+    std::string iconResRef(args[1].value());
+    if (boost::iequals(iconResRef, "none")) {
+        iconResRef.clear();
     }
-    if (!showMessagePopup(joinConsoleArgs(args, 2), std::move(icon))) {
+    if (!showMessagePopup(joinConsoleArgs(args, 2), iconResRef)) {
         throw std::runtime_error("Confirmation popup GUI is unavailable");
     }
 }
@@ -10642,7 +10832,7 @@ void Game::showExamineBox(const std::string &message) {
 
 bool Game::showMessagePopup(
     const std::string &message,
-    std::shared_ptr<Texture> icon,
+    const std::string &iconResRef,
     std::function<void()> onConfirm,
     const std::optional<PopupColors> &colors) {
     if (!_confirmPopup) {
@@ -10655,16 +10845,12 @@ bool Game::showMessagePopup(
     // steering and mouse-look held when it opens stop now.
     stopMovement();
     putMessagePopupOnTop();
-    _confirmPopup->show(message, std::move(icon), std::move(onConfirm), colors);
+    _confirmPopup->show(message, iconResRef, std::move(onConfirm), colors);
     return true;
 }
 
 void Game::showScriptMessageBox(const std::string &text, const std::string &iconResRef) {
-    std::shared_ptr<Texture> icon;
-    if (!iconResRef.empty()) {
-        icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
-    }
-    if (!showMessagePopup(text, std::move(icon), [this]() { releaseBoxPause(_scriptBoxHoldsPause); })) {
+    if (!showMessagePopup(text, boost::to_lower_copy(iconResRef), [this]() { releaseBoxPause(_scriptBoxHoldsPause); })) {
         return;
     }
     holdBoxPause(_scriptBoxHoldsPause);

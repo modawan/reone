@@ -73,6 +73,14 @@ public:
     virtual void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) = 0;
 
     virtual const glm::ivec4 &viewport() const = 0;
+    /**
+     * The window's drawable is \p pixelSize pixels, which on a high-density
+     * display is more than the window's size. The screen's viewport covers it
+     * when stretched, or else the largest centred part of it with the
+     * screen's shape. Taken between frames, when the screen's is the only
+     * viewport.
+     */
+    virtual void setScreenPixelSize(glm::ivec2 pixelSize) = 0;
     virtual DepthTestMode depthTestMode() const = 0;
     virtual bool depthMask() const = 0;
     virtual PolygonMode polygonMode() const = 0;
@@ -94,7 +102,14 @@ public:
     virtual void popBlendMode() = 0;
 
     virtual void withViewport(glm::ivec4 viewport, const std::function<void()> &block) = 0;
+    /**
+     * Runs \p block with drawing clipped to \p bounds (left, bottom, width,
+     * height, from the framebuffer's bottom left), first clearing the colour
+     * there. A clip inside another keeps to both, and the outer one is back
+     * after \p block.
+     */
     virtual void withScissorTest(const glm::ivec4 &bounds, const std::function<void()> &block) = 0;
+    /** As withScissorTest, without clearing. */
     virtual void withScissorTestNoClear(const glm::ivec4 &bounds, const std::function<void()> &block) = 0;
     virtual void withDepthTestMode(DepthTestMode mode, const std::function<void()> &block) = 0;
     virtual void withDepthMask(bool enabled, const std::function<void()> &block) = 0;
@@ -102,6 +117,22 @@ public:
     virtual void withFaceCullMode(FaceCullMode mode, const std::function<void()> &block) = 0;
     virtual void withBlendMode(BlendMode mode, const std::function<void()> &block) = 0;
 };
+
+/**
+ * Runs \p block in \p context with drawing clipped to \p rect, given as
+ * left, top, width and height in screen units counted down from the top of a
+ * screen \p screenSize large (withScissorTestNoClear, or withScissorTest when
+ * \p clear). The screen covers the context's viewport, which on a
+ * high-density display holds more pixels than the screen has units; the clip
+ * covers every pixel the rect touches.
+ */
+void withScissorRect(IContext &context, const glm::ivec2 &screenSize, const glm::ivec4 &rect, const std::function<void()> &block, bool clear = false);
+
+/**
+ * The pixels of \p context's viewport to a unit of a screen \p screenSize
+ * large, across and down; 1 along a side either of them has empty.
+ */
+glm::vec2 screenPixelScale(const IContext &context, const glm::ivec2 &screenSize);
 
 class Context : public IContext, boost::noncopyable {
 public:
@@ -139,6 +170,7 @@ public:
     const glm::ivec4 &viewport() const override {
         return _viewports.top();
     }
+    void setScreenPixelSize(glm::ivec2 pixelSize) override;
 
     DepthTestMode depthTestMode() const override {
         return _depthTestModes.top();
@@ -203,8 +235,12 @@ private:
     std::stack<PolygonMode> _polygonModes;
     std::stack<FaceCullMode> _faceCullModes;
     std::stack<BlendMode> _blendModes;
+    /** The clips in force, each within the one before. */
+    std::stack<glm::ivec4> _scissors;
 
     // END States
+
+    void withScissor(const glm::ivec4 &bounds, bool clear, const std::function<void()> &block);
 
     void setViewport(glm::ivec4 viewport);
     void setDepthTestMode(DepthTestMode mode);

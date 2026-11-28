@@ -21,7 +21,9 @@ namespace reone {
 
 namespace graphics {
 
-MockContext::MockContext() = default;
+MockContext::MockContext() {
+    ON_CALL(*this, viewport()).WillByDefault(::testing::ReturnRef(_viewport));
+}
 MockContext::~MockContext() = default;
 
 MockMeshRegistry::MockMeshRegistry() = default;

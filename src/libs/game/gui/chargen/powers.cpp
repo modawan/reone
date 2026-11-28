@@ -45,6 +45,8 @@ namespace game {
 // The message for accepting while powers can still be chosen.
 static constexpr int kK1PowersLeftStrRef = 48210;
 static constexpr int kTSLPowersLeftStrRef = 125861;
+// The message for picking a power a companion is kept from.
+static constexpr int kPowerDeniedToCompanionStrRef = 42470;
 
 static IconChain::State getPowerIconState(SpellAvailability availability) {
     switch (availability) {
@@ -114,6 +116,13 @@ void CharGenPowers::onGUILoaded() {
 }
 
 void CharGenPowers::reset() {
+    // A new character is the player character. A level-up is the leader's:
+    // only a creature flagged as the player character, also a companion
+    // standing in for it, may pick Affect Mind and Dominate, and only one
+    // levelling as the player character is recommended them.
+    std::shared_ptr<Creature> leader(_charGen.isLevelUp() ? _game.party().getLeader() : nullptr);
+    _isPC = !leader || leader->isPC();
+    _playerCharacter = !leader || leader->levelsAsPlayerCharacter();
     _powerGain = 0;
     _displayEntries.clear();
     _selectedPowers.clear();
@@ -147,14 +156,19 @@ void CharGenPowers::refreshSelectionControls() {
     _controls.REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(remaining));
 }
 
-void CharGenPowers::recommend(bool fillWithUnranked) {
+void CharGenPowers::recommend() {
     _selectedPowers.clear();
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
-    if (clazz) {
+    // A class that casts no spells is recommended no powers.
+    if (clazz && clazz->isSpellCaster()) {
         // A new character starts balanced.
         const Alignment alignment = _charGen.isLevelUp() ? _game.party().getLeader()->alignment() : Alignment::Neutral;
-        for (auto power : recommendPowers(_services.game.spells, attributes, *clazz, _powerGain, alignment, fillWithUnranked)) {
+        const bool playerCharacter = _playerCharacter;
+        const auto refused = [playerCharacter](SpellType power) {
+            return ISpells::isPickDenied(power, playerCharacter);
+        };
+        for (auto power : recommendPowers(_services.game.spells, attributes, *clazz, _powerGain, alignment, false, refused)) {
             _selectedPowers.insert(power);
         }
     }
@@ -163,18 +177,20 @@ void CharGenPowers::recommend(bool fillWithUnranked) {
     refreshIconChainSelection();
 }
 
-// Accepting is refused with a message only while powers remain to be chosen
-// and one can still be chosen; otherwise the chosen powers are learned.
 int CharGenPowers::remainingPicks() const {
     return _powerGain - static_cast<int>(_selectedPowers.size());
 }
 
-void CharGenPowers::accept() {
-    const bool powersLeft = _selectedPowers.size() < static_cast<size_t>(_powerGain);
-    const bool choosable = std::any_of(_displayEntries.begin(), _displayEntries.end(), [](const SpellDisplayEntry &entry) {
-        return entry.selectable;
+bool CharGenPowers::hasChoosablePower() const {
+    return std::any_of(_displayEntries.begin(), _displayEntries.end(), [this](const SpellDisplayEntry &entry) {
+        return entry.selectable && !isRefusedPick(entry);
     });
-    if (powersLeft && choosable) {
+}
+
+// Accepting is refused with a message only while powers remain to be chosen
+// and one can still be chosen; otherwise the chosen powers are learned.
+void CharGenPowers::accept() {
+    if (remainingPicks() > 0 && hasChoosablePower()) {
         _game.showMessagePopup(_services.resource.strings.getText(_game.isTSL() ? kTSLPowersLeftStrRef : kK1PowersLeftStrRef));
         return;
     }
@@ -200,7 +216,7 @@ void CharGenPowers::refreshIconChain() {
         item.row = positions.at(entry.type).y;
         item.iconTexture = entry.icon;
         item.selected = entry.chosen;
-        item.state = getPowerIconState(entry.availability);
+        item.state = isRefusedPick(entry) ? IconChain::State::Locked : getPowerIconState(entry.availability);
         if (firstVisible.empty()) {
             firstVisible = item.tag;
         }
@@ -222,7 +238,7 @@ void CharGenPowers::refreshIconChainSelection() {
 
         std::string tag = std::to_string(static_cast<int>(entry.type));
         _controls.ICONCHAIN_POWERS->setItemSelected(tag, entry.chosen);
-        _controls.ICONCHAIN_POWERS->setItemState(tag, getPowerIconState(entry.availability));
+        _controls.ICONCHAIN_POWERS->setItemState(tag, isRefusedPick(entry) ? IconChain::State::Locked : getPowerIconState(entry.availability));
     }
 
     refreshIconChainLinks(getPowerIconPositions(_displayEntries));
@@ -353,6 +369,10 @@ void CharGenPowers::onPowerActivated(const std::string &power) {
     if (maybeDisplayEntry == _displayEntries.end()) {
         return;
     }
+    if (isRefusedPick(*maybeDisplayEntry)) {
+        _game.showMessagePopup(_services.resource.strings.getText(kPowerDeniedToCompanionStrRef));
+        return;
+    }
     if (maybeDisplayEntry->chosen ||
         (maybeDisplayEntry->selectable &&
          _selectedPowers.size() < static_cast<size_t>(_powerGain))) {
@@ -360,9 +380,13 @@ void CharGenPowers::onPowerActivated(const std::string &power) {
     }
 }
 
+bool CharGenPowers::isRefusedPick(const SpellDisplayEntry &entry) const {
+    return entry.selectable && !entry.chosen && ISpells::isPickDenied(entry.type, _isPC);
+}
+
 void CharGenPowers::selectFirstEntryForCapture() {
     for (const auto &entry : _displayEntries) {
-        if (entry.visible && entry.selectable && !entry.chosen) {
+        if (entry.visible && entry.selectable && !entry.chosen && !isRefusedPick(entry)) {
             onPowerActivated(std::to_string(static_cast<int>(entry.type)));
             return;
         }

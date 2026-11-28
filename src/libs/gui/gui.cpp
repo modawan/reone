@@ -33,6 +33,7 @@
 #include "reone/gui/control/scrollbar.h"
 #include "reone/gui/control/slider.h"
 #include "reone/gui/control/togglebutton.h"
+#include "reone/gui/tooltip.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/parser/gff/gui.h"
@@ -59,9 +60,9 @@ void GUI::load(const Gff &gui) {
     auto rootControl = newControl(type, tag);
     rootControl->load(guiParsed);
 
-    _tagToControl.insert({tag, *rootControl});
     _rootControl = *rootControl;
     _controls.push_back(std::move(rootControl));
+    _tagToControl.insert({tag, _controls.back()});
 
     for (auto &controlStruct : guiParsed.CONTROLS) {
         loadControl(controlStruct);
@@ -71,7 +72,7 @@ void GUI::load(const Gff &gui) {
         if (maybeParent == _tagToControl.end()) {
             throw ValidationException("Parent control not found: " + tag);
         }
-        auto &parent = maybeParent->second.get();
+        auto &parent = *maybeParent->second;
         for (auto &child : children) {
             parent.addChildToBack(child);
         }
@@ -81,8 +82,8 @@ void GUI::load(const Gff &gui) {
 }
 
 float GUI::scaledFactor() const {
-    // KVP's retail draw-stream scaler uses the limiting axis: content is as
-    // large as possible without cropping or changing its authored aspect.
+    // The interface scales by the limiting axis: content is as large as
+    // possible without cropping or changing its authored aspect.
     //
     // Background artwork is a separate cover layer drawn by renderBackground,
     // so it does not enter this factor: composite GUIs such as the in-game tab
@@ -106,13 +107,16 @@ void GUI::loadControl(const resource::generated::GUI_CONTROLS &gui) {
         return;
     }
     control->load(gui);
+    if (_fillRules.stretchesFill && _fillRules.stretchesFill(*control)) {
+        control->setBorderFillStyle(Control::Border::FillStyle::Stretch);
+    }
     if (_selectedTextColor) {
         control->setSelectedTextColor(*_selectedTextColor);
     }
 
-    _tagToControl.insert({tag, *control});
     _controlTagToChildren[parentTag].push_back(*control);
     _controls.push_back(std::move(control));
+    _tagToControl.insert({tag, _controls.back()});
 }
 
 void GUI::positionRelativeToCenter(Control &control) {
@@ -137,7 +141,7 @@ void GUI::positionRelativeToCenter(Control &control) {
     extent.top = top;
     extent.width = static_cast<int>(extent.width * s);
     extent.height = static_cast<int>(extent.height * s);
-    control.setScale(s * textScale());
+    control.setPresentationScale(s);
     control.setExtent(std::move(extent));
 }
 
@@ -199,11 +203,20 @@ void GUI::applyLayout() {
     }
 
     for (auto &control : _controls) {
-        applyControlLayout(*control);
+        if (_screenControls.count(control) == 0) {
+            applyControlLayout(*control);
+        }
     }
 
     const Control::Extent &rootExtent = _rootControl->get().extent();
     _controlOffset = _rootOffset + glm::ivec2(rootExtent.left, rootExtent.top);
+}
+
+void GUI::setSmallFonts(bool useSmall) {
+    _smallFonts = useSmall;
+    for (auto &control : _controls) {
+        control->resetFont();
+    }
 }
 
 GUI::ScalingMode GUI::controlScaling(const Control &control) const {
@@ -230,20 +243,26 @@ void GUI::setBackground(std::shared_ptr<graphics::Texture> texture) {
     _background = std::move(texture);
 }
 
+GUI::~GUI() {
+    _tooltip.forget(*this);
+}
+
 bool GUI::handle(const input::Event &event) {
     switch (event.type) {
     case input::EventType::KeyDown:
-        return handleKeyDown(event.key.code);
+        return handleKeyDown(event.key);
 
     case input::EventType::KeyUp:
         return handleKeyUp(event.key.code);
 
     case input::EventType::MouseMotion: {
-        if (_pressedControl) {
-            auto &pressed = _pressedControl->get();
-            auto ctrlCoords = controlCoordinates(pressed, event.motion.x, event.motion.y);
-            pressed.handleMouseDrag(ctrlCoords.x, ctrlCoords.y);
-            return true;
+        _pointerPosition = {event.motion.x, event.motion.y};
+        _tooltip.setPointer(_pointerPosition);
+        if (_mouseCapture) {
+            auto ctrlCoords = controlCoordinates(_mouseCapture->get(), event.motion.x, event.motion.y);
+            if (_mouseCapture->get().handleMouseDrag(ctrlCoords.x, ctrlCoords.y)) {
+                return true;
+            }
         }
         updateSelection(event.motion.x, event.motion.y);
         if (_selection) {
@@ -254,16 +273,16 @@ bool GUI::handle(const input::Event &event) {
         break;
     }
     case input::EventType::MouseButtonDown:
+        _tooltip.press();
         if (event.button.button == input::MouseButton::Left) {
-            _leftMouseDown = true;
             auto control = findControlAt(
                 event.button.x, event.button.y,
                 [](const auto &control) { return control.isSelectable(); });
+            _mouseCapture = control;
             if (control) {
                 auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
-                if (control->get().handleMouseDown(ctrlCoords.x, ctrlCoords.y)) {
-                    _pressedControl = control;
-                }
+                control->get().handleMouseDown(ctrlCoords.x, ctrlCoords.y);
+                enterListSelection(control->get());
                 // A press on a control is the GUI's: whatever lies behind it,
                 // such as an object in the world, takes no click.
                 return true;
@@ -271,30 +290,45 @@ bool GUI::handle(const input::Event &event) {
         }
         break;
     case input::EventType::MouseButtonUp:
-        if (_pressedControl && event.button.button == input::MouseButton::Left) {
-            _leftMouseDown = false;
-            _pressedControl.reset();
-            return true;
-        }
-        if (_leftMouseDown && event.button.button == input::MouseButton::Left) {
-            _leftMouseDown = false;
+        if (_mouseCapture && event.button.button == input::MouseButton::Left) {
+            // The release goes to the pressed control alone, which it clicks
+            // when the pointer is still over it.
+            auto &pressed = _mouseCapture->get();
+            _mouseCapture.reset();
             auto control = findControlAt(
                 event.button.x, event.button.y,
                 [](const auto &control) { return control.isSelectable(); });
-            if (control) {
-                debug("Control clicked: " + control->get().tag(), LogChannel::GUI);
-                onClick(control->get().tag());
-                auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
-                const bool handled = control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
-                enterListSelection(control->get());
-                return handled;
+            const bool over = control && &control->get() == &pressed;
+            auto ctrlCoords = controlCoordinates(pressed, event.button.x, event.button.y);
+            if (!pressed.handleMouseUp(ctrlCoords.x, ctrlCoords.y, over, event.button.clicks)) {
+                break;
             }
+            debug("Control clicked: " + pressed.tag(), LogChannel::GUI);
+            onClick(pressed.tag());
+            return pressed.handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
         }
         break;
 
     case input::EventType::MouseWheel:
-        if (_selection && _selection->get().handleMouseWheel(event.wheel.x, event.wheel.y))
+        _tooltip.turnWheel(_selection && _selection->get().type() == ControlType::ListBox);
+        if (_selection) {
+            // The control under the pointer takes the wheel, a whole step at
+            // a time; a fraction of one waits for the next turn.
+            auto &control = _selection->get();
+            const auto steps = _wheelSteps.take(event.wheel);
+            if ((steps.x != 0 || steps.y != 0) && control.handleMouseWheel(steps.x, steps.y) &&
+                control.type() == ControlType::ListBox) {
+                // A list scrolled under the pointer selects as the pointer
+                // moving onto it would.
+                auto ctrlCoords = controlCoordinates(control, _pointerPosition.x, _pointerPosition.y);
+                control.handleMouseMotion(ctrlCoords.x, ctrlCoords.y);
+                enterList(control, ctrlCoords);
+            }
             return true;
+        }
+        break;
+
+    case input::EventType::TextInput:
         break;
     }
 
@@ -313,24 +347,97 @@ bool GUI::handleGamepadAxisMotion(const input::GamepadAxisMotionEvent &event) {
     return false;
 }
 
-bool GUI::handleKeyDown(input::KeyCode key) {
-    std::stack<std::reference_wrapper<Control>> controls;
-    controls.push(*_rootControl);
-    while (!controls.empty()) {
-        auto &control = controls.top().get();
-        controls.pop();
-        bool handled = false;
-        if (control.isVisible() && !control.isDisabled()) {
-            handled = control.handleKeyDown(key);
-        }
-        if (handled) {
+// The direction an arrow key moves the keyboard in; none for another key.
+static std::optional<Control::MoveDirection> moveDirectionOf(input::KeyCode code) {
+    switch (code) {
+    case input::KeyCode::Up:
+        return Control::MoveDirection::Up;
+    case input::KeyCode::Left:
+        return Control::MoveDirection::Left;
+    case input::KeyCode::Down:
+        return Control::MoveDirection::Down;
+    case input::KeyCode::Right:
+        return Control::MoveDirection::Right;
+    default:
+        return std::nullopt;
+    }
+}
+
+static bool isButton(const Control &control) {
+    switch (control.type()) {
+    case ControlType::Button:
+    case ControlType::ToggleButton:
+    case ControlType::ImageButton:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool GUI::handleKeyDown(const input::KeyEvent &key) {
+    if (!_activeControl) {
+        return false;
+    }
+    auto &control = _activeControl->get();
+    const bool enter = key.code == input::KeyCode::Return || key.code == input::KeyCode::KeypadEnter;
+    if (control.type() == ControlType::ListBox) {
+        auto &list = static_cast<ListBox &>(control);
+        if (key.code == input::KeyCode::Up || key.code == input::KeyCode::Down) {
+            const bool down = key.code == input::KeyCode::Down;
+            const bool fromRow = list.selectedItemIndex() >= 0;
+            if (list.stepSelection(down, key.repeat)) {
+                // A list with its own sound sounds at every move. Another
+                // sounds as its selection moves, but not as Up selects its
+                // first row from none, nor as its rows scroll.
+                const bool rowMoved = list.selectedItemIndex() >= 0 && (down || fromRow);
+                if (list.hasOwnSound() || rowMoved) {
+                    onEntered(list.tag());
+                }
+            }
             return true;
         }
-        for (auto &child : control.children()) {
-            controls.push(child);
+        if (enter) {
+            if (!key.repeat && list.selectedItemIndex() >= 0) {
+                onClick(list.tag());
+                list.activateSelectedItem();
+            }
+            return true;
         }
+        // The other keys go to the selected row, whose links lead nowhere.
+        return false;
     }
-    return false;
+    if (enter) {
+        // A control that takes Return itself, as an icon chain choosing its
+        // focused icon, is not clicked; of the others only a button is.
+        if (!key.repeat && !control.handleKeyDown(key.code) && isButton(control)) {
+            onClick(control.tag());
+            control.handleClick(0, 0);
+        }
+        return true;
+    }
+    const auto direction = moveDirectionOf(key.code);
+    if (!direction) {
+        return false;
+    }
+    // An arrow the control takes, as a slider's along it, moves the
+    // keyboard nowhere. A chart's focus stepping to the side sounds as it
+    // lands; its steps up and down are silent.
+    const IconChain *chart {control.type() == ControlType::IconChain ? static_cast<const IconChain *>(&control) : nullptr};
+    const IconChain::Item *chartFocus {chart ? chart->focusedItem() : nullptr};
+    if (!control.handleKeyDown(key.code)) {
+        moveKeyboard(control, *direction);
+    } else if (chart && (*direction == Control::MoveDirection::Left || *direction == Control::MoveDirection::Right) &&
+               chart->focusedItem() != chartFocus) {
+        onEntered(chart->tag());
+    }
+    return true;
+}
+
+void GUI::moveKeyboard(const Control &control, Control::MoveDirection direction) {
+    if (const auto target = moveTarget(control, direction, _arrowWalkVisibleOnly)) {
+        onEntered(target->get().tag());
+        selectActiveControl(target->get());
+    }
 }
 
 bool GUI::handleKeyUp(input::KeyCode key) {
@@ -341,30 +448,24 @@ void GUI::updateSelection(int screenX, int screenY) {
     auto control = findControlAt(
         screenX, screenY,
         [](const auto &control) { return control.isSelectable() && control.isSelectedOnHover(); });
+    _tooltip.hover(*this, control);
     if (_hilightFollowsKeyboard) {
         followPointer(control);
         return;
     }
-    if ((!_selection && !control) ||
-        (_selection && control && _selection->get().id() == control->get().id())) {
+    if (isHovered(control)) {
         return;
     }
     if (_selection) {
-        _selection->get().setSelected(false);
-        onSelectionChanged(_selection->get().tag(), false);
+        unhilight(_selection->get());
     }
-    _selection = control;
-    _listEntered = false;
+    setHovered(control);
     if (control) {
-        control->get().setSelected(true);
-        onSelectionChanged(control->get().tag(), true);
-        // A list is entered by its rows. Any other control is entered as the
-        // pointer comes onto it, and a navigable one takes the keyboard.
-        if (control->get().type() != ControlType::ListBox) {
-            onEntered(control->get().tag());
-            if (control->get().isNavigable()) {
-                _activeControl = control;
-            }
+        enterHovered(control->get());
+        // A control other than a list, which takes it by its rows, takes the
+        // keyboard as the pointer comes onto it when it takes it on hover.
+        if (control->get().type() != ControlType::ListBox && control->get().takesKeyboardOnHover()) {
+            setActiveControl(control->get());
         }
     }
 }
@@ -378,16 +479,11 @@ void GUI::followPointer(const std::optional<std::reference_wrapper<Control>> &co
         setActiveControl(target);
         hilight(target);
     }
-    if ((!_selection && !control) ||
-        (_selection && control && &_selection->get() == &control->get())) {
+    if (isHovered(control)) {
         return;
     }
-    if (control && !control->get().isSelected()) {
-        hilight(control->get());
-        // A list is entered by its rows.
-        if (control->get().type() != ControlType::ListBox) {
-            onEntered(control->get().tag());
-        }
+    if (control) {
+        enterHovered(control->get());
     }
     if (_selection) {
         auto &left = _selection->get();
@@ -395,12 +491,63 @@ void GUI::followPointer(const std::optional<std::reference_wrapper<Control>> &co
             unhilight(left);
         }
     }
+    setHovered(control);
+}
+
+bool GUI::isHovered(const std::optional<std::reference_wrapper<Control>> &control) const {
+    if (!_selection || !control) {
+        return !_selection && !control;
+    }
+    return &_selection->get() == &control->get();
+}
+
+void GUI::setHovered(const std::optional<std::reference_wrapper<Control>> &control) {
     _selection = control;
     _listEntered = false;
+    // The wheel's turns gather for one control at a time.
+    _wheelSteps = input::WheelSteps();
+}
+
+void GUI::enterHovered(Control &control) {
+    if (control.isSelected()) {
+        return;
+    }
+    hilight(control);
+    // A list is entered by its rows.
+    if (control.type() != ControlType::ListBox) {
+        onEntered(control.tag());
+    }
 }
 
 bool GUI::hilightFollowsKeyboard(const Control &control) const {
-    return _hilightFollowsKeyboard && control.isNavigable() && control.type() != ControlType::ListBox;
+    return _hilightFollowsKeyboard && control.takesKeyboardOnHover() && control.type() != ControlType::ListBox;
+}
+
+void GUI::hoverOnOpening(glm::ivec2 pointer) {
+    _pointerPosition = pointer;
+    auto control = findControlAt(
+        pointer.x, pointer.y,
+        [](const auto &control) { return control.isSelectable() && control.isSelectedOnHover(); });
+    if (_selection && !isHovered(control)) {
+        auto &left = _selection->get();
+        if (!holdsKeyboard(left) || !hilightFollowsKeyboard(left)) {
+            unhilight(left);
+        }
+    }
+    setHovered(control);
+    if (!control) {
+        return;
+    }
+    auto &target = control->get();
+    enterHovered(target);
+    if (_hilightFollowsKeyboard && target.takesKeyboardOnHover() && _activeControl && &_activeControl->get() != &target) {
+        auto &active = _activeControl->get();
+        if (active.type() == ControlType::ListBox) {
+            static_cast<ListBox &>(active).loseKeyboard();
+        } else {
+            unhilight(active);
+        }
+    }
 }
 
 void GUI::hilight(Control &control) {
@@ -416,8 +563,13 @@ void GUI::unhilight(Control &control) {
 }
 
 void GUI::releaseKeyboard() {
-    if (_activeControl && _hilightFollowsKeyboard && _activeControl->get().type() != ControlType::ListBox) {
-        unhilight(_activeControl->get());
+    if (_activeControl) {
+        auto &control = _activeControl->get();
+        if (control.type() == ControlType::ListBox) {
+            static_cast<ListBox &>(control).loseKeyboard();
+        } else if (_hilightFollowsKeyboard) {
+            unhilight(control);
+        }
     }
     _activeControl.reset();
 }
@@ -458,7 +610,7 @@ void GUI::enterList(Control &control, const glm::ivec2 &coords) {
     if (!_listEntered && !holdsKeyboard(list) && list.hasSelectableItemAt(coords.x, coords.y)) {
         _listEntered = true;
         entered = true;
-        if (list.isNavigable()) {
+        if (list.takesKeyboardOnHover()) {
             setActiveControl(list);
         }
     }
@@ -470,6 +622,14 @@ void GUI::enterList(Control &control, const glm::ivec2 &coords) {
 
 bool GUI::holdsKeyboard(const Control &control) const {
     return _activeControl && &_activeControl->get() == &control;
+}
+
+int GUI::unusedControlId() const {
+    int id {0};
+    for (const auto &control : _controls) {
+        id = std::max(id, control->id() + 1);
+    }
+    return id;
 }
 
 std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) const {
@@ -486,13 +646,15 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlById(int id) cons
 
 // A disabled control is passed over along the same direction; links that only
 // lead round disabled controls lead nowhere.
-// The keys move through buttons, lists and sliders.
-static bool isNavigable(const Control &control) {
+// The arrow keys stop on buttons of every kind, lists, charts and sliders.
+static bool isArrowStop(const Control &control) {
     switch (control.type()) {
     case ControlType::Button:
     case ControlType::ToggleButton:
+    case ControlType::ImageButton:
     case ControlType::Slider:
     case ControlType::ListBox:
+    case ControlType::IconChain:
         return true;
     default:
         return false;
@@ -509,7 +671,7 @@ std::optional<std::reference_wrapper<Control>> GUI::moveTarget(const Control &co
         if (!next || &next->get() == &control) {
             return std::nullopt;
         }
-        if (!isNavigable(next->get())) {
+        if (!isArrowStop(next->get())) {
             if (visibleOnly && !takes(next->get())) {
                 return std::nullopt;
             }
@@ -626,22 +788,25 @@ void GUI::renderBackground(IRenderPass &pass) {
 }
 
 void GUI::clearSelection() {
-    // A GUI put away mid-press gives the press up with its selection.
-    _pressedControl.reset();
-    if (_selection) {
-        _selection->get().setSelected(false);
-        onSelectionChanged(_selection->get().tag(), false);
-        _selection.reset();
+    // A GUI put away mid-press gives the press up with its selection: the
+    // pressed control is released away from itself, so it clicks nothing and
+    // a scroll bar held on it lets go.
+    if (_mouseCapture) {
+        auto &pressed = _mouseCapture->get();
+        _mouseCapture.reset();
+        auto ctrlCoords = controlCoordinates(pressed, _pointerPosition.x, _pointerPosition.y);
+        pressed.handleMouseUp(ctrlCoords.x, ctrlCoords.y, false, 1);
     }
+    if (_selection) {
+        unhilight(_selection->get());
+    }
+    setHovered(std::nullopt);
+    _tooltip.closePanel(*this);
 }
 
 std::shared_ptr<Control> GUI::findControl(const std::string &tag) const {
-    for (auto &control : _controls) {
-        if (control->tag() == tag) {
-            return control;
-        }
-    }
-    return nullptr;
+    auto found = _tagToControl.find(tag);
+    return found != _tagToControl.end() ? found->second : nullptr;
 }
 
 std::unique_ptr<Control> GUI::newControl(
@@ -664,9 +829,14 @@ std::unique_ptr<Control> GUI::newControl(
     case ControlType::ToggleButton:
         control = std::make_unique<ToggleButton>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
         break;
-    case ControlType::Slider:
-        control = std::make_unique<Slider>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
+    case ControlType::Slider: {
+        // A slider's step sounds as entering a control does.
+        auto slider = std::make_unique<Slider>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
+        Slider &stepped = *slider;
+        slider->setOnStep([this, &stepped]() { onEntered(stepped.tag()); });
+        control = std::move(slider);
         break;
+    }
     case ControlType::ScrollBar:
         control = std::make_unique<ScrollBar>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
         break;
@@ -692,18 +862,22 @@ std::unique_ptr<Control> GUI::newControl(
 void GUI::addControlToFront(std::shared_ptr<Control> control, ControlCoordinates coordinates) {
     if (coordinates == ControlCoordinates::Authored) {
         applyControlLayout(*control);
+    } else {
+        _screenControls.insert(control);
     }
     _rootControl->get().addChildToFront(*control);
-    _tagToControl.insert({control->tag(), *control});
+    _tagToControl.insert({control->tag(), control});
     _controls.push_back(std::move(control));
 }
 
 void GUI::addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) {
     if (coordinates == ControlCoordinates::Authored) {
         applyControlLayout(*control);
+    } else {
+        _screenControls.insert(control);
     }
     _rootControl->get().addChildToBack(*control);
-    _tagToControl.insert({control->tag(), *control});
+    _tagToControl.insert({control->tag(), control});
     _controls.push_back(std::move(control));
 }
 

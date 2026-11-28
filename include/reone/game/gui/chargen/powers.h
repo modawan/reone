@@ -53,14 +53,8 @@ public:
     /**
      * Chooses the powers recommended for the character's side, taking back
      * those chosen on the screen.
-     *
-     * @param fillWithUnranked true to fill the picks no recommended power can
-     *        take with the other candidates, lowest row first
      */
-    void recommend(bool fillWithUnranked = false);
-
-    /** @return the powers still to choose */
-    int remainingPicks() const;
+    void recommend();
 
     /**
      * Learns the chosen powers and goes on to the next step, unless powers
@@ -97,6 +91,13 @@ private:
     std::set<SpellType> _selectedPowers;
     std::string _defaultPowerNameText;
     int _powerGain {0};
+    /**
+     * The character is flagged as the player character, also a companion
+     * standing in for it: only it may pick Affect Mind and Dominate.
+     */
+    bool _isPC {true};
+    /** The character levels as the player character: only it is recommended those powers. */
+    bool _playerCharacter {true};
 
     void onGUILoaded() override;
 
@@ -125,6 +126,12 @@ private:
     void refreshIconChainLinks(const std::map<SpellType, glm::ivec2> &positions);
     void updateCharacter();
     void toggleSelectedPower(SpellType power);
+    /** Whether the entry is a power the character could pick but is kept from (ISpells::isPickDenied). */
+    bool isRefusedPick(const SpellDisplayEntry &entry) const;
+    /** Whether a power the character may take is still offered (isRefusedPick aside). */
+    bool hasChoosablePower() const;
+    /** @return the powers still to choose */
+    int remainingPicks() const;
     void removeInvalidSelectedPowers();
     void showPowerDescription(SpellType type);
     void resetFocusedPowerName();

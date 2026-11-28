@@ -24,6 +24,7 @@
 #include "reone/gui/control/listbox.h"
 
 #include "../../d20/attributes.h"
+#include "../../d20/skills.h"
 #include "../../gui.h"
 
 namespace reone {
@@ -39,6 +40,8 @@ class ListBox;
 namespace game {
 
 class CharacterGeneration;
+
+inline const LevellingCreature kNewCharacterLevelling {true, false, kObjectTagPlayer};
 
 class CharGenSkills : public GameGUI {
 public:
@@ -122,6 +125,8 @@ private:
     int _allocationLevel {1};
     /** The feats the levelled creature's effects give it; none for a new character. */
     std::set<FeatType> _effectFeats;
+    /** The creature levelled, as the rules that refuse a raise see it. */
+    LevellingCreature _levelled {kNewCharacterLevelling};
 
     void onGUILoaded() override;
 
@@ -180,6 +185,8 @@ private:
     /** @return whether the skill has a rank this screen placed, which minus can take back */
     bool canDecreaseSkill(SkillType skill) const;
     bool canIncreaseSkill(SkillType skill) const;
+    /** @return whether the creature levelled may not raise the skill at all */
+    bool isRestricted(SkillType skill) const;
 
     int getPointCost(SkillType skill) const;
 

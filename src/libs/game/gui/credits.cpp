@@ -100,9 +100,9 @@ void CreditsGUI::showNextText() {
     if (_nextRow >= static_cast<int>(_strRefs.size()) - 1) {
         _fading = false;
         _alpha = 1.0f;
-        const std::string padding(static_cast<size_t>(region[3] / lineHeight() + 1), '\n');
+        const std::string padding(static_cast<size_t>(static_cast<int>(static_cast<float>(region[3]) / lineUnit()) + 1), '\n');
         _lines = breakText(padding + text + padding, *_font, region[2], textScale());
-        const int height = static_cast<int>(_lines.size()) * lineHeight();
+        const int height = textBlockHeight();
         _scrollEnd = std::max(0, height - region[3]);
         _scrollStep = kScrollSeconds / static_cast<float>(height);
     } else {
@@ -179,20 +179,18 @@ void CreditsGUI::render() {
             graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
         }
         const auto region = textRegion();
-        const int height = lineHeight();
         // Shown rows sit in the middle of the text area; the scrolling text
-        // hangs from its top.
-        int top = _fading
-                      ? region[1] + (region[3] - static_cast<int>(_lines.size()) * height) / 2
-                      : region[1] - _scrollOffset;
-        const glm::ivec4 scissorBounds {region[0], options.height - (region[1] + region[3]), region[2], region[3]};
-        graphics.context.withScissorTestNoClear(scissorBounds, [&]() {
+        // hangs from its top. Each line is a line advance below the one
+        // before, unrounded.
+        const float advance {lineUnit()};
+        float top {static_cast<float>(_fading ? region[1] + (region[3] - textBlockHeight()) / 2 : region[1] - _scrollOffset)};
+        graphics::withScissorRect(graphics.context, {options.width, options.height}, region, [&]() {
             for (const auto &line : _lines) {
-                if (top + height > region[1] && top < region[1] + region[3]) {
-                    glm::vec3 position {static_cast<float>(region[0] + region[2] / 2), static_cast<float>(top), 0.0f};
+                if (top + advance > region[1] && top < region[1] + region[3]) {
+                    glm::vec3 position {static_cast<float>(region[0] + region[2] / 2), top, 0.0f};
                     _font->render(line, position, glm::vec4(_textColor, _alpha), TextGravity::CenterBottom, textScale());
                 }
-                top += height;
+                top += advance;
             }
         });
     });
@@ -202,8 +200,12 @@ float CreditsGUI::textScale() const {
     return static_cast<float>(_game.options().graphics.height) / kAuthoredScreenHeight;
 }
 
-int CreditsGUI::lineHeight() const {
-    return static_cast<int>(_font->height() * textScale());
+int CreditsGUI::textBlockHeight() const {
+    return _font->blockHeight(static_cast<int>(_lines.size()), textScale());
+}
+
+float CreditsGUI::lineUnit() const {
+    return _font->lineAdvance(textScale());
 }
 
 glm::ivec4 CreditsGUI::textRegion() const {

@@ -174,15 +174,11 @@ static void renderEffectStack(
         top = portrait.top + portrait.height - bottomMargin - 1;
     }
 
-    glm::ivec4 scissorBounds {
-        controlOffset.x + portrait.left,
-        screenSize.y - (controlOffset.y + portrait.top + portrait.height),
-        portrait.width,
-        portrait.height};
+    const glm::ivec4 clip {controlOffset.x + portrait.left, controlOffset.y + portrait.top, portrait.width, portrait.height};
 
     bool wasVisible = label.isVisible();
     label.setVisible(true);
-    context.withScissorTestNoClear(scissorBounds, [&]() {
+    graphics::withScissorRect(context, screenSize, clip, [&]() {
         for (int index = 0; index < count; ++index) {
             glm::ivec2 offset = controlOffset;
             offset.y += top - label.extent().top;
@@ -557,7 +553,7 @@ void HUD::loadNoticeBox() {
     border.dimension = kNoticeBoxBorderDimension;
     notice->setBorder(border);
     notice->setHilight(border);
-    notice->setTextFont(_services.resource.fonts.get(kNoticeBoxFont));
+    notice->setTextFont(kNoticeBoxFont);
     notice->setTextAlignment(Control::TextAlign::LeftTop);
     notice->setTextColor(kNoticeBoxTextColor);
     _actionBar.addNotice(notice);
@@ -661,11 +657,7 @@ void HUD::layoutPausePanel(PauseReason reason) {
             static_cast<int>(std::lround(authored.height * scale))};
     };
     auto textHeight = [](const Label &label) {
-        if (!label.text().font) {
-            return 0;
-        }
-        const int lineHeight = std::max(1, static_cast<int>(std::lround(label.text().font->height() * label.scale())));
-        return std::max(1, static_cast<int>(label.textLines().size())) * lineHeight;
+        return label.textBlockHeight(std::max(1, static_cast<int>(label.textLines().size())));
     };
     for (Control *control : {static_cast<Control *>(&root), static_cast<Control *>(&reasonLabel),
                              static_cast<Control *>(&pressLabel), static_cast<Control *>(&unpause)}) {
@@ -865,12 +857,16 @@ bool HUD::handle(const input::Event &event) {
     }
     // The HUD's controls come before the target menu floating over the world.
     switch (event.type) {
-    case input::EventType::MouseMotion:
+    case input::EventType::MouseMotion: {
         if (holdsPointer(event.motion.x, event.motion.y)) {
             _select.clearHover();
             return _gui->handle(event);
         }
-        break;
+        // Off the HUD's controls the HUD leaves the control it hovered, then
+        // the target menu takes the move.
+        const bool taken {_gui->handle(event)};
+        return _select.handle(event) || taken;
+    }
     case input::EventType::MouseButtonDown:
         if (holdsPointer(event.button.x, event.button.y)) {
             return _gui->handle(event);
@@ -1014,15 +1010,17 @@ void HUD::update(float dt) {
             }
             int maxHitPoints = member->maxHitPoints();
             vitalityBars[i]->setVisible(true);
-            vitalityBars[i]->setValue(maxHitPoints > 0
-                ? std::clamp(100 * member->currentHitPoints() / maxHitPoints, 0, 100)
-                : 0);
+            vitalityBars[i]->setMaxValue(100);
+            vitalityBars[i]->setCurValue(maxHitPoints > 0
+                                             ? std::clamp(100 * member->currentHitPoints() / maxHitPoints, 0, 100)
+                                             : 0);
 
             int forcePoints = member->maxForcePoints();
             forceBars[i]->setVisible(forcePoints > 0);
-            forceBars[i]->setValue(forcePoints > 0
-                ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
-                : 0);
+            forceBars[i]->setMaxValue(100);
+            forceBars[i]->setCurValue(forcePoints > 0
+                                          ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
+                                          : 0);
         } else {
             LBL_CHAR.setVisible(false);
             LBL_BACK.setVisible(false);
@@ -1077,11 +1075,14 @@ void HUD::update(float dt) {
         _controls.LBL_CHAR1->setVisible(true);
         _controls.LBL_BACK1->setVisible(true);
         _controls.PB_HEALTH->setVisible(true);
-        _controls.PB_HEALTH->setValue(65);
+        _controls.PB_HEALTH->setMaxValue(100);
+        _controls.PB_HEALTH->setCurValue(65);
         _controls.PB_VIT1->setVisible(true);
-        _controls.PB_VIT1->setValue(65);
+        _controls.PB_VIT1->setMaxValue(100);
+        _controls.PB_VIT1->setCurValue(65);
         _controls.PB_FORCE1->setVisible(true);
-        _controls.PB_FORCE1->setValue(45);
+        _controls.PB_FORCE1->setMaxValue(100);
+        _controls.PB_FORCE1->setCurValue(45);
         if (_captureCombatPresentation) {
             toggleCombat(true);
             for (auto &queue : {_controls.LBL_QUEUE0, _controls.LBL_QUEUE1,

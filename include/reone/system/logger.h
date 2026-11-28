@@ -74,6 +74,12 @@ public:
     /** Whether messages are written yet; before init they are dropped. */
     bool isInited() const { return _inited; }
 
+    /** The file messages are written to, if init was given one. */
+    const std::optional<std::string> &filename() const { return _filename; }
+
+    /** When init ran, in SDL_GetCurrentTime's nanoseconds; lines are stamped relative to it. */
+    int64_t initTimeNs() const { return _initTimeNs; }
+
 private:
     // Every thread that writes to a logger gets a buffer of its own in that
     // logger. They are found by the logger's id, not its address, so a logger
@@ -84,6 +90,7 @@ private:
     LogSeverity _minSeverity {LogSeverity::Warn};
     std::set<LogChannel> _enabledChannels;
     std::unique_ptr<std::ostream> _stream;
+    std::optional<std::string> _filename;
     bool _inited {false};
 
     std::list<std::ostringstream> _buffers;

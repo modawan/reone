@@ -17,6 +17,8 @@
 
 #include "reone/graphics/font.h"
 
+#include <cmath>
+
 #include "reone/graphics/context.h"
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/meshregistry.h"
@@ -37,6 +39,7 @@ void Font::load(std::shared_ptr<Texture> texture) {
     const Texture::Features &features = texture->features();
     _height = features.fontHeight * 100.0f;
     _spacingR = features.spacingR * 100.0f;
+    _lineSpan = (features.fontHeight + features.spacingB) * 100.0f;
     // Every byte has a glyph: those past the font's characters, or past the
     // coordinates its TXI gives, are blank.
     const std::size_t charCount = std::min({static_cast<std::size_t>(std::max(features.numChars, 0)),
@@ -101,6 +104,8 @@ glm::vec2 Font::getTextOffset(std::string_view text, TextGravity gravity, float 
     float h = _height * scale;
 
     switch (gravity) {
+    case TextGravity::LeftBottom:
+        return glm::vec2(-w, 0.0f);
     case TextGravity::LeftCenter:
         return glm::vec2(-w, -0.5f * h);
     case TextGravity::LeftTop:
@@ -120,6 +125,14 @@ glm::vec2 Font::getTextOffset(std::string_view text, TextGravity gravity, float 
         return glm::vec2(-0.5f * w, -0.5f * h);
     }
 };
+
+int Font::blockHeight(int lineCount, float scale) const {
+    return static_cast<int>(std::lround(_lineSpan * scale * static_cast<float>(lineCount)));
+}
+
+float Font::lineAdvance(float scale) const {
+    return _lineSpan * scale;
+}
 
 // Text is measured as it is drawn, so that aligned text sits on its anchor
 // and wrapped text fills the width it was wrapped to.

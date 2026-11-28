@@ -57,9 +57,6 @@ public:
     /** Accepts the scores, once every point is spent, and goes on to the next step. */
     void accept();
 
-    /** @return the points still to spend */
-    int remainingPoints() const { return _points; }
-
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;

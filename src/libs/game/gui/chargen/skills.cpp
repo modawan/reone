@@ -204,6 +204,7 @@ void CharGenSkills::reset(bool newGame) {
     _attributes = start;
     if (newGame) {
         _effectFeats.clear();
+        _levelled = kNewCharacterLevelling;
         _attributes.setSkillRank(SkillType::ComputerUse, 0);
         _attributes.setSkillRank(SkillType::Demolitions, 0);
         _attributes.setSkillRank(SkillType::Stealth, 0);
@@ -213,7 +214,11 @@ void CharGenSkills::reset(bool newGame) {
         _attributes.setSkillRank(SkillType::Security, 0);
         _attributes.setSkillRank(SkillType::TreatInjury, 0);
     } else {
-        _effectFeats = _game.party().getLeader()->effectFeats();
+        // A creature other than the player character in control levels
+        // under the non-player rules.
+        std::shared_ptr<Creature> creature(_game.party().getLeader());
+        _levelled = LevellingCreature {creature->levelsAsPlayerCharacter(), creature->racialType() == RacialType::Droid, creature->tag()};
+        _effectFeats = creature->effectFeats();
     }
     _startAttributes = _attributes;
     _startPoints = _points;
@@ -226,9 +231,9 @@ void CharGenSkills::recommend() {
     _attributes = _startAttributes;
     _points = _startPoints;
     const ClassType clazz = _charGen.character().attributes.getEffectiveClass();
-    recommendSkills(*_services.game.classes.get(clazz), _points, [this](SkillType skill, int &points) {
-        return _attributes.increaseSkillRank(*_services.game.skills.get(skill), skill, points, _allocationLevel, _effectFeats, _game.isTSL());
-    });
+    addRecommendedSkills(
+        _services.game.skills, _attributes, *_services.game.classes.get(clazz), _points, _allocationLevel,
+        _levelled, _effectFeats, _game.isTSL());
     refreshControls();
 }
 
@@ -277,6 +282,9 @@ bool CharGenSkills::canDecreaseSkill(SkillType skill) const {
 }
 
 bool CharGenSkills::canIncreaseSkill(SkillType skill) const {
+    if (isRestricted(skill)) {
+        return false;
+    }
     // A skill the creature's classes cannot use takes no rank.
     const Skill &rules = *_services.game.skills.get(skill);
     const bool classSkill = _attributes.isClassSkill(skill, _effectFeats, _game.isTSL());
@@ -291,6 +299,11 @@ void CharGenSkills::updateCharacter() {
     }
     character.attributes.setUnspentSkillPoints(_points);
     _charGen.setCharacter(std::move(character));
+}
+
+bool CharGenSkills::isRestricted(SkillType skill) const {
+    const Skill &rules = *_services.game.skills.get(skill);
+    return !canRaiseSkill(rules, skill, _levelled, _game.isTSL());
 }
 
 int CharGenSkills::getPointCost(SkillType skill) const {

@@ -34,6 +34,7 @@
 #include "reone/gui/control/togglebutton.h"
 #include "reone/gui/gui.h"
 #include "reone/resource/gff.h"
+#include "reone/resource/provider/fonts.h"
 #include "reone/resource/resources.h"
 #include "reone/scene/render/pass.h"
 #include "reone/system/logutil.h"
@@ -50,6 +51,7 @@ static constexpr glm::vec3 kInvalidItemBorderColor {1.0f, 0.0f, 0.0f};
 
 void ListBox::clearItems() {
     _items.clear();
+    _textBlockLines.clear();
     _itemOffset = 0;
     _selectedItemIndex = -1;
 }
@@ -61,7 +63,7 @@ void ListBox::addItem(Item &&item) {
     if (const auto &font = _protoItem->text().font) {
         item._textLines = breakText(item.text, *font, getItemTextWidth(), _protoItem->scale());
     }
-    _items.push_back(item);
+    _items.push_back(std::move(item));
 
     updateItemSlots();
 }
@@ -70,6 +72,8 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
     if (!_protoItem)
         return;
 
+    // The block is as wide as a row and wraps there.
+    matchProtoToRows();
     std::istringstream stream(text);
     std::string logicalLine;
     while (std::getline(stream, logicalLine)) {
@@ -116,31 +120,13 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
     if (controlStruct.SCROLLBAR) {
         _scrollBar = _gui.newControl(getType(*controlStruct.SCROLLBAR), getTag(*controlStruct.SCROLLBAR));
         _scrollBar->load(*controlStruct.SCROLLBAR);
+        // A list's scroll arrows pulse.
+        if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+            scrollBar->setArrowsPulsing(true);
+        }
     }
     _leftScrollBar = controlStruct.LEFTSCROLLBAR != 0;
-    _looping = controlStruct.LOOPING != 0;
-}
-
-bool ListBox::handleKeyDown(input::KeyCode key) {
-    if (!_itemsInteractive)
-        return false;
-    if (_selectionMode == SelectionMode::OnHover)
-        return false;
-
-    if (key == input::KeyCode::Up) {
-        selectPreviousItem();
-        return true;
-    }
-    if (key == input::KeyCode::Down) {
-        selectNextItem();
-        return true;
-    }
-    if (key == input::KeyCode::Return) {
-        _onItemDoubleClick(_items[_selectedItemIndex].tag);
-        return true;
-    }
-
-    return false;
+    _looping = (controlStruct.LOOPING & 1) != 0;
 }
 
 bool ListBox::handleMouseMotion(int x, int y) {
@@ -160,7 +146,12 @@ void ListBox::selectByPointer(int index) {
     if (index != _selectedItemIndex) {
         _selectionEntered = true;
     }
+    selectItem(index);
+}
+
+void ListBox::selectItem(int index) {
     _selectedItemIndex = index;
+    _selectionUnhilighted = false;
 }
 
 bool ListBox::takeSelectionEntered() {
@@ -170,15 +161,12 @@ bool ListBox::takeSelectionEntered() {
 }
 
 bool ListBox::hasSelectableItemAt(int x, int y) const {
-    if (!_itemsInteractive) {
-        return false;
-    }
-    const int itemIdx = getDrawnItemIndex(x, y);
-    return itemIdx != -1 && !_items[itemIdx].textLine;
+    return getPressableItemIndex(x, y) != -1;
 }
 
-// The drawn row under a point, or -1. Rows below the drawn ones, the space
-// beside the rows and the scroll bar are no row.
+// The drawn row under a point, or -1. Each row takes its own extent, so the
+// padding between two rows, rows below the drawn ones, the space beside the
+// rows and the scroll bar are no row.
 int ListBox::getDrawnItemIndex(int x, int y) const {
     if (!_protoItem) {
         return -1;
@@ -190,66 +178,44 @@ int ListBox::getDrawnItemIndex(int x, int y) const {
     if (x < protoExtent.left || x >= protoExtent.left + protoExtent.width) {
         return -1;
     }
-    int itemIdx = getItemIndex(y);
-    return itemIdx < _itemOffset + _slotCount ? itemIdx : -1;
-}
-
-int ListBox::getItemIndex(int y) const {
-    if (!_protoItem)
-        return -1;
-
-    const Control::Extent &protoExtent = _protoItem->extent();
-    if (protoExtent.height == 0)
-        return -1;
-
-    float itemy = static_cast<float>(protoExtent.top);
-    if (y < itemy)
-        return -1;
-
-    for (size_t i = _itemOffset; i < _items.size(); ++i) {
+    const int end = std::min(_itemOffset + _slotCount, getItemCount());
+    float itemTop = static_cast<float>(protoExtent.top);
+    for (int i = _itemOffset; i < end; ++i) {
         const Item &item = _items[i];
-        itemy += getItemPitch(item);
-        if (y < static_cast<int>(std::lround(itemy)))
-            return static_cast<int>(i);
+        const int top = static_cast<int>(std::lround(itemTop));
+        if (y >= top && y < top + getItemHeight(item)) {
+            return i;
+        }
+        itemTop += getItemPitch(item);
     }
-
     return -1;
 }
 
+// The wheel scrolls a position a step, as the scroll bar's arrows do, up
+// scrolling back; a list takes it at either end too.
 bool ListBox::handleMouseWheel(int x, int y) {
-    if (y < 0) {
-        if (_items.size() - _itemOffset > _slotCount) {
-            _itemOffset++;
-            updateItemSlots();
-        }
-        return true;
-    } else if (y > 0) {
-        if (_itemOffset > 0) {
-            _itemOffset--;
-            updateItemSlots();
-        }
-        return true;
+    if (y == 0) {
+        return false;
     }
-
-    return false;
+    scrollBy(-y);
+    return true;
 }
 
 void ListBox::updateItemSlots() {
     _slotCount = 0;
 
-    if (_textLineRows) {
-        // A position for each line beyond those the room holds whole.
-        const int lineHeight = getTextLineHeight();
-        const int innerHeight = getInnerHeight();
-        const int lines = static_cast<int>(_items.size());
-        _overflowing = lines > 0 && lines * lineHeight + static_cast<int>(_padding * _layoutScale) > innerHeight;
-        _slotCount = lines;
-        if (_overflowing && lineHeight > 0) {
-            _slotCount = std::min(lines, innerHeight / lineHeight);
+    if (isTextBlock()) {
+        _textBlockLines.clear();
+        for (const Item &item : _items) {
+            _textBlockLines.insert(_textBlockLines.end(), item._textLines.begin(), item._textLines.end());
         }
-        _itemOffset = std::min(_itemOffset, lines - _slotCount);
+        // The block overflows when it and the padding are taller than the
+        // room, which then shows the lines it holds whole.
+        _overflowing = getTextBlockHeight() + static_cast<int>(_padding * _layoutScale) > getInnerHeight();
+        _slotCount = _overflowing ? static_cast<int>(getTextBlockLinesShown()) : static_cast<int>(_items.size());
+        _itemOffset = std::min(_itemOffset, getScrollPositions() - 1);
         if (_scrollBar) {
-            _scrollBar->setVisible(_scrollBarEnabled && _overflowing);
+            _scrollBar->setVisible(_scrollBarEnabled);
         }
         return;
     }
@@ -270,28 +236,235 @@ void ListBox::updateItemSlots() {
     _overflowing = _items.size() > _slotCount;
 
     if (_scrollBar) {
-        _scrollBar->setVisible(_scrollBarEnabled && _overflowing);
+        _scrollBar->setVisible(_scrollBarEnabled);
     }
+}
+
+int ListBox::getPressableItemIndex(int x, int y) const {
+    if (!_itemsInteractive) {
+        return -1;
+    }
+    const int itemIdx = getDrawnItemIndex(x, y);
+    return itemIdx != -1 && !_items[itemIdx].textLine ? itemIdx : -1;
+}
+
+bool ListBox::handleMouseDown(int x, int y) {
+    _pressedItemIndex = getPressableItemIndex(x, y);
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    if (scrollBar && scrollBar->pressIfOn(x, y, *this)) {
+        return true;
+    }
+    // The press stays taken even when choosing the row puts the GUI away,
+    // which releases the list.
+    const bool holdsRow = getDrawnItemIndex(x, y) != -1;
+    _holdsRow = holdsRow;
+    if (_pressedItemIndex != -1 && _selectionMode == SelectionMode::OnClick && _pressedItemIndex != _selectedItemIndex) {
+        selectByPointer(_pressedItemIndex);
+        if (_onItemClick) {
+            _onItemClick(_items[_pressedItemIndex].tag);
+        }
+    }
+    return holdsRow;
+}
+
+bool ListBox::handleMouseDrag(int x, int y) {
+    auto scrollBar = ScrollBar::of(_scrollBar);
+    if (scrollBar && scrollBar->dragIfHeld(x, y, *this)) {
+        return true;
+    }
+    return _holdsRow;
+}
+
+bool ListBox::handleMouseUp(int x, int y, bool over, int clicks) {
+    const int pressedItemIdx = _pressedItemIndex;
+    _pressedItemIndex = -1;
+    _holdsRow = false;
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->release();
+    }
+    if (pressedItemIdx == -1 || !over) {
+        return false;
+    }
+    // The click goes to the selected row; with none, nothing takes it.
+    const int itemIdx = getPressableItemIndex(x, y);
+    if (itemIdx == -1 || _selectedItemIndex == -1) {
+        return false;
+    }
+    return _selectionMode == SelectionMode::OnHover ? itemIdx == pressedItemIdx : clicks > 1;
 }
 
 bool ListBox::handleClick(int x, int y, int clicks) {
-    if (!_itemsInteractive)
+    if (!_itemsInteractive || _selectedItemIndex == -1) {
         return false;
-
-    int itemIdx = _selectionMode == SelectionMode::OnHover ? getDrawnItemIndex(x, y) : getItemIndex(y);
-    if (itemIdx == -1 || _items[itemIdx].textLine)
-        return false;
-
-    selectByPointer(itemIdx);
-    if (_onItemClick) {
-        _onItemClick(_items[itemIdx].tag);
+    }
+    const std::string tag = _items[_selectedItemIndex].tag;
+    if (_selectionMode == SelectionMode::OnHover && _onItemClick) {
+        _onItemClick(tag);
     }
     if (clicks > 1 && _onItemDoubleClick) {
-        _onItemDoubleClick(_items[itemIdx].tag);
+        _onItemDoubleClick(tag);
     }
-
     return true;
 }
+
+void ListBox::update(float dt) {
+    Control::update(dt);
+    if (!_visible) {
+        return;
+    }
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->hold(*this);
+    }
+}
+
+void ListBox::scrollToPosition(int position) {
+    _itemOffset = position;
+    updateItemSlots();
+}
+
+void ListBox::scrollPage(bool next) {
+    const int lastPosition = getScrollPositions() - 1;
+    const int page = isTextBlock() ? _slotCount : getScrollState().visibleValue;
+    if (!next) {
+        _itemOffset = std::max(_itemOffset - page, 0);
+    } else if (_itemOffset < lastPosition) {
+        _itemOffset = std::min(_itemOffset + page, lastPosition);
+    }
+    updateItemSlots();
+}
+
+bool ListBox::isTextBlock() const {
+    return !_items.empty() && _items.front().textLine;
+}
+
+int ListBox::getScrollPositions() const {
+    if (isTextBlock()) {
+        return _overflowing ? std::max(getTextBlockPositions(), 1) : 1;
+    }
+    return std::max(getItemCount() - _slotCount, 0) + 1;
+}
+
+int ListBox::getTextBlockLineCount() const {
+    int lineCount = 0;
+    for (const Item &item : _items) {
+        lineCount += static_cast<int>(item._textLines.size());
+    }
+    return lineCount;
+}
+
+int ListBox::getTextBlockHeight() const {
+    return _protoItem->textBlockHeight(getTextBlockLineCount());
+}
+
+float ListBox::getTextBlockLinesShown() const {
+    const float advance = _protoItem->textLineAdvance();
+    return advance > 0.0f ? static_cast<float>(getInnerHeight()) / advance : 0.0f;
+}
+
+int ListBox::getTextBlockPositions() const {
+    if (getInnerHeight() == 0 || _protoItem->textLineAdvance() <= 0.0f) {
+        return 1;
+    }
+    // The block's lines, less the whole ones the room shows, and one.
+    return getTextBlockLineCount() - static_cast<int>(getTextBlockLinesShown()) + 1;
+}
+
+ScrollBar::ScrollState ListBox::getScrollState() const {
+    ScrollBar::ScrollState state;
+    const int positions = getScrollPositions();
+    if (isTextBlock() && _overflowing) {
+        const int overrun = getTextBlockHeight() - getInnerHeight();
+        state.maxValue = overrun + 1;
+        state.visibleValue = getInnerHeight();
+        state.curValue = _itemOffset >= positions - 1
+                             ? state.maxValue
+                             : static_cast<int>(static_cast<float>(overrun) * (static_cast<float>(_itemOffset) / static_cast<float>(positions - 1)));
+        state.extendedRange = _scrollOnly;
+        return state;
+    }
+    state.maxValue = positions;
+    state.curValue = _itemOffset;
+    state.visibleValue = _scrollOnly ? 1 : std::min(_slotCount, getItemCount());
+    state.extendedRange = _scrollOnly;
+    return state;
+}
+
+void ListBox::updateScrollBarState() {
+    if (auto scrollBar = ScrollBar::of(_scrollBar)) {
+        scrollBar->setScrollState(getScrollState());
+    }
+}
+
+// The prototype is every row's: a row's own colours, opacities and state
+// are put on it while the row is drawn and taken off after, whatever the
+// drawing does.
+class ListBox::RowLook {
+public:
+    RowLook(Control &proto, const Item &item) :
+        _proto(proto),
+        _textColor(proto.text().color),
+        _usesFrameColor(proto.usesBorderColorOverride()),
+        _frameColor(proto.borderColorOverride()),
+        _borderAlpha(proto.frameAlpha()) {
+        if (item.textColor) {
+            proto.setTextColor(*item.textColor);
+        }
+        if (item.frameColor) {
+            proto.setBorderColorOverride(*item.frameColor);
+            proto.setUseBorderColorOverride(true);
+        }
+        if (item.frameAlpha) {
+            proto.setBorderAlpha(*item.frameAlpha);
+        }
+        if (item.borderColor && proto.hasBorder()) {
+            _borderColor = proto.border().color;
+            proto.setBorderColor(*item.borderColor);
+        }
+        if (item.hilightColor && proto.hasHilight()) {
+            _hilightColor = proto.hilight().color;
+            _selectedTextColor = proto.text().selectedColor;
+            proto.setHilightColor(*item.hilightColor);
+        }
+        if (item.on && proto.type() == ControlType::ToggleButton) {
+            auto &toggle = static_cast<ToggleButton &>(proto);
+            _on = toggle.isOn();
+            toggle.setOn(*item.on);
+        }
+    }
+
+    ~RowLook() {
+        _proto.setTextColor(_textColor);
+        _proto.setBorderColorOverride(_frameColor);
+        _proto.setUseBorderColorOverride(_usesFrameColor);
+        _proto.setBorderAlpha(_borderAlpha);
+        if (_borderColor) {
+            _proto.setBorderColor(*_borderColor);
+        }
+        // Only colours the row changed are put back: the hilight's, then the
+        // selected text's, which setting the hilight's also sets.
+        if (_hilightColor) {
+            _proto.setHilightColor(*_hilightColor);
+            _proto.setSelectedTextColor(_selectedTextColor);
+        }
+        if (_on) {
+            static_cast<ToggleButton &>(_proto).setOn(*_on);
+        }
+    }
+
+    RowLook(const RowLook &) = delete;
+    RowLook &operator=(const RowLook &) = delete;
+
+private:
+    Control &_proto;
+    glm::vec3 _textColor;
+    bool _usesFrameColor;
+    glm::vec3 _frameColor;
+    float _borderAlpha;
+    std::optional<glm::vec3> _borderColor;
+    std::optional<glm::vec3> _hilightColor;
+    std::optional<glm::vec3> _selectedTextColor;
+    std::optional<bool> _on;
+};
 
 void ListBox::render(const glm::ivec2 &screenSize,
                      const glm::ivec2 &offset,
@@ -302,13 +475,15 @@ void ListBox::render(const glm::ivec2 &screenSize,
     if (_backgroundRenderer) {
         _backgroundRenderer(*this, offset, pass);
     }
+    // The scroll bar is drawn first, then the list's border, then the rows.
+    renderScrollBar(screenSize, offset, pass);
     Control::render(screenSize, offset, pass);
 
     if (!_protoItem)
         return;
 
-    if (_textLineRows) {
-        renderTextLineRows(screenSize, offset, pass);
+    if (isTextBlock()) {
+        renderTextBlock(screenSize, offset, pass);
         return;
     }
 
@@ -324,61 +499,18 @@ void ListBox::render(const glm::ivec2 &screenSize,
         if (_protoMatchContent) {
             _protoItem->setExtentHeight(getItemHeight(item));
         }
-        _protoItem->setSelected(_selectedItemIndex == itemIdx);
+        _protoItem->setSelected(_selectedItemIndex == itemIdx && !_selectionUnhilighted);
 
-        glm::vec3 originalTextColor(_protoItem->text().color);
-        if (item.textColor) {
-            _protoItem->setTextColor(*item.textColor);
-        }
-        const bool originalUsesFrameColor = _protoItem->usesBorderColorOverride();
-        const glm::vec3 originalFrameColor = _protoItem->borderColorOverride();
-        const float originalFrameAlpha = _protoItem->border().alpha;
-        if (item.frameColor) {
-            _protoItem->setBorderColorOverride(*item.frameColor);
-            _protoItem->setUseBorderColorOverride(true);
-        }
-        if (item.frameAlpha) {
-            _protoItem->setBorderAlpha(*item.frameAlpha);
-        }
-        std::optional<glm::vec3> protoBorderColor;
-        if (item.borderColor) {
-            protoBorderColor = _protoItem->border().color;
-            _protoItem->setBorderColor(*item.borderColor);
-        }
-        std::optional<glm::vec3> protoHilightColor;
-        if (item.hilightColor) {
-            protoHilightColor = _protoItem->hilight().color;
-            _protoItem->setHilightColor(*item.hilightColor);
-        }
-
-        auto toggle = item.on ? std::dynamic_pointer_cast<ToggleButton>(_protoItem) : nullptr;
-        bool originalOn = toggle && toggle->isOn();
-        if (toggle) {
-            toggle->setOn(*item.on);
-        }
-
-        auto imageButton = std::dynamic_pointer_cast<ImageButton>(_protoItem);
-        if (imageButton) {
-            imageButton->render(itemOffset, item._textLines, item.iconText, item.iconTexture, item.iconFrame, pass, item.iconTextColor);
-        } else if (shouldRenderItemIconsForButtonProto()) {
-            renderItemWithButtonProtoIcon(screenSize, itemOffset, item, pass);
-        } else {
-            _protoItem->setTextLines(item._textLines);
-            _protoItem->render(screenSize, itemOffset, pass);
-        }
-
-        _protoItem->setTextColor(originalTextColor);
-        _protoItem->setBorderColorOverride(originalFrameColor);
-        _protoItem->setUseBorderColorOverride(originalUsesFrameColor);
-        _protoItem->setBorderAlpha(originalFrameAlpha);
-        if (protoBorderColor) {
-            _protoItem->setBorderColor(*protoBorderColor);
-        }
-        if (protoHilightColor) {
-            _protoItem->setHilightColor(*protoHilightColor);
-        }
-        if (toggle) {
-            toggle->setOn(originalOn);
+        {
+            const RowLook look(*_protoItem, item);
+            if (_protoItem->type() == ControlType::ImageButton) {
+                static_cast<ImageButton &>(*_protoItem).render(itemOffset, item._textLines, item.iconText, item.iconTexture, item.iconFrame, pass, item.iconTextColor);
+            } else if (shouldRenderItemIconsForButtonProto()) {
+                renderItemWithButtonProtoIcon(screenSize, itemOffset, item, pass);
+            } else {
+                _protoItem->setTextLines(item._textLines);
+                _protoItem->render(screenSize, itemOffset, pass);
+            }
         }
 
         // Round the accumulated authored stride, not every row separately.
@@ -386,15 +518,23 @@ void ListBox::render(const glm::ivec2 &screenSize,
         // row makes the error grow down the list relative to the scaled art.
         itemY += getItemPitch(item);
     }
+}
 
+void ListBox::renderScrollBar(const glm::ivec2 &screenSize, const glm::ivec2 &offset, IRenderPass &pass) {
     if (_scrollBar && _scrollBarEnabled) {
-        ScrollBar::ScrollState state;
-        state.count = static_cast<int>(_items.size());
-        state.numVisible = this->_slotCount;
-        state.offset = _itemOffset;
-        auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
-        scrollBar.setScrollState(std::move(state));
-        scrollBar.render(screenSize, offset, pass);
+        updateScrollBarState();
+        _scrollBar->render(screenSize, offset, pass);
+    }
+}
+
+void ListBox::resetFont() {
+    Control::resetFont();
+    if (!_iconTextBaseFont.empty()) {
+        resolveIconTextFont();
+    }
+    if (_protoItem) {
+        _protoItem->resetFont();
+        updateItemsLayout();
     }
 }
 
@@ -413,7 +553,7 @@ void ListBox::stretch(float x, float y, int mask) {
         _protoItem->stretch(x, y, mask & ~kStretchHeight);
         if (mask & kStretchHeight) {
             auto extent = _protoItem->extent();
-            extent.height = static_cast<int>(_protoItem->authoredExtent().height * _layoutScale);
+            extent.height = scaledItemHeight();
             _protoItem->setExtent(std::move(extent));
         }
         _protoItem->setPresentationScale(_layoutScale, listLayoutScale);
@@ -464,33 +604,12 @@ void ListBox::setExtentHeight(int height) {
     updateItemSlots();
 }
 
-void ListBox::changeProtoItemType(ControlType type) {
-    // TODO: debug CTD
-    return;
-
-    if (!_protoItem) {
-        return;
-    }
-    auto &oldProtoItem = *_protoItem;
-
-    _protoItem = _gui.newControl(type, oldProtoItem.tag());
-    _protoItem->setId(oldProtoItem.id());
-    _protoItem->setPadding(oldProtoItem.padding());
-    _protoItem->setExtent(oldProtoItem.extent());
-    _protoItem->setBorder(oldProtoItem.border());
-    _protoItem->setText(oldProtoItem.text());
-    _protoItem->setHilight(oldProtoItem.hilight());
-
-    _protoItem->updateTextLines();
-    _protoItem->updateTransform();
-}
-
 void ListBox::setSelectionMode(SelectionMode mode) {
     _selectionMode = mode;
 }
 
 void ListBox::setSelectedItemIndex(int index) {
-    _selectedItemIndex = index >= 0 && index < getItemCount() ? index : -1;
+    selectItem(index >= 0 && index < getItemCount() ? index : -1);
     if (_selectedItemIndex >= 0) {
         scrollToItem(_selectedItemIndex);
     }
@@ -517,27 +636,62 @@ bool ListBox::selectAdjacentItem(bool next, bool repeat) {
             _gui.setKeyRepeatStopped(true);
         }
     }
-    _selectedItemIndex = index;
+    selectItem(index);
     scrollToItem(index);
     return true;
 }
 
+bool ListBox::stepSelection(bool next, bool repeat) {
+    if (!_itemsInteractive) {
+        const int offset = std::clamp(_itemOffset + (next ? 1 : -1), 0, std::max(getScrollPositions() - 1, 0));
+        if (offset == _itemOffset) {
+            return false;
+        }
+        _itemOffset = offset;
+        updateItemSlots();
+        return true;
+    }
+    if (!selectAdjacentItem(next, repeat)) {
+        return false;
+    }
+    if (_selectionMode == SelectionMode::OnClick && _onItemClick) {
+        _onItemClick(_items[_selectedItemIndex].tag);
+    }
+    return true;
+}
+
+bool ListBox::activateSelectedItem() {
+    return handleClick(0, 0, _selectionMode == SelectionMode::OnClick ? 2 : 1);
+}
+
 void ListBox::takeKeyboard() {
+    _selectionUnhilighted = false;
     if (!_itemsInteractive || _selectedItemIndex >= 0 || _items.empty()) {
         return;
     }
-    _selectedItemIndex = 0;
+    selectItem(0);
     scrollToItem(0);
     if (_selectionMode == SelectionMode::OnClick && _onItemClick) {
         _onItemClick(_items.front().tag);
     }
 }
 
+void ListBox::loseKeyboard() {
+    _selectionUnhilighted = true;
+}
+
 void ListBox::setItemsInteractive(bool interactive) {
     _itemsInteractive = interactive;
-    if (!interactive) {
+    if (interactive) {
+        _scrollOnly = false;
+    } else {
         clearSelection();
     }
+}
+
+void ListBox::setScrollOnly(bool scrollOnly) {
+    setItemsInteractive(!scrollOnly);
+    _scrollOnly = scrollOnly;
 }
 
 void ListBox::setScrollBarEnabled(bool enabled) {
@@ -558,106 +712,46 @@ void ListBox::setProtoMatchContent(bool match) {
     updateItemsLayout();
 }
 
-// A block that fits is the first of the rows of its own height (and the
-// padding) that the room holds, stretched by its share of the spare room;
-// the first row takes a pixel more while any is left over. The prototype's
-// vertical alignment places the text in the stretched row.
-int ListBox::getTextBlockAlignmentOffset(int content, int room, int padding) const {
-    const int pitch = content + padding;
-    const int rows = room / pitch;
-    const int spare = room - padding - rows * pitch;
-    const int stretched = content + spare / rows + (spare % rows > 0 ? 1 : 0);
-    const int lineHeight = getTextLineHeight();
-    const int lineCount = content / lineHeight;
-    switch (_protoItem->text().align) {
-    case TextAlign::LeftTop:
-    case TextAlign::CenterTop:
-        return 0;
-    case TextAlign::CenterBottom:
-        return stretched - content;
-    case TextAlign::RightCenter:
-    case TextAlign::LeftCenter:
-    case TextAlign::CenterCenter:
-    case TextAlign::RightCenter2:
-    default:
-        // Where the block's first line sits when the stretched row is
-        // centred, against where a line-high row centres it.
-        return stretched / 2 - static_cast<int>(0.5f * (lineCount - 1) * lineHeight) - lineHeight / 2;
-    }
-}
-
-int ListBox::getTextLineHeight() const {
-    const auto &font = _protoItem->text().font;
-    return font ? static_cast<int>(std::lround(font->height() * _protoItem->scale())) : 0;
-}
-
-void ListBox::renderTextLineRows(const glm::ivec2 &screenSize, const glm::ivec2 &offset, IRenderPass &pass) {
-    // Lines of no height, as without a font, have nothing to draw, and the
-    // block's placement divides by their height.
-    const int lineHeight = getTextLineHeight();
-    if (lineHeight == 0) {
+// The block is one label with all the lines, the padding in from the room's
+// left. One that fits sits the padding below the room's top, in the first of
+// the rows of its own height and the padding that the room holds, stretched
+// by its share of the spare room, a pixel more while any is left over. One
+// taller than the room sits the padding below its top less a line advance
+// for each position scrolled, and at the last position the padding above its
+// bottom. Without a font there is nothing to draw.
+void ListBox::renderTextBlock(const glm::ivec2 &screenSize, const glm::ivec2 &offset, IRenderPass &pass) {
+    if (!_protoItem->text().font) {
         return;
     }
-    // The room is inside the border, less an enabled scroll bar on its side.
-    const int border = _border ? _border->dimension : 0;
-    const int scrollBarWidth = _scrollBar && _scrollBarEnabled ? _scrollBar->extent().width : 0;
-    const Extent inner {
-        _extent.left + border + (_leftScrollBar ? scrollBarWidth : 0),
-        _extent.top + border,
-        std::max(0, _extent.width - 2 * border - scrollBarWidth),
-        getInnerHeight()};
-    const int lines = static_cast<int>(_items.size());
+    const Extent inner = getRowsArea();
+    const int content = getTextBlockHeight();
     const int padding = static_cast<int>(_padding * _layoutScale);
-    // The block's top below the room's top: the padding at the first
-    // position, a line higher at each next, and bottom-aligned at the last.
-    int top = padding - _itemOffset * lineHeight;
-    if (_overflowing && _itemOffset == lines - _slotCount) {
-        top = inner.height - lines * lineHeight - padding;
-    }
-    if (!_overflowing && lines > 0) {
-        top = padding + getTextBlockAlignmentOffset(lines * lineHeight, inner.height, padding);
-    }
-    const glm::ivec4 scissorBounds {
-        offset.x + inner.left,
-        screenSize.y - (offset.y + inner.top + inner.height),
-        inner.width,
-        inner.height};
-    _graphicsSvc.context.withScissorTestNoClear(scissorBounds, [&]() {
-        for (int i = 0; i < lines; ++i) {
-            const int lineTop = inner.top + top + i * lineHeight;
-            if (lineTop + lineHeight <= inner.top || lineTop >= inner.top + inner.height) {
-                continue;
-            }
-            const Item &item = _items[i];
-            // Each line starts the padding in from the room's left.
-            glm::ivec2 lineOffset(offset);
-            lineOffset.x += inner.left + padding - _protoItem->extent().left;
-            lineOffset.y += lineTop - _protoItem->extent().top;
-            glm::vec3 originalTextColor(_protoItem->text().color);
-            if (item.textColor) {
-                _protoItem->setTextColor(*item.textColor);
-            }
-            _protoItem->setSelected(false);
-            _protoItem->setTextLines(item._textLines);
-            _protoItem->render(screenSize, lineOffset, pass);
-            _protoItem->setTextColor(originalTextColor);
+    int top = padding;
+    int height = content;
+    if (_overflowing) {
+        if (_itemOffset == getTextBlockPositions() - 1) {
+            top = inner.height - content - padding;
+        } else {
+            top = padding - static_cast<int>(static_cast<float>(_itemOffset) * _protoItem->textLineAdvance());
         }
-    });
-
-    if (_scrollBar && _scrollBarEnabled) {
-        ScrollBar::ScrollState state;
-        state.count = lines;
-        state.numVisible = _slotCount;
-        state.offset = _itemOffset;
-        auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
-        scrollBar.setScrollState(std::move(state));
-        scrollBar.render(screenSize, offset, pass);
+    } else if (content != 0) {
+        const int pitch = content + padding;
+        const int rows = inner.height / pitch;
+        const int spare = inner.height - padding - rows * pitch;
+        height = content + spare / rows + (spare % rows > 0 ? 1 : 0);
     }
-}
-
-void ListBox::setTextLineRows(bool lines) {
-    _textLineRows = lines;
-    updateItemSlots();
+    const glm::ivec4 clip {offset.x + inner.left, offset.y + inner.top, inner.width, inner.height};
+    withScissorRect(_graphicsSvc.context, screenSize, clip, [&]() {
+        glm::ivec2 blockOffset(offset);
+        blockOffset.x += inner.left + padding - _protoItem->extent().left;
+        blockOffset.y += inner.top + top - _protoItem->extent().top;
+        const int protoHeight = _protoItem->extent().height;
+        _protoItem->setExtentHeight(height);
+        _protoItem->setSelected(false);
+        _protoItem->setTextLines(_textBlockLines);
+        _protoItem->render(screenSize, blockOffset, pass);
+        _protoItem->setExtentHeight(protoHeight);
+    });
 }
 
 void ListBox::setRenderItemIconsForButtonProto(bool render) {
@@ -665,12 +759,46 @@ void ListBox::setRenderItemIconsForButtonProto(bool render) {
     updateItemsLayout();
 }
 
-void ListBox::setIconTextFont(std::shared_ptr<Font> font) {
+ImageButton *ListBox::imageButtonProto() const {
+    return _protoItem && _protoItem->type() == ControlType::ImageButton ? static_cast<ImageButton *>(_protoItem.get()) : nullptr;
+}
+
+void ListBox::setIconTextFont(std::string baseFont) {
     // An image-button prototype draws the icon text itself.
-    if (auto imageButton = std::dynamic_pointer_cast<ImageButton>(_protoItem)) {
-        imageButton->setIconFont(std::move(font));
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconFont(std::move(baseFont));
+        return;
+    }
+    _iconTextBaseFont = std::move(baseFont);
+    resolveIconTextFont();
+}
+
+void ListBox::resolveIconTextFont() {
+    _iconTextFont = _resourceSvc.fonts.get(fontName(_iconTextBaseFont, _gui.smallFonts()));
+}
+
+void ListBox::setIconTextBox(IconTextBox box) {
+    // An image-button prototype draws the icon text itself.
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconTextBox(box);
     } else {
-        _iconTextFont = std::move(font);
+        _iconTextBox = box;
+    }
+}
+
+void ListBox::setIconFrameHilightPulsing(bool pulsing) {
+    _iconFrameHilightPulsing = pulsing;
+    // An image-button prototype draws the icon frame itself.
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconFrameHilightPulsing(pulsing);
+    }
+}
+
+void ListBox::setIconsCentred(bool centred) {
+    _iconsCentred = centred;
+    // An image-button prototype draws the icons itself.
+    if (auto imageButton = imageButtonProto()) {
+        imageButton->setIconCentred(centred);
     }
 }
 
@@ -678,26 +806,6 @@ void ListBox::setItemOffset(int offset) {
     if (_items.size()) {
         _itemOffset = std::min(offset, static_cast<int>(_items.size() - 1));
     }
-}
-
-void ListBox::selectNextItem() {
-    if (_items.empty()) {
-        return;
-    }
-
-    _selectedItemIndex = (_selectedItemIndex == getItemCount() - 1) ? 0 : (_selectedItemIndex + 1);
-    _onItemClick(_items[_selectedItemIndex].tag);
-    scrollToSelectedItem();
-}
-
-void ListBox::selectPreviousItem() {
-    if (_items.empty()) {
-        return;
-    }
-
-    _selectedItemIndex = (_selectedItemIndex == 0) ? (getItemCount() - 1) : (_selectedItemIndex - 1);
-    _onItemClick(_items[_selectedItemIndex].tag);
-    scrollToSelectedItem();
 }
 
 void ListBox::scrollToItem(int index) {
@@ -736,8 +844,21 @@ void ListBox::scrollToBottom() {
     updateItemSlots();
 }
 
-void ListBox::scrollToSelectedItem() {
-    scrollToItem(_selectedItemIndex);
+void ListBox::setItemAuthoredHeight(int height) {
+    if (!_protoItem) {
+        return;
+    }
+    auto authored = _protoItem->authoredExtent();
+    authored.height = height;
+    _protoItem->setAuthoredExtent(std::move(authored));
+    auto extent = _protoItem->extent();
+    extent.height = scaledItemHeight();
+    _protoItem->setExtent(std::move(extent));
+    updateItemsLayout();
+}
+
+int ListBox::scaledItemHeight() const {
+    return static_cast<int>(_protoItem->authoredExtent().height * _layoutScale);
 }
 
 void ListBox::updateItemsLayout() {
@@ -746,9 +867,7 @@ void ListBox::updateItemsLayout() {
     }
 
     if (_protoMatchContent) {
-        auto extent = _protoItem->extent();
-        extent.width = getItemWidth();
-        _protoItem->setExtent(std::move(extent));
+        matchProtoToRows();
     }
 
     int textWidth = getItemTextWidth();
@@ -760,52 +879,53 @@ void ListBox::updateItemsLayout() {
 }
 
 int ListBox::getInnerHeight() const {
-    int height = _extent.height;
-    if (_border) {
-        height -= 2 * _border->dimension;
-    }
-    return std::max(height, 0);
+    return std::max(getRowsArea().height, 0);
+}
+
+Control::Extent ListBox::getRowsArea() const {
+    const int scrollBarWidth = _scrollBar && _scrollBarEnabled ? _scrollBar->extent().width : 0;
+    return innerExtent({_extent.left + (_leftScrollBar ? scrollBarWidth : 0),
+                        _extent.top,
+                        _extent.width - scrollBarWidth,
+                        _extent.height});
 }
 
 Control::Extent ListBox::itemsViewport() const {
     if (!_protoItem) {
         return {};
     }
-    int border = _border ? _border->dimension : 0;
+    const Extent inner = innerExtent(_extent);
     int top = _protoItem->extent().top;
     return {
-        _extent.left + border,
+        inner.left,
         top,
-        _extent.width - 2 * border,
-        _extent.top + _extent.height - border - top};
+        inner.width,
+        inner.top + inner.height - top};
 }
 
 int ListBox::visibleItemCount() const {
     return std::max(0, std::min(_slotCount, static_cast<int>(_items.size()) - _itemOffset));
 }
 
-Control::Extent ListBox::visibleItemExtent(int index) const {
+std::vector<Control::Extent> ListBox::visibleItemExtents() const {
+    std::vector<Extent> extents;
     if (!_protoItem) {
-        return {};
+        return extents;
     }
-    // Accumulate the fractional pitch and round once, so rows do not creep
-    // away from the artwork behind them as the list gets longer.
+    // Accumulate the fractional pitch and round each row once, so rows do
+    // not creep away from the artwork behind them as the list gets longer.
+    const Extent &proto = _protoItem->extent();
+    const int count = visibleItemCount();
+    extents.reserve(count);
     float y = 0.0f;
-    for (int i = 0; i < index && i + _itemOffset < static_cast<int>(_items.size()); ++i) {
+    for (int i = 0; i < count; ++i) {
+        extents.emplace_back(proto.left, proto.top + static_cast<int>(std::lround(y)), proto.width, proto.height);
         y += getItemPitch(_items[i + _itemOffset]);
     }
-    const Extent &proto = _protoItem->extent();
-    return {
-        proto.left,
-        proto.top + static_cast<int>(std::lround(y)),
-        proto.width,
-        proto.height};
+    return extents;
 }
 
 float ListBox::getItemPitch(const Item &item) const {
-    if (_textLineRows) {
-        return static_cast<float>(getTextLineHeight());
-    }
     float padding = _padding * _layoutScale;
     if (_protoMatchContent) {
         return getItemHeight(item) + padding;
@@ -814,15 +934,18 @@ float ListBox::getItemPitch(const Item &item) const {
 }
 
 int ListBox::getItemWidth() const {
-    int width = _extent.width;
-    if (_scrollBar && _scrollBarEnabled) {
-        width -= _scrollBar->extent().width;
-    }
-    if (_border) {
-        width -= 2 * _border->dimension;
-    }
-    width -= 2 * static_cast<int>(_padding * _layoutScale);
+    const int width = getRowsArea().width - 2 * static_cast<int>(_padding * _layoutScale);
     return std::max(width, 0);
+}
+
+void ListBox::matchProtoToRows() {
+    const Extent rows = getRowsArea();
+    const int padding = static_cast<int>(_padding * _layoutScale);
+    auto extent = _protoItem->extent();
+    extent.left = rows.left + padding;
+    extent.top = rows.top + padding;
+    extent.width = getItemWidth();
+    _protoItem->setExtent(std::move(extent));
 }
 
 int ListBox::getItemHeight(const Item &item) const {
@@ -835,20 +958,14 @@ int ListBox::getItemHeight(const Item &item) const {
         return _protoItem->extent().height;
     }
 
-    float fontHeight = font->height() * _protoItem->scale();
-    int textHeight = static_cast<int>(item._textLines.size() * fontHeight + 0.5f);
-    if (static_cast<int>(fontHeight + 0.5f) <= 15) {
-        ++textHeight;
-    }
-    return textHeight + 2 * _protoItem->border().dimension;
+    return _protoItem->textBlockHeight(static_cast<int>(item._textLines.size()));
 }
 
 int ListBox::getItemTextWidth() const {
     if (!_protoItem)
         return 0;
 
-    int width = _protoItem->textExtent().width -
-                2 * _protoItem->border().dimension;
+    int width = _protoItem->innerExtent(_protoItem->textExtent()).width;
     if (shouldRenderItemIconsForButtonProto()) {
         // Button-proto item icons render in a square gutter sized from the row height.
         int itemIconWidth = _protoItem->extent().height;
@@ -861,7 +978,8 @@ int ListBox::getItemTextWidth() const {
 }
 
 bool ListBox::shouldRenderItemIconsForButtonProto() const {
-    return _renderItemIconsForButtonProto && static_cast<bool>(std::dynamic_pointer_cast<Button>(_protoItem));
+    return _renderItemIconsForButtonProto &&
+           (_protoItem->type() == ControlType::Button || _protoItem->type() == ControlType::ToggleButton);
 }
 
 void ListBox::renderItemWithButtonProtoIcon(
@@ -888,36 +1006,19 @@ void ListBox::renderItemWithButtonProtoIcon(
     _protoItem->render(screenSize, offset, pass);
     _protoItem->setExtent(originalExtent);
 
-    if (!item.iconFrame && !item.iconTexture)
-        return;
-
-    glm::ivec2 iconPosition(offset.x + originalExtent.left, offset.y + originalExtent.top);
-    glm::ivec2 iconSize(itemIconWidth, originalExtent.height);
-
-    // The icon frame shows the colour the row's frames show, and their
-    // opacity while the row is not selected.
-    if (item.iconFrame) {
-        const bool selected = _protoItem->isSelected();
-        glm::vec3 frameColor(selected ? _protoItem->hilight().color : _protoItem->border().color);
-        if (_protoItem->usesBorderColorOverride()) {
-            frameColor = _protoItem->borderColorOverride();
-        }
-        float frameAlpha = _protoItem->border().alpha;
-        if (selected) {
-            frameAlpha = _iconFrameHilightPulsing ? _gui.pulsingAlpha() : 1.0f;
-        }
-        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, frameAlpha));
-    }
-    if (item.iconTexture) {
-        pass.drawIcon(*item.iconTexture, iconPosition, iconSize);
-    }
-    const auto &iconTextFont = _iconTextFont ? _iconTextFont : _protoItem->text().font;
-    if (!item.iconText.empty() && iconTextFont) {
-        glm::vec3 position(0.0f);
-        position.x = static_cast<float>(iconPosition.x + iconSize.x);
-        position.y = static_cast<float>(iconPosition.y + iconSize.y - 0.5f * iconTextFont->height() * _protoItem->scale());
-        iconTextFont->render(item.iconText, position, item.iconTextColor.value_or(_protoItem->text().color), TextGravity::LeftCenter, _protoItem->scale());
-    }
+    // The icon square is drawn as an image button's, its frame in the
+    // colour the row's frames show and the count in the row's text colour
+    // unless given its own.
+    ImageButton::IconSlotLook look;
+    look.frameColor = ImageButton::iconFrameColor(*_protoItem, std::nullopt, _iconFrameHilightPulsing ? std::optional<float>(_gui.pulsingAlpha()) : std::nullopt);
+    look.textColor = item.iconTextColor.value_or(_protoItem->text().color);
+    look.centred = _iconsCentred;
+    look.artScale = _protoItem->frameScale();
+    look.textFont = _iconTextFont ? _iconTextFont.get() : _protoItem->text().font.get();
+    look.textBox = _iconTextBox ? &*_iconTextBox : nullptr;
+    look.textScale = _protoItem->scale();
+    ImageButton::renderIconSlot(pass, ImageButton::IconSlot {item.iconFrame.get(), item.iconTexture.get(), item.iconText}, look,
+                                {offset.x + originalExtent.left, offset.y + originalExtent.top}, itemIconWidth);
 }
 
 const ListBox::Item &ListBox::getItemAt(int index) const {

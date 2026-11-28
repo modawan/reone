@@ -44,9 +44,11 @@ public:
     MOCK_METHOD(void, selectActiveControl, (Control &), (override));
     MOCK_METHOD(void, clearActiveControl, (), (override));
     MOCK_METHOD(void, setHilightFollowsKeyboard, (bool), (override));
+    MOCK_METHOD(void, setArrowWalkVisibleOnly, (bool), (override));
     MOCK_METHOD(bool, keyRepeatStopped, (), (const override));
     MOCK_METHOD(void, setKeyRepeatStopped, (bool), (override));
     MOCK_METHOD(std::optional<std::reference_wrapper<Control>>, moveTarget, (const Control &, Control::MoveDirection, bool), (const override));
+    MOCK_METHOD(void, hoverOnOpening, (glm::ivec2), (override));
 
     MOCK_METHOD(Control &, rootControl, (), (override));
 
@@ -61,6 +63,12 @@ public:
     float listScale() const override { return 1.0f; }
     MOCK_METHOD(bool, imageButtonTextPulses, (), (const override));
     MOCK_METHOD(float, pulsingAlpha, (), (const override));
+    float arrowPulsingAlpha() const override { return 1.0f; }
+    double textureTime() const override { return 0.0; }
+    const FillRules &fillRules() const override {
+        static const FillRules rules;
+        return rules;
+    }
     bool sceneRenderEnabled() const override { return true; }
 
     MOCK_METHOD(void, setEventListener, (IGUIEventListener & listener), (override));
@@ -68,9 +76,12 @@ public:
     MOCK_METHOD(void, setScaling, (ScalingMode), (override));
     MOCK_METHOD(void, setTextScale, (float), (override));
     MOCK_METHOD(void, setImageButtonTextPulses, (bool), (override));
+    MOCK_METHOD(void, setFillRules, (FillRules), (override));
     MOCK_METHOD(void, setControlScaling, (const std::string &, ScalingMode), (override));
     MOCK_METHOD(void, setSelectedTextColor, (glm::vec3), (override));
     MOCK_METHOD(void, setBackground, (std::shared_ptr<graphics::Texture>), (override));
+    MOCK_METHOD(bool, smallFonts, (), (const override));
+    MOCK_METHOD(void, setSmallFonts, (bool), (override));
     MOCK_METHOD(void, refreshLayout, (), (override));
 
     MOCK_METHOD(std::unique_ptr<Control>, newControl, (ControlType, std::string), (override));
@@ -79,6 +90,8 @@ public:
 
     MOCK_METHOD(std::shared_ptr<Control>, findControl, (const std::string &), (const override));
     MOCK_METHOD(bool, hasSelectableControlAt, (int, int), (const override));
+    MOCK_METHOD(int, unusedControlId, (), (const override));
+    MOCK_METHOD((std::optional<std::reference_wrapper<Control>>), findControlById, (int), (const override));
 };
 
 class MockGUIs : public IGUIs, boost::noncopyable {
@@ -87,9 +100,18 @@ public:
     ~MockGUIs() override;
 
     MOCK_METHOD(void, clear, (), (override));
+    MOCK_METHOD(void, setFillRules, (FillRules), (override));
+    MOCK_METHOD(void, setSmallFonts, (bool), (override));
+    MOCK_METHOD(std::string, fontName, (const std::string &), (const override));
     MOCK_METHOD(std::shared_ptr<IGUI>, get, (const std::string &, std::function<void(IGUI &)>), (override));
     MOCK_METHOD(std::shared_ptr<IGUI>, load, (const std::string &, std::function<void(IGUI &)>), (override));
-    MOCK_METHOD(void, updatePulsingAlpha, (float), (override));
+    MOCK_METHOD(void, updateClock, (float), (override));
+
+    Tooltip &tooltip() override { return _tooltip; }
+
+private:
+    graphics::GraphicsOptions _graphicsOptions;
+    Tooltip _tooltip {_graphicsOptions};
 };
 
 class TestGUIModule : boost::noncopyable {

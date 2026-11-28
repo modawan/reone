@@ -93,6 +93,27 @@ std::vector<SpellType> recommendPowers(
     const CreatureClass &clazz,
     int picks,
     Alignment alignment,
+    bool fillWithUnranked,
+    const std::function<bool(SpellType)> &refused) {
+    return recommendPowers(
+        spells,
+        [&](const std::set<SpellType> &chosen) {
+            auto candidates = spells.getLevelUpCandidates(attributes, clazz, chosen);
+            if (refused) {
+                candidates.erase(std::remove_if(candidates.begin(), candidates.end(), refused), candidates.end());
+            }
+            return candidates;
+        },
+        picks,
+        alignment,
+        fillWithUnranked);
+}
+
+std::vector<SpellType> recommendPowers(
+    const ISpells &spells,
+    const std::function<std::vector<SpellType>(const std::set<SpellType> &chosen)> &candidates,
+    int picks,
+    Alignment alignment,
     bool fillWithUnranked) {
     const bool darkSide = alignment == Alignment::DarkSide;
 
@@ -122,20 +143,33 @@ std::vector<SpellType> recommendPowers(
     std::vector<SpellType> result;
     std::set<SpellType> chosen;
     for (int pick = 0; pick < picks; ++pick) {
-        auto candidates = spells.getLevelUpCandidates(attributes, clazz, chosen);
-        auto power = findBest(candidates, darkSide);
+        const auto offered = candidates(chosen);
+        auto power = findBest(offered, darkSide);
         if (!power) {
-            power = findBest(candidates, !darkSide);
+            power = findBest(offered, !darkSide);
         }
         // The candidates come in power row order, so the first is the lowest row.
-        if (!power && fillWithUnranked && !candidates.empty()) {
-            power = candidates.front();
+        if (!power && fillWithUnranked && !offered.empty()) {
+            power = offered.front();
         }
         if (!power) {
             break;
         }
         chosen.insert(*power);
         result.push_back(*power);
+    }
+    return result;
+}
+
+Ability recommendLevelUpAbility(const CreatureClass &clazz, const CreatureAttributes &attributes) {
+    if (const auto primary = clazz.primaryAbility()) {
+        return *primary;
+    }
+    Ability result = kAbilities.front();
+    for (Ability ability : kAbilities) {
+        if (attributes.getAbilityScore(ability) > attributes.getAbilityScore(result)) {
+            result = ability;
+        }
     }
     return result;
 }

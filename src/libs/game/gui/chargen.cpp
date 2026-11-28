@@ -38,7 +38,6 @@
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
-#include "reone/system/logutil.h"
 
 using namespace reone::audio;
 
@@ -281,9 +280,13 @@ void CharacterGeneration::startQuick() {
     setAttributesVisible(true);
     _type = Type::Quick;
     showLevelUpTitle(false);
-    // A quick character is given its class's feats as it is made.
-    _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, true);
-    updateAttributes();
+    // A quick character is made at once: its class's scores, feats,
+    // recommended feats and recommended skills.
+    Character character(_character);
+    character.attributes = quickCharacterAttributes(
+        *_services.game.classes.get(_character.attributes.getEffectiveClass()),
+        _services.game.feats, _services.game.skills, _game.isTSL());
+    setCharacter(std::move(character));
     _quick->setStep(0);
     openSteps();
 }
@@ -480,7 +483,12 @@ std::vector<FeatType> CharacterGeneration::regrantCreationFeats(bool newCharacte
     for (auto feat : held) {
         _character.attributes.removeFeat(feat);
     }
-    return _services.game.feats.addGrantedFeats(_character.attributes, RacialType::Human, 0, kObjectTagPlayer, newCharacter);
+    return addCreationFeats(_character.attributes, _services.game.feats, newCharacter);
+}
+
+std::vector<FeatType> addCreationFeats(CreatureAttributes &attributes, const IFeats &feats, bool newCharacter) {
+    // A new character has no experience.
+    return feats.addGrantedFeats(attributes, kNewCharacterRace, 0, kObjectTagPlayer, newCharacter);
 }
 
 void CharacterGeneration::acceptAbilities() {
@@ -512,73 +520,13 @@ void CharacterGeneration::cancel() {
     }
 }
 
-bool CharacterGeneration::autoLevelUp() {
-    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    if (!partyLeader || !partyLeader->isLevelUpPending()) {
-        return false;
-    }
-
-    // Every step of the level-up takes its recommendation and is accepted,
-    // without opening its screen. A choice the recommendations cannot complete
-    // refuses the whole level, which stays pending for a manual level-up.
-    startLevelUp();
-    const int nextLevel = _character.attributes.getAggregateLevel() + 1;
-    if (gainsAbilityPoint(nextLevel)) {
-        _abilities->reset(false);
-        _abilities->recommend();
-        if (_abilities->remainingPoints() > 0) {
-            warn("Auto level-up refused: the class has no primary ability to take the attribute point");
-            return false;
-        }
-        _abilities->accept();
-    }
-
-    _levelUp->setStep(1);
-    _charGenSkills->reset(false);
-    _charGenSkills->recommend();
-    _charGenSkills->accept();
-
-    if (_levelUp->hasFeatChoices()) {
-        openFeats();
-        // Accepting the normal feats can open the choice of bonus feats.
-        while (_screen == CharGenScreen::Feats) {
-            _charGenFeats->recommend(true);
-            if (_charGenFeats->remainingPicks() > 0) {
-                warn("Auto level-up refused: " + std::to_string(_charGenFeats->remainingPicks()) + " feat pick(s) cannot be filled");
-                return false;
-            }
-            _charGenFeats->accept();
-        }
-    }
-
-    if (_levelUp->hasPowerChoices()) {
-        addLevelPowers();
-        _charGenPowers->reset();
-        _charGenPowers->recommend(true);
-        if (_charGenPowers->remainingPicks() > 0) {
-            warn("Auto level-up refused: " + std::to_string(_charGenPowers->remainingPicks()) + " power pick(s) cannot be filled");
-            return false;
-        }
-        _charGenPowers->accept();
-    }
-
-    applyLevelUpToLeader();
-    return true;
-}
-
 void CharacterGeneration::applyLevelUpToLeader() {
     ClassType classType = _character.attributes.getEffectiveClass();
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(classType));
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     partyLeader->applyLevelUp(std::move(_character.attributes), *clazz);
-    // The player character's new level moves every companion with a
-    // creature through its influence.
     if (partyLeader->isPlayerCreated()) {
-        for (int npc = 0; npc < static_cast<int>(Party::kK2NpcCount); ++npc) {
-            if (auto companion = _game.party().getAvailableMember(npc)) {
-                companion->recomputeInfluenceAlignment();
-            }
-        }
+        _game.party().recomputeCompanionInfluence();
     }
     _game.notifyLevelUpStillAvailable(*partyLeader);
     // The module hears of a player character's level-up.
@@ -613,8 +561,7 @@ void CharacterGeneration::finish() {
                 // A new character moves at the player's pace.
                 player->setMovementRate(kPlayerMovementRate);
                 player->setFaction(Faction::Player);
-                // A new character is human.
-                player->setRacialType(RacialType::Human);
+                player->setRacialType(kNewCharacterRace);
                 player->setGoodEvil(kNewCharacterGoodEvil);
                 player->attributes() = _character.attributes;
                 player->initializeGeneratedVitality();
