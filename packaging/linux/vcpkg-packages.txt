@@ -5,6 +5,7 @@ boost-format
 boost-functional
 boost-json
 boost-program-options
+boost-stacktrace[core]
 ffmpeg[core,avcodec,avformat,swresample,swscale]
 glew
 glm
