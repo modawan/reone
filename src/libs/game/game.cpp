@@ -1492,25 +1492,42 @@ void Game::updateFrame(float frameTime) {
     // deterministically captures the source module first.
     processPendingSave();
 
-    if (_screen == Screen::PazaakBoard && _pazaakSession) {
+    // A box over the board, a question or a result, holds it until it
+    // closes.
+    if (_screen == Screen::PazaakBoard && _pazaakSession && !topShownPopup()) {
         static constexpr float kPazaakOpponentEventDelay = 0.45f;
         if (_pazaakSession->advanceResultPresentation(dt)) {
             if (_pazaakBoard) {
                 _pazaakBoard->refresh();
             }
             completePazaakIfReady();
-        } else if (_pazaakSession && !_pazaakSession->presentationPending()) {
-            _pazaakOpponentEventElapsed += dt;
-            if (_pazaakOpponentEventElapsed >= kPazaakOpponentEventDelay) {
-                _pazaakOpponentEventElapsed = 0.0f;
-                PazaakOpponentEvent event = _pazaakSession->advanceOpponentEvent();
-                if (event != PazaakOpponentEvent::None) {
-                    if (_pazaakBoard) {
-                        _pazaakBoard->refresh();
-                    }
-                    completePazaakIfReady();
-                }
+        } else if (_pazaakSession && _pazaakSession->opponentStepDue()) {
+            // Each paced step is due a delay after the one before, however
+            // long the frame, until one opens a box or starts a result. A
+            // step that became due since the last frame, as after the
+            // player's End Turn at this frame's start, counts no time until
+            // the next, so its wait is never short.
+            if (_pazaakStepWasDue) {
+                _pazaakOpponentEventElapsed += dt;
             }
+            _pazaakStepWasDue = true;
+            while (_pazaakSession && _pazaakSession->opponentStepDue() && !topShownPopup() &&
+                   _pazaakOpponentEventElapsed >= kPazaakOpponentEventDelay) {
+                _pazaakOpponentEventElapsed -= kPazaakOpponentEventDelay;
+                if (_pazaakSession->advanceOpponentEvent() == PazaakOpponentEvent::None) {
+                    break;
+                }
+                if (_pazaakBoard) {
+                    _pazaakBoard->refresh();
+                }
+                completePazaakIfReady();
+            }
+        }
+        // While no step is due, as on the player's own turn, the wait starts
+        // afresh, so the next step waits the whole delay.
+        if (_pazaakSession && !_pazaakSession->opponentStepDue()) {
+            _pazaakOpponentEventElapsed = 0.0f;
+            _pazaakStepWasDue = false;
         }
     }
 
@@ -5366,7 +5383,10 @@ void Game::renderGUI() {
     }
     if (!gameplayHUD) {
         // A station is drawn alone, over its own backdrop: the screen it
-        // covers is not.
+        // covers is not. Pazaak's wager is a box over the side deck.
+        if (_screen == Screen::PazaakWager && _pazaakSetup) {
+            _pazaakSetup->render();
+        }
         auto gui = getScreenGUI();
         if (gui) {
             gui->render();
@@ -9407,6 +9427,7 @@ bool Game::startPazaakFlow(
     _pazaakSelectionPersisted = false;
     _pazaakSettlementApplied = false;
     _pazaakOpponentEventElapsed = 0.0f;
+    _pazaakStepWasDue = false;
     params.availableCredits = _party.gold();
     params.paceAutomaticDraws = _pazaakPaceAutomaticDraws;
     if (auto player = _party.player()) {
@@ -9463,6 +9484,10 @@ bool Game::startPazaakFlow(
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
     if (_pazaakSession->screen() == PazaakFlowScreen::Wager) {
+        // The wager is asked over the side deck, which shows beneath it.
+        if (_pazaakSetup) {
+            _pazaakSetup->refresh();
+        }
         if (_pazaakWager) {
             _pazaakWager->refresh();
         }
@@ -9536,15 +9561,77 @@ void Game::showPazaakBoard() {
     completePazaakIfReady();
 }
 
-void Game::cancelPazaak() {
+// Both games end a match quit before the board as lost, for no credits, and
+// run its end script.
+void Game::quitPazaak() {
     if (!_pazaakSession || _pazaakSession->screen() == PazaakFlowScreen::Board) {
         return;
     }
-    bool developmentLaunch = _pazaakDevelopmentLaunch;
-    releasePazaakFlow(true);
-    if (developmentLaunch) {
-        _console.printLine("pazaak: development match cancelled");
+    _pazaakSettlementApplied = true;
+    finishPazaak(PazaakCompletedResult::PlayerForfeited);
+}
+
+// The questions and results of pazaak, in TSL's dark gold.
+static constexpr int kPazaakQuitStrRef = 42424;
+static constexpr int kPazaakForfeitStrRef = 42425;
+static const PopupColors kTSLPazaakPopupColors {kTSLColorDarkGold, kTSLColorNewHighlight};
+
+std::optional<PopupColors> Game::pazaakPopupColors() const {
+    return isTSL() ? std::optional<PopupColors>(kTSLPazaakPopupColors) : std::nullopt;
+}
+
+// Quitting forfeits; a box that cannot be shown leaves no way to ask, so the
+// match is quit at once.
+void Game::queryPazaakQuit() {
+    if (!_pazaakSession || _pazaakSession->screen() == PazaakFlowScreen::Board) {
+        return;
     }
+    const bool asked = showConfirmPopup(
+        _services.resource.strings.getText(kPazaakQuitStrRef),
+        [this]() { quitPazaak(); },
+        {},
+        pazaakPopupColors());
+    if (!asked) {
+        quitPazaak();
+    }
+}
+
+// The match can be given up on either participant's turn while a set is
+// played; it ends lost at once, with no result box.
+bool Game::queryPazaakForfeit() {
+    if (!_pazaakSession || _pazaakSession->screen() != PazaakFlowScreen::Board || _pazaakSession->terminal() ||
+        _pazaakSession->presentationPending()) {
+        return false;
+    }
+    auto forfeit = [this]() {
+        if (_pazaakSession && _pazaakSession->forfeit()) {
+            completePazaakIfReady();
+        }
+    };
+    const bool asked = showConfirmPopup(
+        _services.resource.strings.getText(kPazaakForfeitStrRef),
+        forfeit,
+        {},
+        pazaakPopupColors());
+    if (!asked) {
+        forfeit();
+    }
+    return true;
+}
+
+void Game::showPazaakResult(int strRef) {
+    // A box put aside by another one, unclosed, no longer counts as shown.
+    if (!_pazaakSession || (_pazaakResultShown && _confirmPopup && _confirmPopup->isVisible())) {
+        return;
+    }
+    auto close = [this]() {
+        _pazaakResultShown = false;
+        if (_pazaakSession && _pazaakSession->finishResultPresentation() && _pazaakBoard) {
+            _pazaakBoard->refresh();
+        }
+        completePazaakIfReady();
+    };
+    _pazaakResultShown = showMessagePopup(_services.resource.strings.getText(strRef), "", close, pazaakPopupColors());
 }
 
 void Game::abortPazaak() {
@@ -9646,8 +9733,10 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakDevelopmentLaunch = false;
     _pazaakSelectionPersisted = false;
     _pazaakSettlementApplied = false;
+    _pazaakResultShown = false;
     _pazaakShowcaseHands = false;
     _pazaakOpponentEventElapsed = 0.0f;
+    _pazaakStepWasDue = false;
     if (restoreOrigin) {
         changeScreen(restore);
     }

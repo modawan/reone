@@ -790,7 +790,26 @@ public:
 
     void showPazaakSetup();
     void showPazaakBoard();
-    void cancelPazaak();
+    /**
+     * Quits before the board is reached: the match counts as lost, no
+     * credits change hands and the end script runs.
+     */
+    void quitPazaak();
+    /** Asks whether to quit before the board, and quits if the player agrees. */
+    void queryPazaakQuit();
+    /**
+     * Asks whether to forfeit the match being played, and forfeits it if the
+     * player agrees.
+     * @return whether the match could be forfeited, so was asked about
+     */
+    bool queryPazaakForfeit();
+    /**
+     * Shows a set's or the match's result. The next set, or the match's end,
+     * waits for the box to close.
+     */
+    void showPazaakResult(int strRef);
+    /** The colours of pazaak's message boxes: TSL's own, KotOR's default. */
+    std::optional<PopupColors> pazaakPopupColors() const;
     void abortPazaak();
     void completePazaakIfReady();
 
@@ -2538,8 +2557,12 @@ private:
     bool _pazaakDevelopmentLaunch {false};
     bool _pazaakSelectionPersisted {false};
     bool _pazaakSettlementApplied {false};
+    // A set's or the match's result box is up.
+    bool _pazaakResultShown {false};
     bool _pazaakShowcaseHands {false};
     float _pazaakOpponentEventElapsed {0.0f};
+    // A paced step was due at the last board frame.
+    bool _pazaakStepWasDue {false};
 
     // Narrow injectable seams used by focused lifecycle tests.
     PazaakSession::HandSelector _pazaakPlayerHandSelector;

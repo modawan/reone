@@ -16,6 +16,7 @@
 #include "reone/audio/mixer.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
 
 #include <iomanip>
@@ -51,6 +52,24 @@ const char *pazaakAudioResRef(PazaakPresentationEventType event) {
         return nullptr;
     default:
         return nullptr;
+    }
+}
+
+// The box that ends a set or the match.
+std::optional<int> pazaakResultStrRef(PazaakPresentationEventType event) {
+    switch (event) {
+    case PazaakPresentationEventType::PlayerSetWon:
+        return 32334;
+    case PazaakPresentationEventType::PlayerSetLost:
+        return 32335;
+    case PazaakPresentationEventType::PlayerMatchWon:
+        return 32336;
+    case PazaakPresentationEventType::PlayerMatchLost:
+        return 32337;
+    case PazaakPresentationEventType::SetTied:
+        return 32338;
+    default:
+        return std::nullopt;
     }
 }
 
@@ -258,9 +277,19 @@ PazaakWagerGUI::PazaakWagerGUI(Game &game, ServicesView &services) :
     _resRef = guiResRef("pazaakwager");
 }
 
+// The stakes, a newline and the player's credits.
+static constexpr int kMaximumWagerStrRef = 32321;
+static constexpr int kCreditsStrRef = 38600;
+// A held arrow first repeats after half a second, then fifteen times a second.
+static constexpr float kWagerRepeatDelay = 0.5f;
+static constexpr float kWagerRepeatInterval = 1.0f / 15.0f;
+
+// The wager is a box drawn over the side deck, whose backdrop shows behind
+// it, so it has none of its own. TSL's layout is a 640x480 screen, centred
+// on the side deck's 800x600 one.
 void PazaakWagerGUI::onGUILoaded() {
-    loadBackground(BackgroundType::Menu);
     _gui->setHilightFollowsKeyboard(true);
+    centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
@@ -280,43 +309,123 @@ void PazaakWagerGUI::onGUILoaded() {
     _controls.quit = button("BTN_QUIT");
     _controls.wager = button("BTN_WAGER");
     _controls.maximum = label("LBL_MAXIMUM");
-    _controls.title = label("LBL_TITLE");
     _controls.wagerValue = label("LBL_WAGERVAL");
 
-    _controls.less->setOnClick([this]() {
-        if (auto session = _game.pazaakSession()) {
-            session->decreaseWager();
-            refresh();
-        }
-    });
-    _controls.more->setOnClick([this]() {
-        if (auto session = _game.pazaakSession()) {
-            session->increaseWager();
-            refresh();
-        }
-    });
+    // No button takes the keyboard. The arrows step the wager as they are
+    // pressed, and again while held.
+    for (const auto &control : {_controls.less, _controls.more, _controls.quit, _controls.wager}) {
+        control->setTakesKeyboardOnHover(false);
+    }
+    for (const auto &step : {_controls.less, _controls.more}) {
+        step->setOnSelectionChanged([this, step](bool selected) {
+            if (selected) {
+                _hoveredStep = step;
+            } else if (_hoveredStep == step) {
+                _hoveredStep.reset();
+            }
+        });
+    }
     _controls.wager->setOnClick([this]() {
         if (auto session = _game.pazaakSession(); session && session->confirmWager()) {
             _game.showPazaakSetup();
         }
     });
     _controls.quit->setOnClick([this]() {
-        _game.cancelPazaak();
+        _game.queryPazaakQuit();
     });
-    _controls.title->setTextMessage("Pazaak");
     refresh();
 }
 
+void PazaakWagerGUI::stepWager(bool more) {
+    auto session = _game.pazaakSession();
+    if (!session) {
+        return;
+    }
+    const int before = session->wager();
+    if (more) {
+        session->increaseWager();
+    } else {
+        session->decreaseWager();
+    }
+    if (session->wager() != before) {
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
+        refresh();
+    }
+}
+
+// The arrow keys step the wager, Up and Right raising it; Return wagers and
+// Escape asks whether to quit.
+bool PazaakWagerGUI::handle(const input::Event &event) {
+    if (event.type == input::EventType::KeyDown) {
+        switch (event.key.code) {
+        case input::KeyCode::Left:
+        case input::KeyCode::Down:
+            stepWager(false);
+            return true;
+        case input::KeyCode::Right:
+        case input::KeyCode::Up:
+            stepWager(true);
+            return true;
+        case input::KeyCode::Return:
+        case input::KeyCode::KeypadEnter:
+            if (!event.key.repeat) {
+                _heldStep.reset();
+                _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
+                if (auto session = _game.pazaakSession(); session && session->confirmWager()) {
+                    _game.showPazaakSetup();
+                }
+            }
+            return true;
+        case input::KeyCode::Escape:
+            if (!event.key.repeat) {
+                _heldStep.reset();
+                _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
+                _game.queryPazaakQuit();
+            }
+            return true;
+        default:
+            break;
+        }
+    }
+    // The pointer's control is taken afresh at the press: a box that was up
+    // took the pointer's moves.
+    if (event.type == input::EventType::MouseButtonDown && event.button.button == input::MouseButton::Left) {
+        hoverOnOpening({event.button.x, event.button.y});
+    }
+    if (event.type == input::EventType::MouseButtonDown && event.button.button == input::MouseButton::Left &&
+        _hoveredStep) {
+        _heldStep = _hoveredStep;
+        _stepRepeatIn = kWagerRepeatDelay;
+        stepWager(_heldStep == _controls.more);
+    } else if (event.type == input::EventType::MouseButtonUp && event.button.button == input::MouseButton::Left) {
+        _heldStep.reset();
+    }
+    return GameGUI::handle(event);
+}
+
+void PazaakWagerGUI::update(float dt) {
+    GameGUI::update(dt);
+    if (!_heldStep) {
+        return;
+    }
+    _stepRepeatIn -= dt;
+    while (_heldStep && _stepRepeatIn < 0.0f) {
+        _stepRepeatIn += kWagerRepeatInterval;
+        stepWager(_heldStep == _controls.more);
+    }
+}
+
+// The title is the layout's own.
 void PazaakWagerGUI::refresh() {
     auto session = _game.pazaakSession();
     if (!session) {
         return;
     }
+    auto &strings = _services.resource.strings;
     _controls.wagerValue->setTextMessage(std::to_string(session->wager()));
     _controls.maximum->setTextMessage(
-        "Maximum wager " + std::to_string(session->wagerLimit()));
-    _controls.less->setDisabled(session->wager() <= 0);
-    _controls.more->setDisabled(session->wager() >= session->wagerLimit());
+        strings.getText(kMaximumWagerStrRef) + " " + std::to_string(session->wagerLimit()) + "\n" +
+        strings.getText(kCreditsStrRef) + " " + std::to_string(session->availableCredits()));
 }
 
 PazaakSetupGUI::PazaakSetupGUI(Game &game, ServicesView &services) :
@@ -324,14 +433,58 @@ PazaakSetupGUI::PazaakSetupGUI(Game &game, ServicesView &services) :
     _resRef = guiResRef("pazaaksetup");
 }
 
+// Escape asks whether to quit.
 bool PazaakSetupGUI::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown &&
         event.key.code == input::KeyCode::Escape &&
         !event.key.repeat) {
-        _game.cancelPazaak();
+        _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
+        _game.queryPazaakQuit();
         return true;
     }
     return GameGUI::handle(event);
+}
+
+static constexpr int kConfirmSideDeckStrRef = 32322;
+static constexpr glm::vec3 kTSLPazaakGold {0.8f, 0.65f, 0.2f};
+
+// The help TSL gives a card type the player owns, when the pointer is over
+// it among the available cards.
+static std::optional<int> cardHelpStrRef(const CardDefinition &card) {
+    switch (card.behavior()) {
+    case CardBehavior::FixedPositive:
+        return 128418;
+    case CardBehavior::FixedNegative:
+        return 128419;
+    case CardBehavior::SignSelectable:
+        return 128420;
+    case CardBehavior::ValueChange:
+        return 128421;
+    case CardBehavior::Double:
+        return 128422;
+    case CardBehavior::Tiebreaker:
+        return 128423;
+    case CardBehavior::FlipTwoFour:
+        return 128424;
+    case CardBehavior::FlipThreeSix:
+        return 128425;
+    default:
+        return std::nullopt;
+    }
+}
+
+// A chosen card, or an available one the player owns none of, clears it.
+void PazaakSetupGUI::describeCard(std::optional<size_t> collectionIndex) {
+    auto session = _game.pazaakSession();
+    if (!_controls.help || !session) {
+        return;
+    }
+    std::optional<int> strRef;
+    const auto &collection = session->collection();
+    if (collectionIndex && *collectionIndex < collection.size() && collection[*collectionIndex].copies > 0) {
+        strRef = cardHelpStrRef(collection[*collectionIndex].definition);
+    }
+    _controls.help->setTextMessage(strRef ? _services.resource.strings.getText(*strRef) : "");
 }
 
 void PazaakSetupGUI::onGUILoaded() {
@@ -357,9 +510,6 @@ void PazaakSetupGUI::onGUILoaded() {
     _controls.cancel = findControl<Button>("BTN_YTEXT");
     _controls.clear = findControl<Button>("BTN_CLEARCARDS");
     _controls.help = findControl<Label>("LBL_HELP");
-    _controls.leftTitle = label("LBL_LTEXT");
-    _controls.rightTitle = label("LBL_RTEXT");
-    _controls.title = label("LBL_TITLE");
     auto session = _game.pazaakSession();
     size_t requiredAvailableSlots = session ? session->collection().size() : 0;
     for (size_t i = 0; i < _controls.availableButtons.size(); ++i) {
@@ -376,6 +526,11 @@ void PazaakSetupGUI::onGUILoaded() {
             }
             break;
         }
+        _controls.availableButtons[i]->setOnSelectionChanged([this, i](bool selected) {
+            if (selected) {
+                describeCard(i);
+            }
+        });
         _controls.availableButtons[i]->setOnClick([this, i]() {
             _selectedAvailable = i;
             if (auto session = _game.pazaakSession()) {
@@ -388,6 +543,11 @@ void PazaakSetupGUI::onGUILoaded() {
         std::string suffix(std::to_string(i));
         _controls.chosenButtons[i] = button("BTN_CHOSEN" + suffix);
         _controls.chosenLabels[i] = label("LBL_CHOSEN" + suffix);
+        _controls.chosenButtons[i]->setOnSelectionChanged([this](bool selected) {
+            if (selected) {
+                describeCard(std::nullopt);
+            }
+        });
         _controls.chosenButtons[i]->setOnClick([this, i]() {
             if (auto session = _game.pazaakSession()) {
                 session->removeChosenCard(i);
@@ -403,9 +563,20 @@ void PazaakSetupGUI::onGUILoaded() {
             }
         });
     }
+    // Accept asks whether to play with the side deck chosen.
     _controls.accept->setOnClick([this]() {
-        if (auto session = _game.pazaakSession(); session && session->confirmSetup()) {
-            _game.showPazaakBoard();
+        auto session = _game.pazaakSession();
+        if (!session || !session->canConfirmSetup()) {
+            return;
+        }
+        auto play = [this]() {
+            if (auto session = _game.pazaakSession(); session && session->confirmSetup()) {
+                _game.showPazaakBoard();
+            }
+        };
+        if (!_game.showConfirmPopup(_services.resource.strings.getText(kConfirmSideDeckStrRef), play, {},
+                                    _game.pazaakPopupColors())) {
+            play();
         }
     });
     if (_controls.cancel) {
@@ -416,13 +587,7 @@ void PazaakSetupGUI::onGUILoaded() {
             }
         });
     }
-    _controls.title->setTextMessage("Choose Sidedeck");
-    _controls.leftTitle->setTextMessage("Available cards");
-    _controls.rightTitle->setTextMessage("Chosen cards");
-    _controls.accept->setTextMessage("Play");
-    if (_controls.cancel) {
-        _controls.cancel->setTextMessage("Add card");
-    }
+    // The titles and buttons keep the layout's text.
     if (_controls.help) {
         _controls.help->setTextMessage("");
     }
@@ -482,7 +647,15 @@ void PazaakSetupGUI::refresh() {
             true,
             _game.isTSL());
     }
-    _controls.accept->setDisabled(!session->canConfirmSetup());
+    const bool complete = session->canConfirmSetup();
+    _controls.accept->setDisabled(!complete);
+    // TSL's Accept is pazaak gold once the side deck is full, dark tan until
+    // then.
+    if (_game.isTSL()) {
+        const glm::vec3 &color = complete ? kTSLPazaakGold : kTSLColorDisabledText;
+        _controls.accept->setTextColor(color);
+        _controls.accept->setBorderColor(color);
+    }
     if (_controls.cancel) {
         _controls.cancel->setDisabled(
             !_selectedAvailable ||
@@ -499,21 +672,28 @@ PazaakBoardGUI::PazaakBoardGUI(Game &game, ServicesView &services) :
     _resRef = guiResRef("pazaakgame");
 }
 
+// A set both sides ended on nine cards is left; otherwise the player is
+// asked whether to forfeit, on either participant's turn while a set is
+// played.
+bool PazaakBoardGUI::leaveOrForfeit() {
+    auto session = _game.pazaakSession();
+    if (session && session->boardProjection().state == PazaakBoardState::UnresolvedBothNine) {
+        _game.abortPazaak();
+        return true;
+    }
+    return _game.queryPazaakForfeit();
+}
+
+// Escape leaves or forfeits as the forfeit button does, clicking when it acts.
 bool PazaakBoardGUI::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown &&
         event.key.code == input::KeyCode::Escape &&
         !event.key.repeat) {
-        auto session = _game.pazaakSession();
-        if (!session) {
-            return true;
-        }
-        if (session->boardProjection().forfeitRequested) {
-            if (session->confirmForfeit()) {
-                refresh();
-                _game.completePazaakIfReady();
-            }
-        } else if (session->requestForfeit()) {
-            refresh();
+        // Leaving or forfeiting can put the board away, so the sounds are
+        // taken first.
+        auto &sounds = _services.game.guiSounds;
+        if (leaveOrForfeit()) {
+            sounds.play(sounds.getOnClick());
         }
         return true;
     }
@@ -631,26 +811,10 @@ void PazaakBoardGUI::onGUILoaded() {
     });
     if (_controls.forfeit) {
         _controls.forfeit->setOnClick([this]() {
-            auto session = _game.pazaakSession();
-            if (!session) {
-                return;
-            }
-            PazaakBoardProjection projection(session->boardProjection());
-            if (projection.state == PazaakBoardState::UnresolvedBothNine) {
-                _game.abortPazaak();
-            } else if (projection.forfeitRequested) {
-                if (session->confirmForfeit()) {
-                    refresh();
-                    _game.completePazaakIfReady();
-                }
-            } else {
-                session->requestForfeit();
-                refresh();
-            }
+            leaveOrForfeit();
         });
     }
-    _controls.endTurn->setTextMessage("End Turn");
-    _controls.stand->setTextMessage("Stand");
+    // The buttons keep the layout's text.
     refresh();
 }
 
@@ -683,10 +847,8 @@ void PazaakBoardGUI::refresh() {
     _controls.playerTurn->setVisible(false);
     _controls.opponentTurn->setVisible(false);
 
-    // Set and match results are never announced with text. They are conveyed
-    // only through the score markers, the resolved board, the authored set and
-    // match audio, and the automatic set transition / final board close. The
-    // turn light marks the active participant while a set is in progress.
+    // The turn light marks the active participant while a set is in progress.
+    // Set and match results are shown in a box (playPendingAudio).
     if (projection.playerActive) {
         _controls.playerTurn->setVisible(true);
         _controls.playerTurn->setBorderFill(turnLightTexture(tsl));
@@ -815,19 +977,8 @@ void PazaakBoardGUI::refresh() {
         _controls.opponentScores[i]->setVisible(true);
     }
 
-    _controls.endTurn->setTextMessage("End Turn");
     _controls.endTurn->setDisabled(!projection.canEndTurn);
     _controls.stand->setDisabled(!projection.canStand);
-    _controls.stand->setTextMessage("Stand");
-    if (_controls.forfeit) {
-        _controls.forfeit->setDisabled(
-            !projection.playerActive &&
-            projection.state != PazaakBoardState::UnresolvedBothNine);
-        _controls.forfeit->setTextMessage(
-            projection.state == PazaakBoardState::UnresolvedBothNine
-                ? "Exit"
-                : (projection.forfeitRequested ? "Confirm Forfeit" : "Forfeit"));
-    }
     playPendingAudio();
 }
 
@@ -839,6 +990,9 @@ void PazaakBoardGUI::playPendingAudio() {
     for (const PazaakPresentationEvent &event : session->takePresentationEvents()) {
         if (const char *resRef = pazaakAudioResRef(event.type)) {
             playAudio(resRef);
+        }
+        if (auto strRef = pazaakResultStrRef(event.type)) {
+            _game.showPazaakResult(*strRef);
         }
     }
 }
