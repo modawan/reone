@@ -241,13 +241,11 @@ TEST(PazaakFlowBoard, ForfeitCompletesSemanticallyOnce) {
     chooseTen(session);
     ASSERT_TRUE(session.confirmSetup());
 
-    EXPECT_TRUE(session.requestForfeit());
-    EXPECT_TRUE(session.boardProjection().forfeitRequested);
-    EXPECT_TRUE(session.confirmForfeit());
+    EXPECT_TRUE(session.forfeit());
     ASSERT_TRUE(session.completedResult().has_value());
     EXPECT_EQ(PazaakCompletedResult::PlayerForfeited, *session.completedResult());
-    EXPECT_FALSE(session.confirmForfeit());
-    EXPECT_FALSE(session.requestForfeit());
+    EXPECT_FALSE(session.presentationPending());
+    EXPECT_FALSE(session.forfeit());
 }
 
 TEST(PazaakFlowBoard, ParticipantTwoCanStartAndEventsDrawExactlyOneCardAtATime) {
@@ -460,7 +458,7 @@ TEST(PazaakFlowBoard, CompletedSetRejectsCommandsWithCompleteStateEquality) {
     EXPECT_EQ(ActionError::SetComplete, session.standPlayer());
     EXPECT_EQ(ActionError::SetComplete, session.playPlayerHandCard(0));
     EXPECT_FALSE(session.selectPlayerCardSign(0, CardSign::Negative));
-    EXPECT_FALSE(session.requestForfeit());
+    EXPECT_FALSE(session.forfeit());
     EXPECT_EQ(before, *session.match());
     EXPECT_EQ(projectionBefore, session.boardProjection());
 }
@@ -469,8 +467,7 @@ TEST(PazaakFlowBoard, ForfeitMakesEveryMutationTerminalAndStatePreserving) {
     PazaakSession session(makeSession());
     chooseTen(session);
     ASSERT_TRUE(session.confirmSetup());
-    ASSERT_TRUE(session.requestForfeit());
-    ASSERT_TRUE(session.confirmForfeit());
+    ASSERT_TRUE(session.forfeit());
 
     MatchState before(*session.match());
     PazaakBoardProjection projectionBefore(session.boardProjection());
@@ -484,9 +481,7 @@ TEST(PazaakFlowBoard, ForfeitMakesEveryMutationTerminalAndStatePreserving) {
         session.applyOpponentCommand(DrawCommand {Participant::Two}));
     EXPECT_EQ(PazaakOpponentEvent::None, session.advanceOpponentEvent());
     EXPECT_FALSE(session.selectPlayerCardSign(0, CardSign::Negative));
-    EXPECT_FALSE(session.requestForfeit());
-    EXPECT_FALSE(session.cancelForfeitRequest());
-    EXPECT_FALSE(session.confirmForfeit());
+    EXPECT_FALSE(session.forfeit());
     EXPECT_EQ(before, *session.match());
     EXPECT_EQ(projectionBefore, session.boardProjection());
     EXPECT_EQ(resultBefore, session.completedResult());

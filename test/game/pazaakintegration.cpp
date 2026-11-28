@@ -140,6 +140,12 @@ void configure(
         std::move(continuation));
 }
 
+// The board's wait for a paced step counts from the update after the one
+// that first finds the step due; this update is that first one.
+void startPacedWait(Game &game) {
+    game.update(0.0f);
+}
+
 void chooseTen(PazaakSession &session) {
     if (session.chosenCards().size() == kSideDeckSize) {
         return;
@@ -194,6 +200,8 @@ struct GameFixture {
 struct LoadedPazaakGUIs {
     std::map<std::string, std::map<std::string, std::shared_ptr<gui::Control>>> controls;
     std::vector<std::shared_ptr<gui::MockGUI>> guis;
+    // Each GUI's root, which a panel centres in its canvas.
+    std::vector<std::shared_ptr<gui::Control>> roots;
 };
 
 void installPazaakGUIResources(
@@ -207,6 +215,7 @@ void installPazaakGUIResources(
     using testing::Invoke;
     using testing::NiceMock;
     using testing::Return;
+    using testing::ReturnRef;
 
     EXPECT_CALL(engine.resourceModule().textures(), get(_, _))
         .Times(AnyNumber())
@@ -224,6 +233,13 @@ void installPazaakGUIResources(
                 -> std::shared_ptr<gui::IGUI> {
                 auto mock = std::make_shared<NiceMock<gui::MockGUI>>();
                 gui::MockGUI *rawGUI = mock.get();
+                auto root = std::make_shared<gui::Label>(
+                    *rawGUI,
+                    engine.services().scene.graphs,
+                    engine.services().graphics,
+                    engine.services().resource);
+                ON_CALL(*mock, rootControl()).WillByDefault(ReturnRef(*root));
+                loaded.roots.push_back(root);
                 auto &controls = loaded.controls[resRef];
                 auto *controlsPtr = &controls;
                 ON_CALL(*mock, findControl(_))
@@ -433,7 +449,7 @@ TEST(PazaakRetailData, AuthoredSelectorsProduceDistinctSemanticDecks) {
     EXPECT_EQ(
         CardDefinition::fixedPositive(1),
         fixture.game.pazaakSession()->opponentSideDeck()[0]);
-    fixture.game.cancelPazaak();
+    fixture.game.abortPazaak();
 
     ASSERT_TRUE(fixture.game.playPazaak(1, "", 0, false, fixture.opponent));
     EXPECT_EQ(
@@ -638,24 +654,24 @@ TEST(PazaakConsoleCommand, ReportsDevelopmentLaunchFailure) {
         fixture.console.lines.back());
 }
 
-TEST(PazaakConsoleCommand, CancellationReturnsToGameplayAndCleanupIsIdempotent) {
+TEST(PazaakConsoleCommand, QuitReturnsToGameplayAndCleanupIsIdempotent) {
     GameFixture fixture;
     prepareDevelopmentCommand(fixture);
     fixture.game.party().giveGold(23);
 
     fixture.console.execute("startpazaak");
     ASSERT_NE(nullptr, fixture.game.pazaakSession());
-    fixture.game.cancelPazaak();
+    fixture.game.quitPazaak();
 
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
     EXPECT_EQ(Game::Screen::InGame, fixture.game.currentScreen());
     EXPECT_EQ(23, fixture.game.party().gold());
     ASSERT_FALSE(fixture.console.lines.empty());
     EXPECT_EQ(
-        "pazaak: development match cancelled",
+        "pazaak: development match completed - player forfeited",
         fixture.console.lines.back());
 
-    fixture.game.cancelPazaak();
+    fixture.game.quitPazaak();
     fixture.game.abortPazaak();
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
     EXPECT_EQ(Game::Screen::InGame, fixture.game.currentScreen());
@@ -731,9 +747,7 @@ TEST(PazaakConsoleCommand, ForfeitReturnsToGameplay) {
     chooseTen(*session);
     ASSERT_TRUE(session->confirmSetup());
     fixture.game.showPazaakBoard();
-    ASSERT_TRUE(session->requestForfeit());
-    ASSERT_TRUE(session->confirmForfeit());
-    ASSERT_TRUE(session->advanceResultPresentation(1.5f));
+    ASSERT_TRUE(session->forfeit());
     fixture.game.completePazaakIfReady();
 
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
@@ -761,7 +775,7 @@ TEST(PazaakGameLifecycle, ZeroWagerBypassesWagerAndDialogueDoesNotReclaimScreen)
     EXPECT_EQ(Game::Screen::PazaakSetup, fixture.game.currentScreen());
 }
 
-TEST(PazaakGameLifecycle, WagerCancellationPreservesCreditsAndLastResult) {
+TEST(PazaakGameLifecycle, QuitFromWagerPreservesCreditsAndForfeits) {
     GameFixture fixture;
     configure(fixture.game);
     fixture.game.party().giveGold(8);
@@ -772,12 +786,13 @@ TEST(PazaakGameLifecycle, WagerCancellationPreservesCreditsAndLastResult) {
     }
     EXPECT_EQ(8, fixture.game.pazaakSession()->wager());
 
-    fixture.game.cancelPazaak();
+    fixture.game.quitPazaak();
     EXPECT_EQ(8, fixture.game.party().gold());
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
-    EXPECT_FALSE(fixture.game.lastPazaakResult().has_value());
+    ASSERT_TRUE(fixture.game.lastPazaakResult().has_value());
+    EXPECT_EQ(PazaakCompletedResult::PlayerForfeited, *fixture.game.lastPazaakResult());
 
-    fixture.game.cancelPazaak();
+    fixture.game.quitPazaak();
     EXPECT_EQ(8, fixture.game.party().gold());
 }
 
@@ -792,8 +807,8 @@ TEST(PazaakGameLifecycle, SelectedWagerSettlesForfeitExactlyOnce) {
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
-    ASSERT_TRUE(fixture.game.pazaakSession()->requestForfeit());
-    ASSERT_TRUE(fixture.game.pazaakSession()->confirmForfeit());
+    ASSERT_TRUE(fixture.game.pazaakSession()->forfeit());
+    fixture.game.completePazaakIfReady();
     fixture.game.update(1.5f);
 
     EXPECT_EQ(5, fixture.game.party().gold());
@@ -912,8 +927,8 @@ TEST(PazaakGameLifecycle, ConfirmedForfeitClearsBeforeOneShotContinuation) {
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
-    ASSERT_TRUE(fixture.game.pazaakSession()->requestForfeit());
-    ASSERT_TRUE(fixture.game.pazaakSession()->confirmForfeit());
+    ASSERT_TRUE(fixture.game.pazaakSession()->forfeit());
+    fixture.game.completePazaakIfReady();
 
     fixture.game.update(1.5f);
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
@@ -947,11 +962,10 @@ TEST(PazaakGameLifecycle, DeletedOpponentStillRunsContinuation) {
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
-    ASSERT_TRUE(fixture.game.pazaakSession()->requestForfeit());
-    ASSERT_TRUE(fixture.game.pazaakSession()->confirmForfeit());
+    ASSERT_TRUE(fixture.game.pazaakSession()->forfeit());
     TestGameModule::removeObject(fixture.game, fixture.opponent->id());
 
-    fixture.game.update(1.5f);
+    fixture.game.completePazaakIfReady();
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
     EXPECT_EQ(1, continuationCount);
     ASSERT_TRUE(fixture.game.lastPazaakResult().has_value());
@@ -987,8 +1001,8 @@ TEST(PazaakGameLifecycle, ContinuationCanReenterWithoutCompletingOldFlowTwice) {
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
-    ASSERT_TRUE(fixture.game.pazaakSession()->requestForfeit());
-    ASSERT_TRUE(fixture.game.pazaakSession()->confirmForfeit());
+    ASSERT_TRUE(fixture.game.pazaakSession()->forfeit());
+    fixture.game.completePazaakIfReady();
 
     fixture.game.update(1.5f);
     EXPECT_EQ(1, continuationCount);
@@ -1009,6 +1023,7 @@ TEST(PazaakGameLifecycle, UpdatePacesOneOpponentEventPerInterval) {
     fixture.game.showPazaakBoard();
     ASSERT_EQ(ActionError::None, fixture.game.pazaakSession()->endPlayerTurn());
 
+    startPacedWait(fixture.game);
     fixture.game.update(0.44f);
     EXPECT_TRUE(
         fixture.game.pazaakSession()
@@ -1029,7 +1044,9 @@ TEST(PazaakGameLifecycle, UpdatePacesOneOpponentEventPerInterval) {
             .size());
     EXPECT_EQ(TurnStage::AwaitingAction, fixture.game.pazaakSession()->match()->set().turnStage());
 
-    fixture.game.update(0.44f);
+    // The next step is due an interval after the last one was due, so the
+    // 0.01 s the last update ran past it counts.
+    fixture.game.update(0.43f);
     EXPECT_EQ(TurnStage::AwaitingAction, fixture.game.pazaakSession()->match()->set().turnStage());
     fixture.game.update(0.02f);
     EXPECT_EQ(Participant::One, fixture.game.pazaakSession()->match()->set().activeParticipant());
@@ -1051,20 +1068,12 @@ TEST(PazaakGUIResources, RuntimeResourcesBindControlsAndDriveSetupToBoard) {
     EXPECT_EQ(Game::Screen::PazaakSetup, fixture.game.currentScreen());
     EXPECT_TRUE(
         loaded.controls.at("pazaaksetup").at("BTN_ATEXT")->isDisabled());
+    // The buttons keep the layout's text, here none.
     EXPECT_EQ(
-        "Choose Sidedeck",
-        loaded.controls.at("pazaaksetup").at("LBL_TITLE")->text().text);
-    EXPECT_EQ(
-        "Available cards",
-        loaded.controls.at("pazaaksetup").at("LBL_LTEXT")->text().text);
-    EXPECT_EQ(
-        "Chosen cards",
-        loaded.controls.at("pazaaksetup").at("LBL_RTEXT")->text().text);
-    EXPECT_EQ(
-        "Play",
+        "",
         loaded.controls.at("pazaaksetup").at("BTN_ATEXT")->text().text);
     EXPECT_EQ(
-        "Add card",
+        "",
         loaded.controls.at("pazaaksetup").at("BTN_YTEXT")->text().text);
     EXPECT_EQ(
         "lbl_cardmpos",
@@ -1107,6 +1116,7 @@ TEST(PazaakGUIResources, RuntimeResourcesBindControlsAndDriveSetupToBoard) {
 
     ASSERT_EQ(Game::Screen::PazaakBoard, fixture.game.currentScreen());
     ASSERT_NE(nullptr, fixture.game.pazaakSession()->match());
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
     // The mandatory main-deck draw renders as the gold/olive card, distinct from
     // a blue positive side card (lbl_cardmpos), and shows only its numeric value.
@@ -1159,10 +1169,10 @@ TEST(PazaakGUIResources, RuntimeResourcesBindControlsAndDriveSetupToBoard) {
         "lbl_pazaakturn",
         loaded.controls.at("pazaakgame").at("LBL_PLRTURN")->borderFillResRef());
     EXPECT_EQ(
-        "End Turn",
+        "",
         loaded.controls.at("pazaakgame").at("BTN_XTEXT")->text().text);
     EXPECT_EQ(
-        "Stand",
+        "",
         loaded.controls.at("pazaakgame").at("BTN_YTEXT")->text().text);
     EXPECT_FALSE(
         loaded.controls.at("pazaakgame").at("BTN_XTEXT")->isDisabled());
@@ -1221,6 +1231,7 @@ TEST(PazaakGUIResources, StandingScoreAndResolvedSetUseAuthoredAutomaticPresenta
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
 
     click(loaded, "pazaakgame", "BTN_YTEXT");
@@ -1271,7 +1282,7 @@ TEST(PazaakGUIResources, StandingScoreAndResolvedSetUseAuthoredAutomaticPresenta
         EXPECT_TRUE(loaded.controls.at("pazaakgame").at(tag)->isVisible());
     }
     EXPECT_EQ(
-        "End Turn",
+        "",
         loaded.controls.at("pazaakgame").at("BTN_XTEXT")->text().text);
     EXPECT_TRUE(
         loaded.controls.at("pazaakgame").at("BTN_XTEXT")->isDisabled());
@@ -1295,6 +1306,7 @@ TEST(PazaakGUIResources, StandingScoreAndResolvedSetUseAuthoredAutomaticPresenta
     EXPECT_EQ(
         TurnStage::AwaitingDraw,
         fixture.game.pazaakSession()->match()->set().turnStage());
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
     EXPECT_EQ(
         1,
@@ -1305,7 +1317,7 @@ TEST(PazaakGUIResources, StandingScoreAndResolvedSetUseAuthoredAutomaticPresenta
             .board()
             .size());
     EXPECT_EQ(
-        "End Turn",
+        "",
         loaded.controls.at("pazaakgame").at("BTN_XTEXT")->text().text);
 
     fixture.game.abortPazaak();
@@ -1442,6 +1454,7 @@ TEST(PazaakGUIResources, BoardCardFacesFollowProvenanceGoldMainRedMinusBluePosit
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
 
     // Mandatory main-deck card renders gold and shows only its numeric value.
@@ -1540,7 +1553,7 @@ TEST(PazaakGUIResources, ScoreMarkersResetToGreyOnAConsecutiveMatch) {
         &fixture.engine.guiModule().guis()));
 }
 
-TEST(PazaakGUIResources, NoSetOrMatchResultTextIsShownWhileMarkersStillUpdate) {
+TEST(PazaakGUIResources, TurnLabelsCarryNoResultTextWhileMarkersStillUpdate) {
     GameFixture fixture;
     TestGameModule::configurePazaak(
         fixture.game,
@@ -1581,7 +1594,8 @@ TEST(PazaakGUIResources, NoSetOrMatchResultTextIsShownWhileMarkersStillUpdate) {
                 StandCommand {Participant::Two}));
         fixture.game.showPazaakBoard();
         // The set (or, on the third win, the match) is resolved: the marker
-        // lights, but no textual "you win the set/match" message is shown.
+        // lights, and the turn labels carry no result; that is the result
+        // box's.
         noResultText();
         EXPECT_EQ(
             "lbl_winmark02",
@@ -1604,7 +1618,7 @@ TEST(PazaakGUIResources, NoSetOrMatchResultTextIsShownWhileMarkersStillUpdate) {
         &fixture.engine.guiModule().guis()));
 }
 
-TEST(PazaakGUIResources, NoResultTextOnTiedSetOrForfeitedMatch) {
+TEST(PazaakGUIResources, TurnLabelsCarryNoResultTextOnTiedSetOrForfeitedMatch) {
     // Tied set: both draw 10 and stand.
     {
         GameFixture fixture;
@@ -1644,7 +1658,7 @@ TEST(PazaakGUIResources, NoResultTextOnTiedSetOrForfeitedMatch) {
             loaded.controls.at("pazaakgame").at("LBL_NPCTURN")->text().text);
         fixture.game.abortPazaak();
     }
-    // Forfeited match: no textual result either.
+    // Forfeited match: no result on the turn labels either.
     {
         GameFixture fixture;
         configure(fixture.game);
@@ -1655,9 +1669,9 @@ TEST(PazaakGUIResources, NoResultTextOnTiedSetOrForfeitedMatch) {
         chooseTen(*fixture.game.pazaakSession());
         ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
         fixture.game.showPazaakBoard();
+        startPacedWait(fixture.game);
         fixture.game.update(0.46f);
-        ASSERT_TRUE(fixture.game.pazaakSession()->requestForfeit());
-        ASSERT_TRUE(fixture.game.pazaakSession()->confirmForfeit());
+        ASSERT_TRUE(fixture.game.pazaakSession()->forfeit());
         fixture.game.showPazaakBoard();
         EXPECT_EQ(
             "",
@@ -1710,6 +1724,7 @@ TEST(PazaakGUIResources, VerifiedAudioCuesFireOncePerModelEventAndNotOnRefresh) 
 
     // Refreshing the same projection consumes no new model event.
     fixture.game.showPazaakBoard();
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
     click(loaded, "pazaakgame", "BTN_FLIP0");
     fixture.game.showPazaakBoard();
@@ -1766,6 +1781,12 @@ TEST(PazaakGUIResources, MissingAuthoredControlFailsFlowSafely) {
     auto malformed = std::make_shared<NiceMock<gui::MockGUI>>();
     ON_CALL(*malformed, findControl(_))
         .WillByDefault(Return(std::shared_ptr<gui::Control> {}));
+    auto malformedRoot = std::make_shared<gui::Label>(
+        *malformed,
+        fixture.engine.services().scene.graphs,
+        fixture.engine.services().graphics,
+        fixture.engine.services().resource);
+    ON_CALL(*malformed, rootControl()).WillByDefault(testing::ReturnRef(*malformedRoot));
     EXPECT_CALL(fixture.engine.guiModule().guis(), get(_, _))
         .Times(3)
         .WillRepeatedly(Return(malformed));
@@ -1804,21 +1825,22 @@ TEST(PazaakGUIResources, MissingKotorOneOptionalControlsUseDevelopmentFallbacks)
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
 
     ASSERT_EQ(Game::Screen::PazaakBoard, fixture.game.currentScreen());
     ASSERT_TRUE(
         loaded.controls.at("pazaakgame").count("BTN_FLIP0"));
     click(loaded, "pazaakgame", "BTN_FLIP0");
+    // Escape asks whether to forfeit; with no box to ask in, the match is
+    // forfeited at once.
     input::Event escape = input::Event::newKeyDown(
         input::KeyEvent(true, input::KeyCode::Escape, 0, false));
     EXPECT_TRUE(fixture.game.handle(escape));
-    ASSERT_TRUE(
-        fixture.game.pazaakSession()->boardProjection().forfeitRequested);
-    EXPECT_TRUE(fixture.game.handle(escape));
-    fixture.game.update(1.5f);
 
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
+    ASSERT_TRUE(fixture.game.lastPazaakResult().has_value());
+    EXPECT_EQ(PazaakCompletedResult::PlayerForfeited, *fixture.game.lastPazaakResult());
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(
         &fixture.engine.guiModule().guis()));
 }
@@ -1880,6 +1902,7 @@ TEST(PazaakGameLifecycle, TechnicalAbortCoversEveryPresentationPhase) {
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
     ASSERT_EQ(ActionError::None, fixture.game.pazaakSession()->endPlayerTurn());
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
     fixture.game.abortPazaak();
     fixture.game.update(1.0f);
@@ -1944,15 +1967,15 @@ TEST(PazaakGameLifecycle, LastResultChangesOnlyAtSemanticCompletion) {
     GameFixture fixture;
     configure(fixture.game);
     ASSERT_TRUE(fixture.game.playPazaak(0, "", 0, false, fixture.opponent));
-    fixture.game.cancelPazaak();
+    fixture.game.abortPazaak();
     EXPECT_FALSE(fixture.game.lastPazaakResult().has_value());
 
     ASSERT_TRUE(fixture.game.playPazaak(0, "", 0, false, fixture.opponent));
     chooseTen(*fixture.game.pazaakSession());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
-    ASSERT_TRUE(fixture.game.pazaakSession()->requestForfeit());
-    ASSERT_TRUE(fixture.game.pazaakSession()->confirmForfeit());
+    ASSERT_TRUE(fixture.game.pazaakSession()->forfeit());
+    fixture.game.completePazaakIfReady();
     fixture.game.update(1.5f);
     ASSERT_TRUE(fixture.game.lastPazaakResult().has_value());
 
@@ -2074,6 +2097,7 @@ TEST(PazaakK2GUI, WidescreenVariantUsesKotorTwoArtAndPlaysAValueChangeCard) {
     ASSERT_EQ(kSideDeckSize, session.chosenCards().size());
     ASSERT_TRUE(session.confirmSetup());
     game.showPazaakBoard();
+    startPacedWait(game);
     game.update(0.46f);
 
     auto &board = loaded.controls.at("pazaakgame_p");
@@ -2127,6 +2151,7 @@ TEST(PazaakK2GUI, EveryCardFamilyUsesItsShippedResourceAndNoBareOrMojibakeText) 
     ASSERT_EQ(kSideDeckSize, session.chosenCards().size());
     ASSERT_TRUE(session.confirmSetup());
     game.showPazaakBoard();
+    startPacedWait(game);
     game.update(0.46f);
 
     auto &board = loaded.controls.at("pazaakgame_p");
@@ -2202,6 +2227,7 @@ TEST(PazaakK1GUI, CardPresentationStillUsesTheKotorOneFamilies) {
     ASSERT_EQ(kSideDeckSize, session.chosenCards().size());
     ASSERT_TRUE(fixture.game.pazaakSession()->confirmSetup());
     fixture.game.showPazaakBoard();
+    startPacedWait(fixture.game);
     fixture.game.update(0.46f);
 
     auto &board = loaded.controls.at("pazaakgame");

@@ -72,7 +72,6 @@ bool PazaakBoardProjection::operator==(const PazaakBoardProjection &other) const
            opponentStood == other.opponentStood &&
            canEndTurn == other.canEndTurn &&
            canStand == other.canStand &&
-           forfeitRequested == other.forfeitRequested &&
            state == other.state &&
            setResult == other.setResult;
 }
@@ -325,7 +324,6 @@ PazaakBoardProjection PazaakSession::boardProjection() const {
     PazaakBoardProjection projection;
     projection.playerName = _params.playerName;
     projection.opponentName = _params.opponentName;
-    projection.forfeitRequested = _forfeitRequested;
     if (!_match) {
         return projection;
     }
@@ -590,37 +588,14 @@ void PazaakSession::queueTurnStarted(Participant participant) {
         {PazaakPresentationEventType::TurnStarted, participant});
 }
 
-bool PazaakSession::requestForfeit() {
+bool PazaakSession::forfeit() {
     if (_screen != PazaakFlowScreen::Board ||
         !_match ||
         terminal() ||
-        _match->set().result() != SetResult::InProgress ||
-        _match->set().activeParticipant() != Participant::One ||
-        _match->set().turnStage() != TurnStage::AwaitingAction) {
-        return false;
-    }
-    _forfeitRequested = true;
-    return true;
-}
-
-bool PazaakSession::cancelForfeitRequest() {
-    if (!_forfeitRequested || terminal()) {
-        return false;
-    }
-    _forfeitRequested = false;
-    return true;
-}
-
-bool PazaakSession::confirmForfeit() {
-    if (!_forfeitRequested || terminal()) {
+        _match->set().result() != SetResult::InProgress) {
         return false;
     }
     _completedResult = PazaakCompletedResult::PlayerForfeited;
-    _forfeitRequested = false;
-    _resultPresentationPending = true;
-    _resultPresentationElapsed = 0.0f;
-    _presentationEvents.push_back(
-        {PazaakPresentationEventType::PlayerMatchLost, std::nullopt});
     return true;
 }
 
@@ -657,12 +632,19 @@ bool PazaakSession::advanceResultPresentation(float dt) {
     }
 
     ++_setIndex;
-    _forfeitRequested = false;
     queueTurnStarted(first);
     if (!_params.paceAutomaticDraws && first == Participant::One) {
         applyAcceptedCommand(DrawCommand {Participant::One});
     }
     return true;
+}
+
+bool PazaakSession::finishResultPresentation() {
+    if (!_resultPresentationPending) {
+        return false;
+    }
+    _resultPresentationElapsed = _params.resultPresentationDuration;
+    return advanceResultPresentation(0.0f);
 }
 
 std::vector<PazaakPresentationEvent> PazaakSession::takePresentationEvents() {
@@ -761,25 +743,27 @@ Command PazaakSession::chooseOpponentAction() const {
     return EndTurnCommand {Participant::Two};
 }
 
+bool PazaakSession::opponentStepDue() const {
+    if (_screen != PazaakFlowScreen::Board || !_match || _resultPresentationPending || terminal()) {
+        return false;
+    }
+    const SetState &set = _match->set();
+    if (set.result() != SetResult::InProgress) {
+        return false;
+    }
+    if (set.activeParticipant() == Participant::One) {
+        return set.turnStage() == TurnStage::AwaitingDraw;
+    }
+    return set.turnStage() == TurnStage::AwaitingDraw || set.turnStage() == TurnStage::AwaitingAction;
+}
+
 PazaakOpponentEvent PazaakSession::advanceOpponentEvent() {
-    if (_screen != PazaakFlowScreen::Board || !_match) {
-        return PazaakOpponentEvent::None;
-    }
-    if (_resultPresentationPending) {
-        return PazaakOpponentEvent::None;
-    }
-    if (terminal()) {
+    if (!opponentStepDue()) {
         return PazaakOpponentEvent::None;
     }
 
     const SetState &set = _match->set();
-    if (set.result() != SetResult::InProgress) {
-        return PazaakOpponentEvent::None;
-    }
     if (set.activeParticipant() == Participant::One) {
-        if (set.turnStage() != TurnStage::AwaitingDraw) {
-            return PazaakOpponentEvent::None;
-        }
         ActionError error = applyAcceptedCommand(DrawCommand {Participant::One});
         return error == ActionError::None
                    ? PazaakOpponentEvent::PlayerDraw

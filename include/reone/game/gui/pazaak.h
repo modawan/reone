@@ -24,17 +24,21 @@
 #include "reone/gui/control/label.h"
 
 #include <array>
+#include <optional>
 
 namespace reone {
 
 namespace game {
 
 const char *pazaakAudioResRef(PazaakPresentationEventType event);
+std::optional<int> pazaakResultStrRef(PazaakPresentationEventType event);
 
 class PazaakWagerGUI : public GameGUI {
 public:
     PazaakWagerGUI(Game &game, ServicesView &services);
 
+    bool handle(const input::Event &event) override;
+    void update(float dt) override;
     void refresh();
 
 private:
@@ -44,13 +48,17 @@ private:
         std::shared_ptr<gui::Button> quit;
         std::shared_ptr<gui::Button> wager;
         std::shared_ptr<gui::Label> maximum;
-        std::shared_ptr<gui::Label> title;
         std::shared_ptr<gui::Label> wagerValue;
     };
 
     Controls _controls;
+    // The arrow button the pointer is over, and the one held down.
+    std::shared_ptr<gui::Button> _hoveredStep;
+    std::shared_ptr<gui::Button> _heldStep;
+    float _stepRepeatIn {0.0f};
 
     void onGUILoaded() override;
+    void stepWager(bool more);
 };
 
 class PazaakSetupGUI : public GameGUI {
@@ -66,9 +74,6 @@ private:
         std::shared_ptr<gui::Button> cancel;
         std::shared_ptr<gui::Button> clear;
         std::shared_ptr<gui::Label> help;
-        std::shared_ptr<gui::Label> leftTitle;
-        std::shared_ptr<gui::Label> rightTitle;
-        std::shared_ptr<gui::Label> title;
         std::array<std::shared_ptr<gui::Button>, 24> availableButtons;
         std::array<std::shared_ptr<gui::Label>, 24> availableLabels;
         std::array<std::shared_ptr<gui::Label>, 24> availableCounts;
@@ -80,6 +85,7 @@ private:
     std::optional<size_t> _selectedAvailable;
 
     void onGUILoaded() override;
+    void describeCard(std::optional<size_t> collectionIndex);
 };
 
 class PazaakBoardGUI : public GameGUI {
@@ -124,6 +130,12 @@ private:
 
     void onGUILoaded() override;
     void refreshAfterCommand(pazaak::ActionError error);
+    /**
+     * Leaves a set both sides ended on nine cards, or asks whether to
+     * forfeit.
+     * @return whether it left or asked
+     */
+    bool leaveOrForfeit();
     void playPendingAudio();
     void playAudio(const std::string &resRef);
 };

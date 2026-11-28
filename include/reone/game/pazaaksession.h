@@ -108,7 +108,6 @@ struct PazaakBoardProjection {
     bool opponentStood {false};
     bool canEndTurn {false};
     bool canStand {false};
-    bool forfeitRequested {false};
     PazaakBoardState state {PazaakBoardState::PlayerTurn};
     pazaak::SetResult setResult {pazaak::SetResult::InProgress};
 
@@ -160,6 +159,8 @@ public:
 
     int wager() const { return _wager; }
     int wagerLimit() const { return _wagerLimit; }
+    /** The credits the player had when the session opened. */
+    int availableCredits() const { return _params.availableCredits; }
     void increaseWager();
     void decreaseWager();
     bool confirmWager();
@@ -183,14 +184,23 @@ public:
     pazaak::ActionError playPlayerHandCard(size_t handIndex);
     pazaak::ActionError endPlayerTurn();
     pazaak::ActionError standPlayer();
-    bool requestForfeit();
-    bool cancelForfeitRequest();
-    bool confirmForfeit();
+    /**
+     * Gives the match up at once, on either participant's turn, while a set
+     * is being played. The match ends lost, with no result to present.
+     */
+    bool forfeit();
 
     // Explicit development seam for deterministic integration tests.
     pazaak::ActionError applyOpponentCommand(const pazaak::Command &command);
+    /**
+     * Whether a paced step is due: the player's automatic draw, or the
+     * opponent's draw or action, in a set being played.
+     */
+    bool opponentStepDue() const;
     PazaakOpponentEvent advanceOpponentEvent();
     bool advanceResultPresentation(float dt);
+    /** Ends a pending result presentation now, as its full time passing would. */
+    bool finishResultPresentation();
     std::vector<PazaakPresentationEvent> takePresentationEvents();
 
     const std::optional<PazaakCompletedResult> &completedResult() const { return _completedResult; }
@@ -211,7 +221,6 @@ private:
     std::array<pazaak::CardSign, pazaak::kHandSize> _selectedSigns;
     std::array<int, pazaak::kHandSize> _selectedValues;
     size_t _setIndex {0};
-    bool _forfeitRequested {false};
     bool _resultPresentationPending {false};
     float _resultPresentationElapsed {0.0f};
     std::vector<PazaakPresentationEvent> _presentationEvents;
