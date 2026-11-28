@@ -181,6 +181,10 @@ public:
     ModelUsage usage() const { return _usage; }
     float drawDistance() const { return _drawDistance; }
 
+    /**
+     * Shows \p model in place of the current one. A look-at carries over
+     * when the new model has its bone and ends otherwise.
+     */
     void setModel(std::shared_ptr<graphics::Model> model);
     void setDrawDistance(float distance) { _drawDistance = distance; }
     void setMainTexture(std::shared_ptr<graphics::Texture> texture);
@@ -285,11 +289,13 @@ public:
 
     /**
      * Turn the named bone toward a world point, within the horizontal and
-     * vertical arcs (degrees), closing a quarter-second of the gap each frame.
-     * False when this model has no such bone. The look ends if setModel swaps
-     * in a model without the bone.
+     * vertical arcs (degrees), easing toward it over a quarter-second time
+     * constant. False when this model has no such bone. The look ends if
+     * setModel swaps in a model without the bone.
      */
     bool beginLookAt(const std::string &bone, float arcH, float arcV);
+    /** Whether a look-at runs, one returning to rest not counted. */
+    bool isLookingAt() const { return _lookAt && !_lookAt->returning; }
     /** Moves the world point a running look-at turns toward. */
     void setLookAtPoint(const glm::vec3 &point);
     /** Return the bone to rest over a quarter second. */

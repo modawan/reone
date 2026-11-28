@@ -672,12 +672,13 @@ void ModelSceneNode::endLookAt() {
 }
 
 // The bone's rotation becomes a yaw toward the point, then a pitch toward it,
-// each held within its arc; every frame the bone closes dt / 0.25 of the gap.
+// each held within its arc. The bone closes the gap over a quarter-second
+// time constant, so it turns at the same pace at any frame rate.
 void ModelSceneNode::applyLookAt(float dt) {
     if (!_lookAt) {
         return;
     }
-    // A model swapped in by setModel may not have the bone, which ends the look.
+    // A model without the bone ends the look.
     auto node = _nodeByName.find(_lookAt->bone);
     if (node == _nodeByName.end()) {
         _lookAt.reset();
@@ -711,7 +712,7 @@ void ModelSceneNode::applyLookAt(float dt) {
     const glm::quat target =
         glm::angleAxis(glm::radians(clampedYaw), glm::vec3(0.0f, 0.0f, 1.0f)) *
         glm::angleAxis(glm::radians(clampedPitch), glm::vec3(1.0f, 0.0f, 0.0f));
-    look.rotation = glm::slerp(look.rotation, target, std::min(1.0f, dt / kLookAtBlendTime));
+    look.rotation = glm::slerp(look.rotation, target, 1.0f - std::exp(-dt / kLookAtBlendTime));
     bone.setLocalTransform(glm::translate(translation) * glm::mat4_cast(look.rotation));
 }
 
@@ -1155,6 +1156,12 @@ void ModelSceneNode::setModel(std::shared_ptr<Model> model) {
 
     buildNodeTree(*_model->rootNode(), *this);
     computeAABB();
+
+    // A look carries over, turned as it was, to a model with its bone, and
+    // ends on one without.
+    if (_lookAt && _nodeByName.find(_lookAt->bone) == _nodeByName.end()) {
+        _lookAt.reset();
+    }
 }
 
 } // namespace scene
