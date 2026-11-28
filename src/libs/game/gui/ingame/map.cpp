@@ -81,7 +81,9 @@ void MapMenu::onGUILoaded() {
     }
 
     if (_game.isTSL()) {
-        // TSL's map offers no return.
+        // TSL's map offers no return, so its layout's Return button stays
+        // out of sight and out of the keyboard's way.
+        _controls.BTN_RETURN->setVisible(false);
         _controls.BTN_RETURN->setDisabled(true);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         useK2ShellTitle(_controls.LBL_TITLE);

@@ -4013,8 +4013,16 @@ void Game::startCreditSequence(bool transparentBackground, const std::string &mu
     if (_credits) {
         return;
     }
-    _credits = std::make_unique<CreditsGUI>(*this, _services, transparentBackground, music);
-    _credits->init();
+    // Credits that cannot be loaded are not shown, so nothing is left up to
+    // take the input.
+    auto credits = std::make_unique<CreditsGUI>(*this, _services, transparentBackground, music);
+    try {
+        credits->init();
+    } catch (const std::exception &e) {
+        error("Game: unable to load the credits: " + std::string(e.what()));
+        return;
+    }
+    _credits = std::move(credits);
     _areaMusic.fadeOutSounds();
 }
 

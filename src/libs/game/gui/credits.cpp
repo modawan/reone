@@ -64,7 +64,7 @@ CreditsGUI::CreditsGUI(Game &game, ServicesView &services, bool transparentBackg
     GameGUI(game, services),
     _transparentBackground(transparentBackground),
     _musicResRef(std::move(music)) {
-    _resRef = "credits";
+    _resRef = guiResRef("credits");
 }
 
 CreditsGUI::~CreditsGUI() {
