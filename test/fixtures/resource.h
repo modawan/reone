@@ -90,10 +90,7 @@ public:
 
     MOCK_METHOD(Resource, get, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, find, (const ResourceId &id), (override));
-    MOCK_METHOD(std::optional<Resource>, findExcludingOwners,
-                (const ResourceId &id,
-                 const std::set<ResourceOwner> &excludedOwners),
-                (override));
+    MOCK_METHOD(std::unique_ptr<IResources>, detached, (const std::set<ResourceOwner> &excludedOwners), (const, override));
     MOCK_METHOD(std::optional<ResourceSourceRef>, locate, (const ResourceId &id), (const, override));
     MOCK_METHOD(std::vector<ResourceSourceRef>, explain, (const ResourceId &id), (const, override));
     MOCK_METHOD(std::uint64_t, generation, (), (const, override));

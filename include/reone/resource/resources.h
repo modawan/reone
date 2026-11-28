@@ -32,7 +32,8 @@ namespace reone {
 namespace resource {
 
 struct ResourceContainerPair {
-    std::unique_ptr<IResourceContainer> provider;
+    /// Shared with every detached list the source was copied into.
+    std::shared_ptr<IResourceContainer> provider;
     ResourceOwner owner;
     std::optional<ResourceSourceBucket> bucket;
     ResourceSourceForm form;
@@ -133,9 +134,13 @@ public:
      * precedence (including loose overrides), while the outgoing module's
      * generic resource names cannot satisfy the lookup accidentally.
      */
-    virtual std::optional<Resource> findExcludingOwners(
-        const ResourceId &id,
-        const std::set<ResourceOwner> &excludedOwners) = 0;
+    /**
+     * A list of its own holding the sources of every owner but the excluded
+     * ones, open as they are here. Mounting into it, or retiring from it,
+     * leaves this list as it is: a module is prepared in one while the
+     * module being left stays mounted here.
+     */
+    virtual std::unique_ptr<IResources> detached(const std::set<ResourceOwner> &excludedOwners) const = 0;
 };
 
 class Resources : public IResources, boost::noncopyable {
@@ -185,9 +190,7 @@ public:
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
-    std::optional<Resource> findExcludingOwners(
-        const ResourceId &id,
-        const std::set<ResourceOwner> &excludedOwners) override;
+    std::unique_ptr<IResources> detached(const std::set<ResourceOwner> &excludedOwners) const override;
     std::optional<ResourceSourceRef> locate(const ResourceId &id) const override;
     std::vector<ResourceSourceRef> explain(const ResourceId &id) const override;
     std::uint64_t generation() const override { return _containers.generation(); }
