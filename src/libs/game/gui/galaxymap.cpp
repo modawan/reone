@@ -19,6 +19,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/party.h"
 #include "reone/game/script/runner.h"
 #include "reone/gui/control/button.h"
@@ -180,6 +181,7 @@ void GalaxyMap::prepare(int initialPlanet) {
     } else {
         _game.party().galaxyMap().trySelectPlanet(initialPlanet);
     }
+    selectFirstOpenPlanetIfNone();
     for (auto &[row, control] : _planetControls) {
         control->setVisible(_game.party().galaxyMap().available(row));
         control->setDisabled(!isSelectableOnMap(row));
@@ -287,17 +289,33 @@ void GalaxyMap::applyOpeningSelection(int initialPlanet) {
     galaxyMap.trySelectPlanet(initialPlanet);
 }
 
+// With nothing chosen, the map opens on the first planet on it that travel
+// is open to, so Accept and the arrow keys have somewhere to start.
+void GalaxyMap::selectFirstOpenPlanetIfNone() {
+    auto &galaxyMap = _game.party().galaxyMap();
+    if (galaxyMap.selectedPlanet() >= 0) {
+        return;
+    }
+    for (int row = 0; row < galaxyMap.rowCount(); ++row) {
+        if (galaxyMap.available(row) && galaxyMap.selectable(row) && galaxyMap.trySelectPlanet(row)) {
+            return;
+        }
+    }
+}
+
 int GalaxyMap::adjacentDestination(int from, int step) const {
     const auto &galaxyMap = _game.party().galaxyMap();
     int rowCount = galaxyMap.rowCount();
-    if (rowCount <= 0) {
+    // With nothing chosen there is nowhere to step from.
+    if (rowCount <= 0 || from < 0) {
         return from;
     }
-    // Every planet on the map is a stop, including the ones travel is locked
-    // out of, and the walk wraps around the ends.
+    // The stops are the planets that can be picked on the map: on K2 every
+    // planet on it, the ones travel is locked out of included; on K1 only
+    // those travel is open to. The walk wraps around the ends.
     for (int offset = 1; offset <= rowCount; ++offset) {
         int row = ((from + step * offset) % rowCount + rowCount) % rowCount;
-        if (galaxyMap.available(row)) {
+        if (isSelectableOnMap(row)) {
             return row;
         }
     }
@@ -435,11 +453,37 @@ bool GalaxyMap::handle(const input::Event &event) {
         _popup->handle(event);
         return true;
     }
-    if (event.type == input::EventType::KeyDown &&
-        !event.key.repeat &&
-        event.key.code == input::KeyCode::Escape) {
-        close();
-        return true;
+    if (event.type == input::EventType::KeyDown) {
+        switch (event.key.code) {
+        case input::KeyCode::Escape:
+            if (!event.key.repeat) {
+                _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
+                close();
+            }
+            return true;
+        // The arrows step through the planets, Left and Up back and Right and
+        // Down on, each step sounding.
+        case input::KeyCode::Left:
+        case input::KeyCode::Up:
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
+            selectPreviousDestination();
+            return true;
+        case input::KeyCode::Right:
+        case input::KeyCode::Down:
+            _services.game.guiSounds.play(_services.game.guiSounds.getOnEnter());
+            selectNextDestination();
+            return true;
+        // Return accepts the planet chosen, as Accept does.
+        case input::KeyCode::Return:
+        case input::KeyCode::KeypadEnter:
+            if (!event.key.repeat) {
+                _services.game.guiSounds.play(_services.game.guiSounds.getOnClick());
+                accept();
+            }
+            return true;
+        default:
+            break;
+        }
     }
     return GameGUI::handle(event);
 }
