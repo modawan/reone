@@ -379,9 +379,11 @@ void Area::loadMap(const resource::Gff &are) {
 void Area::updateMapData() {
     // The whole party reveals the map it walks through, not just its leader.
     auto &party = _game.party();
+    // A place in the party can name no one for a while, and reveals nothing.
     for (int index = 0; index < party.getSize(); ++index) {
-        _mapState.setExplored(
-            glm::vec2(party.getMember(index)->position()), AreaMapState::kPartyRevealRadius);
+        if (auto member = party.getMember(index)) {
+            _mapState.setExplored(glm::vec2(member->position()), AreaMapState::kPartyRevealRadius);
+        }
     }
 }
 

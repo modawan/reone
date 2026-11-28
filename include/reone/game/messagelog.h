@@ -73,6 +73,11 @@ public:
     void add(uint32_t type, Style style, std::string text, Buffer buffer = Buffer::Messages);
     /** A conversation line goes to the dialog list; one without text is not kept. */
     void addDialog(std::string speaker, std::string text);
+    /** Empties every list, as a session that ends leaves them. */
+    void clear() {
+        _entries.clear();
+        _dialogEntries.clear();
+    }
 
     /** TSL enables the combat list; with it disabled, its lines go to the message list. */
     void setCombatBufferEnabled(bool enabled) { _combatBufferEnabled = enabled; }

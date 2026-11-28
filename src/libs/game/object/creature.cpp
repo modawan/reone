@@ -1460,7 +1460,9 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
     restoreSerializedVitality();
     deserializeHeldCounts(*utc);
+    const auto pools = loadedPools();
     deserializeOwnedItemsAndEquipment(*utc, SerializedIdentityContext::templateResource(resRef), false);
+    followWornMaxima(pools);
     countLoadedItems(false);
     updateTransform();
     loadAppearance();
@@ -3961,20 +3963,49 @@ void Creature::restoreSerializedVitality() {
         Object::setCurrentHitPoints(savedHitPoints + maxHitPoints() - _hitPoints);
         _currentForce = savedForce + maxForcePoints() - _forcePoints;
     } else {
-        // Other creatures take back only the ability terms.
+        // Other creatures take back the ability terms, and with them what
+        // else their maximum counts: a feat's vitality, a bonus to the Force
+        // pool. The record leaves out the whole maximum, so a pool rebuilt
+        // from the ability terms alone would come back short by the rest on
+        // every load.
         const int level = _attributes.getAggregateLevel();
-        Object::setCurrentHitPoints(rebuildSavedPool(
-            savedHitPoints, _hitPoints, _vitalityConstitutionModifier, level));
+        const auto beyondAbilityTerms = [level](int maximum, int base, int modifier) {
+            return level > 0 ? maximum - std::max(level, base + modifier * level) : 0;
+        };
+        Object::setCurrentHitPoints(
+            rebuildSavedPool(savedHitPoints, _hitPoints, _vitalityConstitutionModifier, level) +
+            beyondAbilityTerms(maxHitPoints(), _hitPoints, _vitalityConstitutionModifier));
+        // A creature without a Force pool has no maximum to count from, and
+        // takes back no ability term either: its record holds its points as
+        // they are, so adding the term would grow them on every load. The
+        // game's own saves show that growth (a level 1 droid at 9, a medic
+        // droid at 240); it is left out here.
+        const int maximumForce = maxForcePoints();
         int forceModifier = 0;
-        if (level > 0) {
+        if (level > 0 && maximumForce > 0) {
             forceModifier = getEffectiveAbilityModifier(Ability::Wisdom);
             if (!_game.isTSL()) {
                 forceModifier += getEffectiveAbilityModifier(Ability::Charisma);
             }
         }
-        _currentForce = rebuildSavedPool(savedForce, _forcePoints, forceModifier, level);
+        _currentForce = rebuildSavedPool(savedForce, _forcePoints, forceModifier, level) +
+                        (maximumForce > 0 ? beyondAbilityTerms(maximumForce, _forcePoints, forceModifier) : 0);
     }
     updateDeathFromCurrentHitPoints();
+}
+
+Creature::LoadedPools Creature::loadedPools() const {
+    return {currentHitPointsWithoutTemporary(), maxHitPoints(), _currentForce, maxForcePoints()};
+}
+
+void Creature::followWornMaxima(const LoadedPools &before) {
+    Object::setCurrentHitPoints(before.hitPoints + maxHitPoints() - before.maxHitPoints);
+    _currentForce = before.force + maxForcePoints() - before.maxForce;
+    updateDeathFromCurrentHitPoints();
+    // A feat an item grants counts only once the item is bound to its effect,
+    // and a saved effect is back only once the creature's state is published:
+    // the pools follow again then.
+    _poolsAwaitingEffects = loadedPools();
 }
 
 int Creature::serializedCurrentHitPoints() const {
@@ -3982,7 +4013,16 @@ int Creature::serializedCurrentHitPoints() const {
 }
 
 int Creature::serializedCurrentForce() const {
-    return _currentForce - maxForcePoints() + _forcePoints;
+    // A creature other than the player without a Force pool has no maximum
+    // to leave out, and a load reads its points as they are: they are
+    // written as they are. Leaving out a maximum of none would add its
+    // base on at every save (the game's own saves hold Bao-Dur, base 48,
+    // at 4664).
+    const int maximum = maxForcePoints();
+    if (!_isPC && maximum == 0) {
+        return _currentForce;
+    }
+    return _currentForce - maximum + _forcePoints;
 }
 
 void Creature::recalculatePermanentVitality() {
@@ -5613,8 +5653,16 @@ Creature::ScriptAnimation Creature::getScriptAnimation(int id) const {
 
 // A loop plays at once; a one-shot waits in the fire-and-forget queue.
 std::optional<int> Creature::heldScriptLoop() const {
-    const int id = _animationSource.id;
-    if (id < 0 || id == kPauseAnimationId || _animationSource.dialog ||
+    // A loop the creature's state shows - an effect's sleep, the stance of a
+    // fight - follows that state and comes back with it; only a loop asked
+    // for is held. It is held from the moment it is asked for: while the clip
+    // leading into it plays, the clip shown is not yet it.
+    if (!_storedLoop || _storedLoop->stateDriven) {
+        return std::nullopt;
+    }
+    const AnimationSource &source = _storedLoop->source;
+    const int id = source.id;
+    if (id < 0 || id == kPauseAnimationId || source.dialog ||
         _movementType != MovementType::None) {
         return std::nullopt;
     }
@@ -11739,12 +11787,14 @@ void Creature::deserializeRecord(
     // Vitality is rebuilt from the record before equipment is worn, so worn
     // Constitution, Wisdom and Charisma move the rebuilt pools.
     restoreSerializedVitality();
+    const auto pools = loadedPools();
     if (utc) {
         deserializeOwnedItemsAndEquipment(
             *utc, SerializedIdentityContext::templateResource(templateRes), true);
     } else {
         deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     }
+    followWornMaxima(pools);
     countLoadedItems(partyMember);
     // A reloaded corpse lies, without dying again, in the dead pose it was
     // saved in; one saved in no dead pose lies in the second.
@@ -13420,6 +13470,16 @@ void Creature::recomputeAIStateEffects(int pendingMask, uint64_t removingOrder) 
 // armour class and disguise effects of a worn item follow the saved effects,
 // so they are added once those are back.
 void Creature::onEffectsRestored() {
+    // Runs last: the pools take up what the effects now back raised their maxima by.
+    struct FollowPools {
+        Creature &creature;
+        ~FollowPools() {
+            if (auto pools = std::exchange(creature._poolsAwaitingEffects, std::nullopt)) {
+                creature.followWornMaxima(*pools);
+                creature._poolsAwaitingEffects.reset();
+            }
+        }
+    } followPools {*this};
     std::set<const Item *> visited;
     for (const auto &[slot, item] : _equipment) {
         if (!item || !visited.insert(item.get()).second) {
